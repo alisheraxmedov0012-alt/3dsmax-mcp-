@@ -1,6 +1,9 @@
 import { useMemo, useState } from 'react';
 import { ControlsPanel } from './components/ControlsPanel';
+import { ExportControls, type ExportStatus } from './components/ExportControls';
 import { ViewerCanvas } from './components/ViewerCanvas';
+import { downloadArrayBuffer } from './export/downloadFile';
+import { exportTableToGlb, TABLE_EXPORT_FILENAME } from './export/tableExport';
 import {
   DEFAULT_FIELD_VALUES,
   parseTableValues,
@@ -10,6 +13,9 @@ import './App.css';
 
 export default function App() {
   const [values, setValues] = useState<TableFieldValues>(DEFAULT_FIELD_VALUES);
+  const [resetToken, setResetToken] = useState(0);
+  const [exportStatus, setExportStatus] = useState<ExportStatus>('idle');
+  const [exportMessage, setExportMessage] = useState('');
 
   const parsed = useMemo(() => parseTableValues(values), [values]);
 
@@ -21,6 +27,30 @@ export default function App() {
     setValues(DEFAULT_FIELD_VALUES);
   };
 
+  const handleResetView = () => {
+    setResetToken((token) => token + 1);
+  };
+
+  const handleExport = async () => {
+    if (!parsed.params || exportStatus === 'exporting') {
+      return;
+    }
+
+    setExportStatus('exporting');
+    setExportMessage('Eksport qilinmoqda…');
+
+    try {
+      const data = await exportTableToGlb(parsed.params);
+      downloadArrayBuffer(data, TABLE_EXPORT_FILENAME);
+      setExportStatus('success');
+      setExportMessage('Model .glb fayl sifatida yuklab olindi.');
+    } catch (error) {
+      setExportStatus('error');
+      setExportMessage("Eksport amalga oshmadi. Iltimos, qaytadan urinib ko'ring.");
+      console.error('GLB eksport xatosi:', error);
+    }
+  };
+
   return (
     <div className="app">
       <ControlsPanel
@@ -28,10 +58,23 @@ export default function App() {
         errors={parsed.errors}
         onChange={handleChange}
         onReset={handleReset}
-      />
+      >
+        <ExportControls
+          status={exportStatus}
+          message={exportMessage}
+          disabled={!parsed.valid}
+          onExport={handleExport}
+        />
+      </ControlsPanel>
 
       <main className="stage">
-        <ViewerCanvas params={parsed.params} />
+        <ViewerCanvas params={parsed.params} resetToken={resetToken} />
+
+        <div className="stage__toolbar">
+          <button type="button" className="stage__button" onClick={handleResetView}>
+            Ko'rinishni tiklash
+          </button>
+        </div>
 
         {parsed.valid && parsed.params ? (
           <div className="readout">

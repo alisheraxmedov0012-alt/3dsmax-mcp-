@@ -4,9 +4,10 @@ import { TableViewer } from '../viewer/TableViewer';
 
 interface ViewerCanvasProps {
   params: TableParams | null;
+  resetToken: number;
 }
 
-export function ViewerCanvas({ params }: ViewerCanvasProps) {
+export function ViewerCanvas({ params, resetToken }: ViewerCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<TableViewer | null>(null);
 
@@ -30,6 +31,12 @@ export function ViewerCanvas({ params }: ViewerCanvasProps) {
       viewerRef.current.setParams(params);
     }
   }, [params]);
+
+  useEffect(() => {
+    if (resetToken > 0) {
+      viewerRef.current?.resetView();
+    }
+  }, [resetToken]);
 
   return <div className="viewer" ref={containerRef} />;
 }
