@@ -62,6 +62,15 @@ export const DEFAULT_FIELD_VALUES: TableFieldValues = {
   color: TABLE_DEFAULTS.color,
 };
 
+export function paramsToFieldValues(params: TableParams): TableFieldValues {
+  return {
+    widthCm: String(params.widthCm),
+    heightCm: String(params.heightCm),
+    depthCm: String(params.depthCm),
+    color: params.color,
+  };
+}
+
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
 type DimensionResult = { ok: true; value: number } | { ok: false; error: string };

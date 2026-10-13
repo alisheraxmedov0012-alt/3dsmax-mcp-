@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_FIELD_VALUES,
+  paramsToFieldValues,
   parseTableValues,
   TABLE_DEFAULTS,
   TABLE_LIMITS,
@@ -78,5 +79,21 @@ describe('parseTableValues', () => {
     expect(Object.keys(result.errors).sort()).toEqual(
       ['color', 'depthCm', 'heightCm', 'widthCm'].sort(),
     );
+  });
+});
+
+describe('paramsToFieldValues', () => {
+  it('converts numeric params into string field values', () => {
+    expect(
+      paramsToFieldValues({ widthCm: 180, heightCm: 75, depthCm: 60, color: '#8b5a2b' }),
+    ).toEqual({ widthCm: '180', heightCm: '75', depthCm: '60', color: '#8b5a2b' });
+  });
+
+  it('round-trips with parseTableValues', () => {
+    const params = { widthCm: 150, heightCm: 90, depthCm: 65, color: '#c0392b' };
+    const result = parseTableValues(paramsToFieldValues(params));
+
+    expect(result.valid).toBe(true);
+    expect(result.params).toEqual(params);
   });
 });

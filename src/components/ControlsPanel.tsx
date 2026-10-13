@@ -36,7 +36,7 @@ export function ControlsPanel({ values, errors, onChange, onReset, children }: C
     <aside className="panel">
       <header className="panel__header">
         <h1 className="panel__title">3D Studio AI</h1>
-        <p className="panel__subtitle">2-bosqich — o'zaro ta'sir va eksport</p>
+        <p className="panel__subtitle">3-bosqich — AI orqali yaratish</p>
       </header>
 
       {DIMENSION_FIELDS.map(({ key, label }) => {

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { AiPromptPanel } from './components/AiPromptPanel';
 import { ControlsPanel } from './components/ControlsPanel';
 import { ExportControls, type ExportStatus } from './components/ExportControls';
 import { ViewerCanvas } from './components/ViewerCanvas';
@@ -6,8 +7,10 @@ import { downloadArrayBuffer } from './export/downloadFile';
 import { exportTableToGlb, TABLE_EXPORT_FILENAME } from './export/tableExport';
 import {
   DEFAULT_FIELD_VALUES,
+  paramsToFieldValues,
   parseTableValues,
   type TableFieldValues,
+  type TableParams,
 } from './geometry/tableParams';
 import './App.css';
 
@@ -29,6 +32,10 @@ export default function App() {
 
   const handleResetView = () => {
     setResetToken((token) => token + 1);
+  };
+
+  const handleApplyProposal = (params: TableParams) => {
+    setValues(paramsToFieldValues(params));
   };
 
   const handleExport = async () => {
@@ -59,6 +66,7 @@ export default function App() {
         onChange={handleChange}
         onReset={handleReset}
       >
+        <AiPromptPanel onApply={handleApplyProposal} />
         <ExportControls
           status={exportStatus}
           message={exportMessage}

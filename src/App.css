@@ -204,6 +204,81 @@ input[type='color'] {
   border: 1px solid #e05555;
 }
 
+/* ---------------- AI prompt ---------------- */
+
+.ai {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid #2a2f36;
+}
+
+.ai__title {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.ai__input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  color: #e8edf2;
+  background: #12161a;
+  border: 1px solid #2f353c;
+  border-radius: 8px;
+  resize: vertical;
+}
+
+.ai__button {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #0b1620;
+  background: #7ad0a3;
+  border: 1px solid #7ad0a3;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.ai__button:hover:not(:disabled) {
+  background: #92dcb4;
+}
+
+.ai__button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ai__message {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #9dd8b8;
+}
+
+.ai__message--error {
+  color: #ff8a8a;
+}
+
+.ai__details {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: #9aa6b2;
+}
+
+.ai__hint {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: #7f8b98;
+}
+
 /* ---------------- Export ---------------- */
 
 .export {
