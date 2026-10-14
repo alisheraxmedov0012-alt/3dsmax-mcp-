@@ -69,4 +69,51 @@ describe('api client', () => {
     const error = new ApiRequestError('forbidden', "Ruxsat yo'q.", 403);
     expect(describeError(error)).toBe("Ruxsat yo'q.");
   });
+
+  it('calls the W10 jobs endpoint with the CSRF header', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ id: 'j1', kind: 'noop', status: 'succeeded' }, 202),
+    );
+
+    await api.createJob('noop', 'key-1', 'csrf-token-value');
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('/api/jobs');
+    expect(init.method).toBe('POST');
+    expect(init.headers['X-CSRF-Token']).toBe('csrf-token-value');
+    expect(JSON.parse(init.body)).toEqual({
+      kind: 'noop',
+      idempotency_key: 'key-1',
+      payload: {},
+    });
+  });
+
+  it('reads the public storage status without a CSRF header', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ backend: 'memory', available: true, persistent: false, message: 'x' }),
+    );
+
+    const status = await api.storageStatus();
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('/api/files/status');
+    expect(init.method).toBe('GET');
+    expect(init.headers['X-CSRF-Token']).toBeUndefined();
+    expect(status.persistent).toBe(false);
+  });
+
+  it('lists server projects and sends the version on updates', async () => {
+    fetchMock.mockResolvedValue(jsonResponse([]));
+    await api.serverProjects();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain('/api/projects');
+    expect(init.method).toBe('GET');
+
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'p1', version: 2 }));
+    await api.updateServerProject('p1', { scene: {}, expected_version: 1 }, 'csrf');
+    const [, patchInit] = fetchMock.mock.calls[1];
+    expect(patchInit.method).toBe('PATCH');
+    expect(patchInit.headers['X-CSRF-Token']).toBe('csrf');
+    expect(JSON.parse(patchInit.body)).toEqual({ scene: {}, expected_version: 1 });
+  });
 });

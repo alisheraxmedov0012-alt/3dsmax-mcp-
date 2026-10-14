@@ -158,17 +158,65 @@ class BillingEvent(Base):
 
 
 class Project(Base, TimestampMixin):
-    """Server-side project record (used by the local-project import flow)."""
+    """Server-side project record (server CRUD + local-project import)."""
 
     __tablename__ = "projects"
     __table_args__ = (UniqueConstraint("user_id", "client_id", name="uq_user_client_project"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    # Original local project id, used to make imports idempotent.
+    # Original local project id (import) or a generated id (server create); used
+    # to make imports idempotent.
     client_id: Mapped[str] = mapped_column(String(120), nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     scene: Mapped[dict] = mapped_column(JSON, nullable=False)
+    # W10: optimistic-concurrency version and the scene schema version it stores.
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+
+class Job(Base, TimestampMixin):
+    """A long-running task (AI generation, exports, ...).
+
+    ``idempotency_key`` is unique per user so a retried request cannot enqueue the
+    same job twice. ``payload``/``result`` hold bounded, non-secret JSON.
+    """
+
+    __tablename__ = "jobs"
+    __table_args__ = (UniqueConstraint("user_id", "idempotency_key", name="uq_user_job_key"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
+    idempotency_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Safe, human-readable failure reason (never a stack trace or secret).
+    error: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    timeout_seconds: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class StoredFile(Base, TimestampMixin):
+    """Metadata for a stored artifact. Bytes live behind the storage adapter."""
+
+    __tablename__ = "stored_files"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    filename: Mapped[str] = mapped_column(String(120), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    format: Mapped[str] = mapped_column(String(20), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Adapter-side key (never a user-supplied path).
+    storage_key: Mapped[str] = mapped_column(String(200), nullable=False)
 
 
 class UsageCounter(Base, TimestampMixin):
@@ -186,11 +234,13 @@ class UsageCounter(Base, TimestampMixin):
 __all__ = [
     "BillingEvent",
     "Invoice",
+    "Job",
     "OneTimeToken",
     "PaymentAttempt",
     "Plan",
     "Project",
     "Session",
+    "StoredFile",
     "Subscription",
     "UsageCounter",
     "User",

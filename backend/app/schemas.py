@@ -169,3 +169,79 @@ class AdminUserResponse(BaseModel):
     role: str
     is_active: bool
     is_email_verified: bool
+
+
+# ---------------------------------------------------------------------------
+# W10 — server-side projects
+# ---------------------------------------------------------------------------
+
+
+class ProjectCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    # A bare scene dict or a W8 container; validated server-side.
+    scene: dict[str, Any]
+
+
+class ProjectUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, max_length=120)
+    scene: dict[str, Any] | None = None
+    # Optimistic concurrency: when provided it must match the stored version.
+    expected_version: int | None = Field(default=None, ge=1)
+
+
+class ProjectResponse(BaseModel):
+    id: str
+    client_id: str
+    name: str
+    version: int
+    schema_version: int
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    scene: dict[str, Any] | None = None
+
+
+# ---------------------------------------------------------------------------
+# W10 — job queue
+# ---------------------------------------------------------------------------
+
+
+class JobCreateRequest(BaseModel):
+    kind: str = Field(min_length=1, max_length=40)
+    # Client-supplied idempotency key; a repeat returns the same job.
+    idempotency_key: str = Field(min_length=1, max_length=120)
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class JobResponse(BaseModel):
+    id: str
+    kind: str
+    status: str
+    attempts: int
+    max_attempts: int
+    result: dict[str, Any] | None = None
+    error: str | None = None
+    created_at: datetime | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
+# ---------------------------------------------------------------------------
+# W10 — cloud storage
+# ---------------------------------------------------------------------------
+
+
+class StoredFileResponse(BaseModel):
+    id: str
+    filename: str
+    content_type: str
+    format: str
+    size_bytes: int
+    project_id: str | None = None
+    created_at: datetime | None = None
+
+
+class StorageStatusResponse(BaseModel):
+    backend: str
+    available: bool
+    persistent: bool
+    message: str
