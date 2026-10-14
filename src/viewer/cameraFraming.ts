@@ -1,5 +1,6 @@
 import type { TableParams } from '../geometry/tableParams';
 import type { RoomConfig } from '../scene/types';
+import type { CameraPreset } from '../scene/sceneSettings';
 
 export interface FramingVector {
   x: number;
@@ -56,4 +57,28 @@ export function computeRoomFraming(room: RoomConfig): TableFraming {
       z: 0,
     },
   };
+}
+
+/**
+ * Computes the camera framing for a named preset (Stage 6). All presets keep
+ * the orbit target inside the room, so switching view never changes object
+ * coordinates — only the camera moves. Pure math (no Three.js), so it is
+ * testable without a WebGL context.
+ */
+export function computePresetFraming(room: RoomConfig, preset: CameraPreset): TableFraming {
+  const span = Math.max(room.widthCm, room.lengthCm, room.heightCm);
+  const target = { x: 0, y: room.heightCm / 2, z: 0 };
+
+  switch (preset) {
+    case 'front':
+      return { position: { x: 0, y: room.heightCm * 0.55, z: span * 1.6 }, target };
+    case 'side':
+      return { position: { x: span * 1.6, y: room.heightCm * 0.55, z: 0 }, target };
+    case 'top':
+      // Slight Z offset avoids a degenerate up-vector at the pole.
+      return { position: { x: 0, y: span * 1.8, z: 0.01 }, target: { x: 0, y: 0, z: 0 } };
+    case 'iso':
+    default:
+      return computeRoomFraming(room);
+  }
 }

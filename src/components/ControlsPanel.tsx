@@ -44,7 +44,7 @@ export function ControlsPanel({
     <aside className="panel">
       <header className="panel__header">
         <h1 className="panel__title">3D Studio AI</h1>
-        <p className="panel__subtitle">5-bosqich — arxitektura va interyer</p>
+        <p className="panel__subtitle">6-bosqich — mahsulot vizualizatsiyasi</p>
       </header>
 
       {tableSelected ? (

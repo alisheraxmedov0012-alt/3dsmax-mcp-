@@ -4,7 +4,10 @@ import {
   TABLE_DEFAULTS,
   type TableParams,
 } from '../geometry/tableParams';
+import { validateSceneSettings } from './sceneSettings';
 import {
+  MATERIAL_DEFAULTS,
+  MATERIAL_LIMITS,
   OBJECT_LIMITS,
   OBJECT_NAME_MAX_LENGTH,
   ROOM_DEFAULTS,
@@ -12,6 +15,7 @@ import {
   SCENE_SCHEMA_VERSION,
   TABLE_OBJECT_DEFAULT_NAME,
   createTableSceneObject,
+  type ObjectMaterial,
   type RoomConfig,
   type SceneData,
   type SceneObject,
@@ -53,6 +57,21 @@ function normalizeName(value: unknown, fallback: string): string {
   }
   const trimmed = value.trim();
   return trimmed === '' ? fallback : trimmed.slice(0, OBJECT_NAME_MAX_LENGTH);
+}
+
+/** Clamps a material value into 0–1, falling back when non-finite. */
+function normalizeMaterial(value: unknown): ObjectMaterial {
+  const record = isRecord(value) ? value : {};
+  const clampUnit = (raw: unknown, fallback: number): number => {
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+      return fallback;
+    }
+    return Math.min(Math.max(raw, MATERIAL_LIMITS.metalness.min), MATERIAL_LIMITS.metalness.max);
+  };
+  return {
+    metalness: clampUnit(record.metalness, MATERIAL_DEFAULTS.metalness),
+    roughness: clampUnit(record.roughness, MATERIAL_DEFAULTS.roughness),
+  };
 }
 
 /**
@@ -120,6 +139,7 @@ export function validateSceneObject(value: unknown): SceneObject | null {
     scale: normalizeVec3(value.scale, OBJECT_LIMITS.scale.min, OBJECT_LIMITS.scale.max),
     visible: typeof value.visible === 'boolean' ? value.visible : true,
     params: params.params,
+    material: normalizeMaterial(value.material),
   };
 }
 
@@ -155,6 +175,7 @@ export function validateSceneData(value: unknown): SceneValidationResult {
       schemaVersion: SCENE_SCHEMA_VERSION,
       room,
       objects,
+      settings: validateSceneSettings(value.settings),
     },
     droppedObjects,
   };
@@ -162,7 +183,8 @@ export function validateSceneData(value: unknown): SceneValidationResult {
 
 /**
  * Backward-compatible migration: turns a Stage 1–4 table-only project into a
- * scene (default room + one table). Never discards the saved parameters.
+ * scene (default room + one table + default visualization settings). Never
+ * discards the saved parameters.
  */
 export function migrateLegacyParamsToScene(params: TableParams): SceneData {
   const validated = parseTableValues(paramsToFieldValues(params)).params ?? { ...TABLE_DEFAULTS };
@@ -170,5 +192,6 @@ export function migrateLegacyParamsToScene(params: TableParams): SceneData {
     schemaVersion: SCENE_SCHEMA_VERSION,
     room: { ...ROOM_DEFAULTS },
     objects: [createTableSceneObject('legacy-table', { params: validated })],
+    settings: validateSceneSettings(undefined),
   };
 }

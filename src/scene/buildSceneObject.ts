@@ -36,7 +36,7 @@ export function buildSceneObject(object: SceneObject): BuiltSceneObject {
     throw new Error(`Qo'llab-quvvatlanmaydigan obyekt turi: ${object.type}`);
   }
 
-  const built = buildTable(object.params);
+  const built = buildTable(object.params, object.material);
   built.group.name = `object:${object.id}`;
   built.group.userData.sceneObjectId = object.id;
 

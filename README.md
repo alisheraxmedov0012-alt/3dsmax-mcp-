@@ -4,7 +4,8 @@
 3D modellarini matn yoki rasm orqali yaratish, brauzerda ko'rish, o'lchamlarini
 o'zgartirish va eksport qilish uchun veb-platforma.
 
-Hozirgi holat: **5-bosqich** — arxitektura, interyer joylashtirish va katta sahnalar boshqaruvi.
+Hozirgi holat: **6-bosqich** — mahsulot va reklama vizualizatsiyasi (staging, yorug'lik,
+material, PNG/GLB eksport).
 
 ## 1-bosqich MVP imkoniyatlari
 
@@ -99,14 +100,47 @@ o'giriladi; `scale` — o'qlar bo'yicha koeffitsient.
   boshqaruvlar va slayderlar orqali (barqarorroq va sensorli ekranda ishonchli).
 - Yangi mebel turkumlari qo'shilmagan — faqat mavjud stol joylashtiriladi.
 
+## 6-bosqich imkoniyatlari (mahsulot va reklama vizualizatsiyasi)
+
+- **Sahna va fon**: fon rangini sozlash (tayyor ranglar + erkin tanlagich) — xona
+  pol/devor materiallaridan alohida, xona geometriyasi buzilmaydi.
+- **Kamera rakurslari**: **Izometrik, Old, Yon, Yuqoridan** presetlariga tez o'tish +
+  "Ko'rinishni tiklash". Preset almashganda obyekt koordinatalari o'zgarmaydi; orbit,
+  pan va zoom saqlanadi.
+- **Yorug'lik**: umumiy (ambient), asosiy (key) va to'ldiruvchi (fill) intensivlik va
+  rang; key/fill yoqish-o'chirish; soyalarni yoqish-o'chirish; "Yorug'likni tiklash".
+  Qiymatlar 0–5 (intensivlik) oralig'ida, noto'g'ri qiymatlar normallashtiriladi.
+- **Material**: tanlangan stol uchun **metallik** va **silliqlik/qo'pollik** (0–1),
+  "Materialni tiklash". O'zgarish faqat tanlangan obyektga qo'llanadi. Asosiy rang
+  «Stol parametrlari» bo'limidagi rang boshqaruvi orqali.
+- **Xona materiali**: pol va devor rangini alohida sozlash.
+- **Render (PNG)**: joriy kompozitsiyani (fon, yorug'lik, soyalar, material, kamera)
+  PNG sifatida saqlash; **Standart (1280×720)** va **Yuqori (2560×1440)** rezolyutsiya.
+  Renderer cheklovlari uchun xavfsiz yukori chegara qo'llanadi.
+- **GLB eksporti** saqlanadi va yangi material sozlamalari bilan mos ishlaydi.
+
+### Muhim cheklovlar (Stage 6)
+
+- PNG — brauzerdagi **WebGL render**dan olinadi (vaqtinchalik render target orqali);
+  bu **fotorealistik render fermasi emas** va server render infratuzilmasi yo'q.
+- **Viewport foni, kamera boshqaruv holati va rendererga xos sozlamalar GLB faylida
+  saqlanmaydi** (GLB formati bularni ifodalamaydi); GLB'da geometriya, transformatsiya,
+  material (rang, metalness, roughness) saqlanadi.
+- **Yashirilgan obyektlar** GLB eksportdan chiqarib tashlanadi.
+- 3D ko'rinishda sudrab (drag) ko'chirish yo'q (raqamli boshqaruvlar ishlatiladi).
+- Yangi mebel turkumlari va tashqi 3D AI generatorlar yo'q.
+
 ## Texnologiyalar
 
 - **Frontend:** React + TypeScript, Vite.
 - **Brauzerdagi 3D ko'rish qatlami:** Three.js (`WebGLRenderer`, `OrbitControls`).
 - **Eksport:** Three.js `GLTFExporter` (`.glb`, binary) — faqat brauzerda ishlaydi.
 - **AI qatlami:** adapter interfeysi + mahalliy (oflayn) qoidaga asoslangan implementatsiya.
-- **Sahna modeli (Stage 5):** Three.js'siz `scene/` qatlami (validatsiya + reducer).
-- **Saqlash (Stage 4–5):** brauzerdagi `localStorage` (`ProjectRepository` interfeysi ortida).
+- **Sahna modeli (Stage 5-6):** Three.js'siz `scene/` qatlami (validatsiya + reducer).
+- **Vizualizatsiya sozlamalari (Stage 6):** fon, yorug'lik, material va kamera presetlari
+  (`scene/sceneSettings.ts`) - sof, testlanadi.
+- **PNG eksporti (Stage 6):** brauzerdagi WebGL render (vaqtinchalik render target).
+- **Saqlash (Stage 4-6):** brauzerdagi `localStorage` (`ProjectRepository` interfeysi ortida).
 - **Testlar:** Vitest.
 
 > Eslatma: hujjatlardagi texnologiyalar tavsiya sifatida keltirilgan. Hech qanday tayyor
@@ -125,21 +159,27 @@ src/
   geometry/buildTable.ts    # geometriya qatlami: parametrlardan stol modeli
   geometry/buildRoom.ts     # geometriya qatlami: xona (pol + 4 devor)
   scene/types.ts            # SceneData/SceneObject/RoomConfig + standartlar/diapazonlar
+  scene/sceneSettings.ts    # fon, yorug'lik, material, kamera presetlari (sof)
   scene/sceneValidation.ts  # sahna validatsiyasi + eski loyihani migratsiya
-  scene/sceneReducer.ts     # sof sahna amallari (qo'shish/tanlash/transform/o'chirish)
-  scene/buildSceneObject.ts # SceneObject -> Three.js obyekt + transform
-  viewer/cameraFraming.ts   # stol/xona kamera ramkasi (sof funksiya, testlanadi)
-  viewer/SceneViewer.ts     # ko'rish qatlami: scena, kamera, tanlash, inkremental yangilash
+  scene/sceneReducer.ts     # sof sahna amallari (qo'shish/tanlash/transform/sozlama)
+  scene/buildSceneObject.ts # SceneObject -> Three.js obyekt + transform + material
+  viewer/cameraFraming.ts   # stol/xona kamera ramkasi va presetlar (sof funksiya)
+  viewer/SceneViewer.ts     # ko'rish qatlami: scena, kamera, yorug'lik, tanlash, PNG
   export/sceneExport.ts     # butun sahna .glb baytlariga (GLTFExporter)
+  export/sceneImage.ts      # PNG rezolyutsiya + eksport orkestratsiyasi (sof)
   export/downloadFile.ts    # brauzerda faylni yuklab olish (DOM)
   ai/types.ts               # AiModelAdapter interfeysi va turlar
   ai/normalizeProposal.ts   # sifat nazorati: diapazon/rang + geometriya tekshiruvi
   ai/localTableAdapter.ts   # mahalliy matn→parametr adapteri (oflayn)
-  projects/types.ts         # SavedProject (schema v2), ProjectRepository interfeysi
+  projects/types.ts         # SavedProject (schema v3), ProjectRepository interfeysi
   projects/projectValidation.ts      # saqlangan ma'lumotni tekshirish/serializatsiya
   projects/localProjectRepository.ts # localStorage asosidagi repository
   components/ControlsPanel.tsx       # stol parametrlari
   components/RoomPanel.tsx           # xona sozlamalari
+  components/SceneSettingsPanel.tsx  # fon, kamera presetlari, xona materiali
+  components/LightingPanel.tsx       # yorug'lik sozlamalari
+  components/MaterialPanel.tsx       # tanlangan obyekt materiali (metalness/roughness)
+  components/RenderExportPanel.tsx   # PNG eksport (rezolyutsiya tanlovi)
   components/SceneHierarchyPanel.tsx # obyektlar ro'yxati
   components/ObjectPanel.tsx         # tanlangan obyekt transformatsiyasi
   components/AiPromptPanel.tsx
@@ -189,20 +229,30 @@ Avtomatik testlar quyidagilarni qamrab oladi:
 - Eksport: `buildExportScene` xona + obyektlarni qamrashi, manba ma'lumotni
   o'zgartirmasligi; `exportSceneToGlb` haqiqiy binary `.glb` (magic/versiya/BIN),
   xona/obyekt geometriyasi, materiallar va transformatsiyalar (Node'da `FileReader` shim).
-- Kamera ramkasi: `computeTableFraming` va `computeRoomFraming`.
+- Kamera ramkasi: `computeTableFraming`, `computeRoomFraming` va `computePresetFraming`
+  (front/side/top/iso presetlari).
+- Vizualizatsiya sozlamalari: `sceneSettings` standart qiymatlari va validatsiyasi
+  (intensivlik 0–5, rang, `NaN`/manfiy qiymatlar), kamera presetlari.
+- Material: `buildTable` metalness/roughness override; `sceneReducer` material amallari
+  (faqat tanlangan obyekt, 0–1 chegaralash, tiklash).
+- Yorug'lik/fon/xona materiali: `sceneReducer` amallari (clamp, noto'g'ri qiymatni rad etish).
+- PNG eksporti: `resolvePngSize`/`clampPngSize` (xavfsiz chegara, nisbat), `pngFileName`,
+  `exportScenePng` orkestratsiyasi (muvaffaqiyat va xato), `downloadBlob` URL bo'shatish.
 - AI adapter: matn tahlili, sifat nazorati, ishonch darajasi, ogohlantirishlar, bo'sh
   matn va rasm kiritishni rad etish.
 - Loyihalar: saqlangan yozuvni tekshirish, buzilgan ma'lumotni o'tkazib yuborish,
-  serializatsiya/deserializatsiya, CRUD, dublikat bo'lmasligi, `updatedAt` tartibi va
-  **eski (v1) loyihalarni sahnaga migratsiya**.
+  serializatsiya/deserializatsiya, CRUD, dublikat bo'lmasligi, `updatedAt` tartibi,
+  **v1 (faqat stol) va v2 (sahna, sozlamalarsiz) loyihalarni migratsiya**, sozlama va
+  materialning saqlanishi.
 - Katta sahna: **100 obyektli sahna** testi (validatsiya/serializatsiya/qayta qurish
   vaqtlari o'lchanadi va `console.info` bilan chiqariladi).
 
-**Cheklov:** brauzerdagi haqiqiy fayl yuklab olish (download), sensorli imo-ishoralar,
-`window.confirm` oynasi, raycast bilan tanlash va haqiqiy AI xizmati avtomatik testda
-to'liq tekshirilmaydi (WebGL/DOM/credentials talab qilinadi). Ular qo'lda tekshiriladi.
+**Cheklov:** brauzerdagi haqiqiy PNG/GLB faylni yuklab olish (download), WebGL renderning
+piksel natijasi, sensorli imo-ishoralar, `window.confirm` oynasi, raycast bilan tanlash va
+haqiqiy AI xizmati avtomatik testda to'liq tekshirilmaydi (WebGL/DOM/credentials talab
+qilinadi). Ular qo'lda tekshiriladi.
 
-### Qo'lda test tartibi (xona, eksport, AI va sensorli ekran)
+### Qo'lda test tartibi (vizualizatsiya, eksport, AI va sensorli ekran)
 
 1. `npm run dev` (yoki `npm run build && npm run preview`) va sahifani oching.
 2. **Stol parametrlari**: o'lchamlar va rangni o'zgartiring; model darhol yangilanishini
@@ -210,21 +260,27 @@ to'liq tekshirilmaydi (WebGL/DOM/credentials talab qilinadi). Ular qo'lda tekshi
 3. **Xona**: kenglik/uzunlik/balandlikni sozlang → pol va devorlar o'lchamga mos
    o'zgarishi kerak. Noto'g'ri qiymat (masalan, 99999) kiriting → xato xabari chiqishi va
    qiymat diapazonga keltirilishi kerak.
-4. **Stol qo'shish** → ro'yxatda yangi obyekt paydo bo'ladi; bir nechta stol birga
-   mavjud bo'ladi.
-5. **Transformatsiya**: tanlangan obyektning joylashuvi/burilishi/masshtabini raqamli
-   maydon va slayderlar orqali o'zgartiring → faqat shu obyekt o'zgarishi kerak.
-6. **Ko'rsatish/Yashirish** va **O'chirish** (tasdiq bilan) ishlashini tekshiring.
-7. 3D ko'rinishda obyekt ustiga bosib **tanlang** (qurilma ekranida ramka paydo bo'ladi).
+4. **Sahna va kamera**: fon rangini o'zgartiring. **Izometrik/Old/Yon/Yuqoridan**
+   presetlarini sinab ko'ring → kamera o'tishi, obyektlar joyida qolishi kerak.
+   **Ko'rinishni tiklash** → standart (izometrik) holatga qaytishi kerak.
+5. **Yorug'lik**: intensivlik va ranglarni o'zgartiring; key/fill va soyalarni
+   yoqib/o'chirib ko'ring; **Yorug'likni tiklash** ishlashini tekshiring.
+6. **Material**: stolni tanlab, metallik/silliqlikni o'zgartiring → faqat shu stol
+   o'zgarishi kerak; **Materialni tiklash** ishlashini tekshiring.
+7. **Stol qo'shish**, **transformatsiya**, **Ko'rsatish/Yashirish**, **O'chirish**
+   (tasdiq bilan) va 3D ko'rinishda **tanlash** ishlashini tekshiring.
 8. **Modelni eksport qilish (.glb)** → `3d-studio-ai-scene.glb` yuklab olinadi; faylni
    glTF ko'ruvchida ochib, xona va obyektlar (geometriya/transform/material) mavjudligini
-   tekshiring.
-9. **Ko'rinishni tiklash** → kamera xona uchun standart holatga qaytishi kerak.
+   tekshiring. (Fon/kamera/soyalar GLB'da saqlanmaydi.)
+9. **Render (PNG)**: **Standart** va **Yuqori** rezolyutsiyani tanlab, "PNG sifatida
+   saqlash" tugmasini bosing → PNG yuklab olinadi va xabar chiqadi. Natija joriy
+   kompozitsiyaga mos kelishini tekshiring.
 10. **AI orqali yaratish**: "200x80x75 sm, qizil stol" → tanlangan stol parametrlari
     qo'llanilishi kerak.
 11. **Loyihalar**: nom kiriting va **Saqlash** → ro'yxatda paydo bo'ladi. Sahifani
-    yangilang → loyiha saqlanib qoladi. **Ochish** → xona, obyektlar, transformlar va
-    ko'rinish holati tiklanadi. **Yangilash** → dublikat yaratilmaydi.
+    yangilang → loyiha saqlanib qoladi. **Ochish** → xona, obyektlar, transformlar,
+    material va vizualizatsiya sozlamalari (fon/yorug'lik/kamera) tiklanadi.
+    **Yangilash** → dublikat yaratilmaydi.
 12. Android telefonda: aylantirish/zoom, sahna ro'yxati va boshqaruvlarning tor ekranda
     sig'ishi.
 

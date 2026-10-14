@@ -1,11 +1,15 @@
 import type { TableParams } from '../geometry/tableParams';
 import { validateRoomConfig } from './sceneValidation';
+import { createDefaultSettings, validateColor, validateSceneSettings, CAMERA_PRESETS, type LightSettings, type CameraPreset, type SceneSettings } from './sceneSettings';
 import {
+  MATERIAL_DEFAULTS,
+  MATERIAL_LIMITS,
   OBJECT_NAME_MAX_LENGTH,
   OBJECT_LIMITS,
   ROOM_OBJECT_ID,
   SCENE_SCHEMA_VERSION,
   createTableSceneObject,
+  type ObjectMaterial,
   type RoomConfig,
   type SceneData,
   type SceneObject,
@@ -26,8 +30,15 @@ export type SceneAction =
     }
   | { type: 'RENAME_OBJECT'; id: string; name: string }
   | { type: 'UPDATE_PARAMS'; id: string; params: TableParams }
+  | { type: 'UPDATE_MATERIAL'; id: string; material: Partial<ObjectMaterial> }
+  | { type: 'RESET_MATERIAL'; id: string }
   | { type: 'TOGGLE_VISIBILITY'; id: string }
   | { type: 'DELETE_OBJECT'; id: string }
+  | { type: 'SET_BACKGROUND'; color: string }
+  | { type: 'UPDATE_LIGHTS'; lights: Partial<LightSettings> }
+  | { type: 'RESET_LIGHTS' }
+  | { type: 'UPDATE_ROOM_MATERIALS'; floorColor?: string; wallColor?: string }
+  | { type: 'SET_CAMERA_PRESET'; preset: CameraPreset }
   | { type: 'LOAD_SCENE'; scene: SceneData }
   | { type: 'NEW_SCENE'; id: string };
 
@@ -68,6 +79,22 @@ function replaceObject(
   return { ...state, data: { ...state.data, objects } };
 }
 
+/** Clamps a material patch into 0–1, keeping the other channel unchanged. */
+function mergeMaterial(base: ObjectMaterial, patch: Partial<ObjectMaterial>): ObjectMaterial {
+  const clampUnit = (value: number | undefined, current: number): number => {
+    const next = typeof value === 'number' && Number.isFinite(value) ? value : current;
+    return clamp(next, MATERIAL_LIMITS.metalness.min, MATERIAL_LIMITS.metalness.max);
+  };
+  return {
+    metalness: clampUnit(patch.metalness, base.metalness),
+    roughness: clampUnit(patch.roughness, base.roughness),
+  };
+}
+
+function withSettings(state: SceneState, settings: SceneSettings): SceneState {
+  return { ...state, data: { ...state.data, schemaVersion: SCENE_SCHEMA_VERSION, settings } };
+}
+
 /**
  * Pure scene reducer. Every transform/parameter change is scoped to a single
  * object id, so editing one object can never modify another.
@@ -89,6 +116,7 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
           ...state.data,
           schemaVersion: SCENE_SCHEMA_VERSION,
           objects: [...state.data.objects, object],
+          settings: state.data.settings,
         },
         selectedId: object.id,
       };
@@ -132,6 +160,18 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
     case 'UPDATE_PARAMS':
       return replaceObject(state, action.id, (object) => ({ ...object, params: action.params }));
 
+    case 'UPDATE_MATERIAL':
+      return replaceObject(state, action.id, (object) => ({
+        ...object,
+        material: mergeMaterial(object.material, action.material),
+      }));
+
+    case 'RESET_MATERIAL':
+      return replaceObject(state, action.id, (object) => ({
+        ...object,
+        material: { ...MATERIAL_DEFAULTS },
+      }));
+
     case 'TOGGLE_VISIBILITY':
       return replaceObject(state, action.id, (object) => ({ ...object, visible: !object.visible }));
 
@@ -160,9 +200,48 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
           schemaVersion: SCENE_SCHEMA_VERSION,
           room: validateRoomConfig({}),
           objects: [object],
+          settings: createDefaultSettings(),
         },
         selectedId: object.id,
       };
+    }
+
+    case 'SET_BACKGROUND': {
+      const background = validateColor(action.color, state.data.settings.background);
+      return withSettings(state, { ...state.data.settings, background });
+    }
+
+    case 'UPDATE_LIGHTS': {
+      const lights = validateSceneSettings({
+        ...state.data.settings,
+        lights: { ...state.data.settings.lights, ...action.lights },
+      }).lights;
+      return withSettings(state, { ...state.data.settings, lights });
+    }
+
+    case 'RESET_LIGHTS':
+      return withSettings(state, {
+        ...state.data.settings,
+        lights: createDefaultSettings().lights,
+      });
+
+    case 'UPDATE_ROOM_MATERIALS':
+      return withSettings(state, {
+        ...state.data.settings,
+        roomMaterials: validateSceneSettings({
+          ...state.data.settings,
+          roomMaterials: {
+            floorColor: action.floorColor ?? state.data.settings.roomMaterials.floorColor,
+            wallColor: action.wallColor ?? state.data.settings.roomMaterials.wallColor,
+          },
+        }).roomMaterials,
+      });
+
+    case 'SET_CAMERA_PRESET': {
+      const cameraPreset = (CAMERA_PRESETS as readonly string[]).includes(action.preset)
+        ? action.preset
+        : state.data.settings.cameraPreset;
+      return withSettings(state, { ...state.data.settings, cameraPreset });
     }
 
     default:

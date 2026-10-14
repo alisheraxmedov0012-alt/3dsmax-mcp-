@@ -1,13 +1,8 @@
 /**
- * Browser-side download helper. Kept apart from the GLB generation logic so the
- * geometry/export code stays testable outside a DOM.
+ * Browser-side download helpers. Kept apart from the export generation logic so
+ * the geometry/export code stays testable outside a DOM.
  */
-export function downloadArrayBuffer(
-  data: ArrayBuffer,
-  filename: string,
-  mimeType = 'model/gltf-binary',
-): void {
-  const blob = new Blob([data], { type: mimeType });
+export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
 
   const anchor = document.createElement('a');
@@ -21,4 +16,12 @@ export function downloadArrayBuffer(
 
   // Release the temporary object URL once the browser has started the download.
   setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+export function downloadArrayBuffer(
+  data: ArrayBuffer,
+  filename: string,
+  mimeType = 'model/gltf-binary',
+): void {
+  downloadBlob(new Blob([data], { type: mimeType }), filename);
 }

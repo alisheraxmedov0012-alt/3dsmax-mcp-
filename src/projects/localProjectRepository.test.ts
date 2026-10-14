@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createLocalProjectRepository } from './localProjectRepository';
 import { PROJECTS_STORAGE_KEY, type ProjectInput } from './types';
 import { createTableSceneObject, SCENE_SCHEMA_VERSION, type SceneData } from '../scene/types';
+import { createDefaultSettings } from '../scene/sceneSettings';
 
 /** Minimal in-memory implementation of the Web Storage API. */
 class FakeStorage implements Storage {
@@ -37,6 +38,7 @@ function makeScene(overrides?: Partial<SceneData>): SceneData {
     schemaVersion: SCENE_SCHEMA_VERSION,
     room: { widthCm: 400, lengthCm: 500, heightCm: 280 },
     objects: [createTableSceneObject('obj-1')],
+    settings: createDefaultSettings(),
     ...overrides,
   };
 }
@@ -192,6 +194,7 @@ describe('createLocalProjectRepository', () => {
         }),
         createTableSceneObject('t2', { scale: { x: 2, y: 2, z: 2 } }),
       ],
+      settings: createDefaultSettings(),
     };
     await first.create({ name: 'Scene', scene });
 

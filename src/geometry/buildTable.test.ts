@@ -77,4 +77,27 @@ describe('buildTable', () => {
 
     dispose();
   });
+
+  it('applies material overrides to the shared material', () => {
+    const material = (obj: THREE.Object3D) => {
+      let found: THREE.MeshStandardMaterial | null = null;
+      obj.traverse((child) => {
+        const mesh = child as THREE.Mesh;
+        if (mesh.isMesh && (mesh.material as THREE.MeshStandardMaterial).isMeshStandardMaterial) {
+          found = mesh.material as THREE.MeshStandardMaterial;
+        }
+      });
+      return found as unknown as THREE.MeshStandardMaterial;
+    };
+
+    const defaults = buildTable(params);
+    expect(material(defaults.group).metalness).toBeCloseTo(0.05, 5);
+    expect(material(defaults.group).roughness).toBeCloseTo(0.6, 5);
+    defaults.dispose();
+
+    const custom = buildTable(params, { metalness: 0.9, roughness: 0.1 });
+    expect(material(custom.group).metalness).toBeCloseTo(0.9, 5);
+    expect(material(custom.group).roughness).toBeCloseTo(0.1, 5);
+    custom.dispose();
+  });
 });

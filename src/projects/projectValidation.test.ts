@@ -11,12 +11,14 @@ import {
   type SavedProject,
 } from './types';
 import { createTableSceneObject, SCENE_SCHEMA_VERSION, type SceneData } from '../scene/types';
+import { createDefaultSettings } from '../scene/sceneSettings';
 
 function makeScene(): SceneData {
   return {
     schemaVersion: SCENE_SCHEMA_VERSION,
     room: { widthCm: 400, lengthCm: 500, heightCm: 280 },
     objects: [createTableSceneObject('obj-1')],
+    settings: createDefaultSettings(),
   };
 }
 
@@ -104,6 +106,62 @@ describe('validateSavedProject', () => {
     expect(validateSavedProject({ ...validProject, name: long })?.name).toHaveLength(
       MAX_PROJECT_NAME_LENGTH,
     );
+  });
+
+  it('migrates a v2 scene (no settings) by adding default visualization settings', () => {
+    const v2 = {
+      id: 'v2-1',
+      name: 'Stage 5 loyiha',
+      scene: {
+        schemaVersion: 2,
+        room: { widthCm: 400, lengthCm: 500, heightCm: 280 },
+        objects: [createTableSceneObject('t1')],
+      },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      schemaVersion: 2,
+    };
+
+    const result = validateSavedProject(v2);
+    expect(result?.schemaVersion).toBe(PROJECTS_SCHEMA_VERSION);
+    expect(result?.scene.settings.background).toBe('#1b1f24');
+    expect(result?.scene.settings.cameraPreset).toBe('iso');
+  });
+
+  it('preserves visualization settings and material on round-trip', () => {
+    const project: SavedProject = {
+      ...validProject,
+      scene: {
+        ...validProject.scene,
+        settings: {
+          background: '#101820',
+          lights: {
+            ambientIntensity: 0.5,
+            ambientColor: '#ffffff',
+            keyEnabled: false,
+            keyIntensity: 3,
+            keyColor: '#ffcc00',
+            fillEnabled: true,
+            fillIntensity: 0.2,
+            fillColor: '#ffffff',
+            shadowsEnabled: false,
+          },
+          roomMaterials: { floorColor: '#111111', wallColor: '#222222' },
+          cameraPreset: 'top',
+        },
+        objects: [createTableSceneObject('t1', { material: { metalness: 0.8, roughness: 0.3 } })],
+      },
+    };
+
+    const raw = serializeProjects([project]);
+    const [restored] = deserializeProjects(raw).projects;
+
+    expect(restored.scene.settings.background).toBe('#101820');
+    expect(restored.scene.settings.lights.keyEnabled).toBe(false);
+    expect(restored.scene.settings.lights.keyIntensity).toBe(3);
+    expect(restored.scene.settings.roomMaterials.floorColor).toBe('#111111');
+    expect(restored.scene.settings.cameraPreset).toBe('top');
+    expect(restored.scene.objects[0].material).toEqual({ metalness: 0.8, roughness: 0.3 });
   });
 });
 

@@ -27,7 +27,7 @@ export function buildExportScene(data: SceneData): ExportScene {
 
   const disposers: Array<() => void> = [];
 
-  const room = buildRoom(data.room);
+  const room = buildRoom(data.room, data.settings.roomMaterials);
   scene.add(room.group);
   disposers.push(room.dispose);
 
