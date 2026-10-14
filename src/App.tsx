@@ -6,6 +6,7 @@ import { FurniturePanel } from './components/FurniturePanel';
 import { ExportControls, type ExportStatus } from './components/ExportControls';
 import { LightingPanel } from './components/LightingPanel';
 import { MaterialPanel } from './components/MaterialPanel';
+import { ManufacturingPanel } from './components/ManufacturingPanel';
 import { ObjectPanel } from './components/ObjectPanel';
 import { ProjectsPanel, type ProjectsStatus } from './components/ProjectsPanel';
 import { RenderExportPanel, type RenderStatus } from './components/RenderExportPanel';
@@ -532,6 +533,7 @@ export default function App() {
         />
         <AiPromptPanel onApply={applyProposal} />
         <ImageReferencePanel onConfirm={handleImageReferenceConfirm} />
+        <ManufacturingPanel object={selectedObject} projectName={projectName} />
         <AccountPanel />
         <ProjectsPanel
           projects={projects}

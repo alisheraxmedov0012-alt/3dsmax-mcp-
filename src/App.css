@@ -265,6 +265,29 @@ input[type='color'] {
   color: #d6a35c;
 }
 
+.manufacturing {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid #2a2f36;
+}
+
+.manufacturing__title {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.manufacturing__list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: #9aa6b2;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
 .ai__title {
   margin: 0;
   font-size: 0.95rem;
