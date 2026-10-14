@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { AccountPanel } from './components/AccountPanel';
 import { AiPromptPanel } from './components/AiPromptPanel';
 import { ControlsPanel } from './components/ControlsPanel';
 import { ExportControls, type ExportStatus } from './components/ExportControls';
@@ -362,6 +363,7 @@ export default function App() {
           onReset={handleResetMaterial}
         />
         <AiPromptPanel onApply={applyProposal} />
+        <AccountPanel />
         <ProjectsPanel
           projects={projects}
           activeId={activeProjectId}

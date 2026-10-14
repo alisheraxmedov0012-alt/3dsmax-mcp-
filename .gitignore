@@ -23,3 +23,18 @@ coverage/
 # Secrets
 .env
 .env.*
+# ...but the example file is safe and must be tracked.
+!.env.example
+!**/.env.example
+
+# Python (backend)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.db
+*.sqlite3
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+

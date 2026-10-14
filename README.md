@@ -4,8 +4,8 @@
 3D modellarini matn yoki rasm orqali yaratish, brauzerda ko'rish, o'lchamlarini
 o'zgartirish va eksport qilish uchun veb-platforma.
 
-Hozirgi holat: **6-bosqich** — mahsulot va reklama vizualizatsiyasi (staging, yorug'lik,
-material, PNG/GLB eksport).
+Hozirgi holat: **7-bosqich** — hisoblar, obuna va to'lovlar (backend FastAPI + PostgreSQL
+uchun tayyor sxema; sandbox to'lov adapteri).
 
 ## 1-bosqich MVP imkoniyatlari
 
@@ -129,6 +129,77 @@ o'giriladi; `scale` — o'qlar bo'yicha koeffitsient.
 - **Yashirilgan obyektlar** GLB eksportdan chiqarib tashlanadi.
 - 3D ko'rinishda sudrab (drag) ko'chirish yo'q (raqamli boshqaruvlar ishlatiladi).
 - Yangi mebel turkumlari va tashqi 3D AI generatorlar yo'q.
+
+## 7-bosqich imkoniyatlari (hisoblar, obuna va to'lovlar)
+
+Backend `backend/` katalogida: **FastAPI + SQLAlchemy 2 + Alembic**.
+
+- **Hisoblar**: email/parol bilan ro'yxatdan o'tish, kirish, chiqish, `me`;
+  **emailni tasdiqlash** va **parolni tiklash** oqimlari (bir martalik, muddati
+  cheklangan tokenlar); sessiyani bekor qilish.
+- **Sessiyalar**: opaque token (faqat SHA-256 xeshi saqlanadi), `HttpOnly` +
+  `SameSite` + (productionda) `Secure` cookie, qo'shimcha **CSRF** tokeni.
+- **Rollar**: `user` va `admin`; serverda tekshiriladi; admin endpointi alohida
+  himoyalangan; birinchi admin **CLI bootstrap** orqali yaratiladi (ochiq admin
+  ro'yxatdan o'tish yo'q).
+- **Tariflar**: Free va Pro (ma'lumot modeli + `/api/plans`). **Narx va limitlar
+  roadmapda tasdiqlanmagan** — shuning uchun ular `null` (hujjatlashtirilgan
+  konfiguratsiya nuqtasi) qilib qoldirilgan, o'ylab topilmagan.
+- **Limitlar**: loyihalar, PNG/GLB eksportlar, AI so'rovlar uchun **serverda**
+  tekshiriladigan, tarifga bog'langan mexanizm (mijoz payloadi bilan chetlab
+  bo'lmaydi).
+- **Obuna/billing**: `subscription` holat mashinasi (pending/active/
+  payment_failed/expired/cancelled), `payment_attempts`, `invoices`,
+  `billing_events` (audit). Hodisalar **idempotent**.
+- **Sandbox to'lov adapteri**: provayderdan mustaqil `PaymentProvider`
+  interfeysi + soxta **sandbox** adapteri (HMAC imzoli webhook, idempotentlik).
+  **Haqiqiy to'lov yo'q, karta ma'lumotlari olinmaydi/saqlanmaydi.**
+- **Hisob-faktura**: faqat tasdiqlangan billing hodisasidan yaratiladi; bitta
+  hodisa uchun takroriy faktura yaratilmaydi; foydalanuvchi faqat o'zinikini
+  ko'radi.
+- **Lokal loyihalarni import**: brauzerdagi (`localStorage`) loyihalarni
+  akkauntga **idempotent** import qilish; lokal ma'lumot o'chirilmaydi.
+- **Frontend**: `src/api/client.ts` (cookie + CSRF, xato -> o'zbekcha xabar) va
+  `AccountPanel` (kirish/ro'yxatdan o'tish, tarif, limit/usage, sandbox to'lov,
+  fakturalar, import). Tarif/limit **serverdan** olinadi.
+
+### Qo'lda test tartibi (Stage 7)
+
+```bash
+# 1) Backend
+cd backend
+cp .env.example .env            # qiymatlarni lokal to'ldiring (gitga qo'shmang)
+python -m pip install -r requirements.txt
+python -m alembic upgrade head  # yoki ilova ishga tushganda create_all
+python -m app.cli create-admin --email admin@example.com
+uvicorn app.main:app --reload --port 8000
+
+# 2) Frontend (boshqa terminalda, repo ildizida)
+VITE_API_BASE_URL=http://localhost:8000 npm run dev
+
+# 3) Backend testlari
+cd backend && python -m pytest
+```
+
+### Muhim cheklovlar (Stage 7)
+
+- **Haqiqiy to'lov provayderi ulanmagan**: provayder tanlanmagan, akkaunt va
+  production kalitlari yo'q. Faqat **sandbox** adapteri mavjud; UI/hujjatlarda u
+  haqiqiy provayder sifatida ko'rsatilmaydi. Haqiqiy to'lovlarni yoqish uchun
+  provayder tanlovi, rasmiy akkaunt, webhook konfiguratsiyasi va moliyaviy/huquqiy
+  tasdiq talab qilinadi.
+- **Email yuborish sozlanmagan**: `APP_EMAIL_BACKEND=console` xabar yuborilmaydi;
+  productionda email tasdiqlash/parol tiklash ishlayapti deb hisoblanmaydi. SMTP
+  sozlamalari berilganda real yuborish yoqiladi.
+- **PostgreSQL hosting yo'q**: sxema/migratsiyalar PostgreSQL uchun tayyor, lekin
+  bu muhitda faqat **SQLite** bilan tekshirilgan (PostgreSQL'ga xos xatti-harakat
+  tasdiqlanmagan).
+- **Rate limiting** jarayon ichida (in-process); productionda Redis kabi umumiy
+  xotira kerak.
+- **Cloud sinxronlash yo'q**: import bir martalik nusxalash; lokal loyihalar
+  o'chirilmaydi. To'liq ikki tomonlama sinxronlash keyingi, hujjatlashtirilgan
+  vazifa.
+- Karta raqamlari/CVV **hech qachon** qabul qilinmaydi yoki saqlanmaydi.
 
 ## Texnologiyalar
 
