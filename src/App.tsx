@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { AccountPanel } from './components/AccountPanel';
+import { ServerPanel } from './components/ServerPanel';
 import { AiPromptPanel } from './components/AiPromptPanel';
 import { ImageReferencePanel } from './components/ImageReferencePanel';
 import { FurniturePanel } from './components/FurniturePanel';
@@ -535,6 +536,7 @@ export default function App() {
         <ImageReferencePanel onConfirm={handleImageReferenceConfirm} />
         <ManufacturingPanel object={selectedObject} projectName={projectName} />
         <AccountPanel />
+        <ServerPanel />
         <ProjectsPanel
           projects={projects}
           activeId={activeProjectId}

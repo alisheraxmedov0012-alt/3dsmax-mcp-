@@ -77,6 +77,25 @@ class Settings(BaseSettings):
     payment_provider: str = "fake"
     payment_webhook_secret: str | None = None
 
+    # W10 — job queue.
+    # ``inline`` runs jobs synchronously in the request (development/test only).
+    # A production deployment must set ``worker`` and run a separate worker
+    # process; the API never claims a job is processed by a background fleet when
+    # no worker is configured.
+    job_backend: str = "inline"  # inline | worker
+    job_max_attempts: int = 3
+    job_timeout_seconds: int = 300
+    job_max_payload_bytes: int = 64 * 1024
+
+    # W10 — file storage.
+    # ``memory`` keeps bytes in-process (test/development); ``local`` writes to
+    # ``storage_dir``; ``s3`` is a documented boundary that is NOT implemented
+    # here and must be configured by a real deployment.
+    storage_backend: str = "memory"  # memory | local | s3
+    storage_dir: str = "./var/storage"
+    storage_max_bytes: int = 25 * 1024 * 1024
+    storage_max_project_bytes: int = 200 * 1024 * 1024
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
@@ -114,6 +133,20 @@ class Settings(BaseSettings):
             problems.append("Productionda SQLite emas, PostgreSQL ishlatilishi kerak.")
         if self.rate_limit_backend == "redis" and not self.redis_url:
             problems.append("APP_RATE_LIMIT_BACKEND=redis uchun APP_REDIS_URL kerak.")
+        # W10: a production deployment must not silently rely on the in-process
+        # job runner or on volatile storage.
+        if self.job_backend != "worker":
+            problems.append(
+                "Productionda APP_JOB_BACKEND=worker bo'lishi shart (inline faqat test/ishlab chiqish uchun)."
+            )
+        if self.storage_backend == "s3":
+            problems.append(
+                "APP_STORAGE_BACKEND=s3 hali amalga oshirilmagan — production uchun storage adapterini sozlash kerak."
+            )
+        if self.storage_backend == "memory":
+            problems.append(
+                "Productionda APP_STORAGE_BACKEND=memory ishlatilmasin (fayllar saqlanmaydi)."
+            )
         return problems
 
 

@@ -133,6 +133,9 @@ def _prod_settings(**overrides) -> Settings:
         debug=False,
         cors_origins="https://app.example.com",
         database_url="postgresql+psycopg://u:p@h:5432/db",
+        # W10: production must run a real worker and persistent storage.
+        job_backend="worker",
+        storage_backend="local",
     )
     base.update(overrides)
     return Settings(**base)

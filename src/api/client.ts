@@ -177,6 +177,43 @@ export interface ImportResult {
   project_ids: string[];
 }
 
+/**
+ * W10 — server-side project, job and storage wire types.
+ * These mirror the FastAPI schemas; the server enforces ownership and limits.
+ */
+export interface ServerProject {
+  id: string;
+  client_id: string;
+  name: string;
+  version: number;
+  schema_version: number;
+  created_at: string | null;
+  updated_at: string | null;
+  scene?: Record<string, unknown>;
+}
+
+export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+
+export interface ServerJob {
+  id: string;
+  kind: string;
+  status: JobStatus;
+  attempts: number;
+  max_attempts: number;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  created_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface StorageStatus {
+  backend: string;
+  available: boolean;
+  persistent: boolean;
+  message: string;
+}
+
 export const api = {
   health: () => request<{ status: string }>('/api/health'),
 
@@ -239,4 +276,39 @@ export const api = {
       body: { projects },
       csrfToken,
     }),
+
+  // --- W10: server-side projects, jobs and storage ---
+
+  serverProjects: () => request<ServerProject[]>('/api/projects'),
+
+  serverProject: (id: string) => request<ServerProject>(`/api/projects/${id}`),
+
+  createServerProject: (name: string, scene: Record<string, unknown>, csrfToken: string | null) =>
+    request<ServerProject>('/api/projects', { method: 'POST', body: { name, scene }, csrfToken }),
+
+  updateServerProject: (
+    id: string,
+    patch: { name?: string; scene?: Record<string, unknown>; expected_version?: number },
+    csrfToken: string | null,
+  ) => request<ServerProject>(`/api/projects/${id}`, { method: 'PATCH', body: patch, csrfToken }),
+
+  deleteServerProject: (id: string, csrfToken: string | null) =>
+    request<void>(`/api/projects/${id}`, { method: 'DELETE', csrfToken }),
+
+  jobs: () => request<ServerJob[]>('/api/jobs'),
+
+  job: (id: string) => request<ServerJob>(`/api/jobs/${id}`),
+
+  createJob: (kind: string, idempotencyKey: string, csrfToken: string | null) =>
+    request<ServerJob>('/api/jobs', {
+      method: 'POST',
+      body: { kind, idempotency_key: idempotencyKey, payload: {} },
+      csrfToken,
+    }),
+
+  cancelJob: (id: string, csrfToken: string | null) =>
+    request<ServerJob>(`/api/jobs/${id}/cancel`, { method: 'POST', csrfToken }),
+
+  // Public: reports the storage backend honestly (no auth required).
+  storageStatus: () => request<StorageStatus>('/api/files/status'),
 };
