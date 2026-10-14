@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createLocalProjectRepository } from './localProjectRepository';
 import { PROJECTS_STORAGE_KEY, type ProjectInput } from './types';
+import { createTableSceneObject, SCENE_SCHEMA_VERSION, type SceneData } from '../scene/types';
 
 /** Minimal in-memory implementation of the Web Storage API. */
 class FakeStorage implements Storage {
@@ -31,9 +32,18 @@ class FakeStorage implements Storage {
   }
 }
 
+function makeScene(overrides?: Partial<SceneData>): SceneData {
+  return {
+    schemaVersion: SCENE_SCHEMA_VERSION,
+    room: { widthCm: 400, lengthCm: 500, heightCm: 280 },
+    objects: [createTableSceneObject('obj-1')],
+    ...overrides,
+  };
+}
+
 const input: ProjectInput = {
   name: 'Stol A',
-  params: { widthCm: 140, heightCm: 75, depthCm: 60, color: '#a9744f' },
+  scene: makeScene(),
 };
 
 function makeRepository(overrides?: { ids?: string[]; times?: string[] }) {
@@ -70,6 +80,7 @@ describe('createLocalProjectRepository', () => {
     expect(created.name).toBe('Stol A');
     expect(created.createdAt).toBe('2026-01-01T00:00:00.000Z');
     expect(created.updatedAt).toBe('2026-01-01T00:00:00.000Z');
+    expect(created.schemaVersion).toBe(SCENE_SCHEMA_VERSION);
     expect(await repository.list()).toEqual([created]);
   });
 
@@ -86,11 +97,11 @@ describe('createLocalProjectRepository', () => {
 
     const updated = await repository.update(created.id, {
       name: 'Stol B',
-      params: { widthCm: 200, heightCm: 90, depthCm: 80, color: '#c0392b' },
+      scene: makeScene({ room: { widthCm: 600, lengthCm: 700, heightCm: 300 } }),
     });
 
     expect(updated?.name).toBe('Stol B');
-    expect(updated?.params.widthCm).toBe(200);
+    expect(updated?.scene.room.widthCm).toBe(600);
     expect(updated?.createdAt).toBe(created.createdAt);
 
     const all = await repository.list();
@@ -117,7 +128,6 @@ describe('createLocalProjectRepository', () => {
     const first = await repository.create({ ...input, name: 'First' });
     const second = await repository.create({ ...input, name: 'Second' });
 
-    // Updating the first makes it the most recent.
     await repository.update(first.id, { ...input, name: 'First updated' });
 
     const list = await repository.list();
@@ -156,7 +166,7 @@ describe('createLocalProjectRepository', () => {
       PROJECTS_STORAGE_KEY,
       JSON.stringify({
         projects: [
-          { id: 'good', name: 'Ok', params: { widthCm: 120, heightCm: 75, depthCm: 60, color: '#a9744f' } },
+          { id: 'good', name: 'Ok', scene: makeScene() },
           { id: '', name: 'Bad' },
         ],
       }),
@@ -168,15 +178,65 @@ describe('createLocalProjectRepository', () => {
     expect(list[0].id).toBe('good');
   });
 
-  it('produces projects that pass validation on the next load', async () => {
+  it('preserves the full scene through a reload', async () => {
     const storage = new FakeStorage();
     const first = createLocalProjectRepository({ storage, generateId: () => 'id-1' });
-    await first.create(input);
+    const scene: SceneData = {
+      schemaVersion: SCENE_SCHEMA_VERSION,
+      room: { widthCm: 800, lengthCm: 900, heightCm: 320 },
+      objects: [
+        createTableSceneObject('t1', {
+          position: { x: 100, y: 0, z: -50 },
+          rotation: { x: 0, y: 90, z: 0 },
+          visible: false,
+        }),
+        createTableSceneObject('t2', { scale: { x: 2, y: 2, z: 2 } }),
+      ],
+    };
+    await first.create({ name: 'Scene', scene });
 
-    // A fresh repository instance reads the same storage (simulates reload).
     const second = createLocalProjectRepository({ storage });
     const list = await second.list();
     expect(list).toHaveLength(1);
-    expect(list[0].params).toEqual(input.params);
+    expect(list[0].scene.room.widthCm).toBe(800);
+    expect(list[0].scene.objects).toHaveLength(2);
+    expect(list[0].scene.objects[0].position.x).toBe(100);
+    expect(list[0].scene.objects[0].rotation.y).toBe(90);
+    expect(list[0].scene.objects[0].visible).toBe(false);
+    expect(list[0].scene.objects[1].scale.x).toBe(2);
+  });
+
+  it('loads legacy (v1) table-only projects by migrating them to a scene', async () => {
+    const storage = new FakeStorage();
+    storage.setItem(
+      PROJECTS_STORAGE_KEY,
+      JSON.stringify({
+        schemaVersion: 1,
+        projects: [
+          {
+            id: 'legacy-1',
+            name: 'Eski loyiha',
+            params: { widthCm: 160, heightCm: 78, depthCm: 70, color: '#c0392b' },
+            createdAt: '2025-01-01T00:00:00.000Z',
+            updatedAt: '2025-01-01T00:00:00.000Z',
+            schemaVersion: 1,
+          },
+        ],
+      }),
+    );
+
+    const repository = createLocalProjectRepository({ storage });
+    const list = await repository.list();
+
+    expect(list).toHaveLength(1);
+    expect(list[0].name).toBe('Eski loyiha');
+    expect(list[0].scene.objects).toHaveLength(1);
+    expect(list[0].scene.objects[0].params).toEqual({
+      widthCm: 160,
+      heightCm: 78,
+      depthCm: 70,
+      color: '#c0392b',
+    });
+    expect(list[0].schemaVersion).toBe(SCENE_SCHEMA_VERSION);
   });
 });

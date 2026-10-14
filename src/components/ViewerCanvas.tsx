@@ -1,15 +1,19 @@
 import { useEffect, useRef } from 'react';
-import type { TableParams } from '../geometry/tableParams';
-import { TableViewer } from '../viewer/TableViewer';
+import type { SceneData } from '../scene/types';
+import { SceneViewer } from '../viewer/SceneViewer';
 
 interface ViewerCanvasProps {
-  params: TableParams | null;
+  scene: SceneData;
+  selectedId: string | null;
   resetToken: number;
+  onSelect: (id: string | null) => void;
 }
 
-export function ViewerCanvas({ params, resetToken }: ViewerCanvasProps) {
+export function ViewerCanvas({ scene, selectedId, resetToken, onSelect }: ViewerCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const viewerRef = useRef<TableViewer | null>(null);
+  const viewerRef = useRef<SceneViewer | null>(null);
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -17,7 +21,9 @@ export function ViewerCanvas({ params, resetToken }: ViewerCanvasProps) {
       return;
     }
 
-    const viewer = new TableViewer(container);
+    const viewer = new SceneViewer(container, {
+      onSelect: (id) => onSelectRef.current(id),
+    });
     viewerRef.current = viewer;
 
     return () => {
@@ -27,10 +33,8 @@ export function ViewerCanvas({ params, resetToken }: ViewerCanvasProps) {
   }, []);
 
   useEffect(() => {
-    if (params && viewerRef.current) {
-      viewerRef.current.setParams(params);
-    }
-  }, [params]);
+    viewerRef.current?.setScene(scene, selectedId);
+  }, [scene, selectedId]);
 
   useEffect(() => {
     if (resetToken > 0) {

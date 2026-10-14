@@ -1,10 +1,16 @@
-import type { TableParams } from '../geometry/tableParams';
+import type { SceneData } from '../scene/types';
 
-/** Persisted representation of a user project. */
+/**
+ * Persisted representation of a user project (Stage 5, schema v2).
+ *
+ * v1 (Stages 1–4) stored only `params: TableParams`. v2 stores a full scene.
+ * Old v1 records are migrated on load (see `projectValidation.ts`), so
+ * table-only projects remain loadable.
+ */
 export interface SavedProject {
   id: string;
   name: string;
-  params: TableParams;
+  scene: SceneData;
   createdAt: string;
   updatedAt: string;
   schemaVersion: number;
@@ -13,10 +19,10 @@ export interface SavedProject {
 /** Data required to create or update a project. */
 export interface ProjectInput {
   name: string;
-  params: TableParams;
+  scene: SceneData;
 }
 
-export const PROJECTS_SCHEMA_VERSION = 1;
+export const PROJECTS_SCHEMA_VERSION = 2;
 export const PROJECTS_STORAGE_KEY = '3d-studio-ai.projects.v1';
 export const MAX_PROJECT_NAME_LENGTH = 60;
 export const DEFAULT_PROJECT_NAME = 'Nomsiz loyiha';

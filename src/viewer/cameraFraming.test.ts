@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeTableFraming } from './cameraFraming';
+import { computeRoomFraming, computeTableFraming } from './cameraFraming';
 import { TABLE_DEFAULTS } from '../geometry/tableParams';
 
 describe('computeTableFraming', () => {
@@ -50,5 +50,32 @@ describe('computeTableFraming', () => {
 
   it('is deterministic for identical parameters', () => {
     expect(computeTableFraming(TABLE_DEFAULTS)).toEqual(computeTableFraming(TABLE_DEFAULTS));
+  });
+});
+
+describe('computeRoomFraming', () => {
+  it('returns finite values aimed at the middle of the room', () => {
+    const framing = computeRoomFraming({ widthCm: 400, lengthCm: 500, heightCm: 280 });
+
+    [
+      framing.position.x,
+      framing.position.y,
+      framing.position.z,
+      framing.target.x,
+      framing.target.y,
+      framing.target.z,
+    ].forEach((value) => expect(Number.isFinite(value)).toBe(true));
+
+    expect(framing.target.x).toBe(0);
+    expect(framing.target.y).toBeCloseTo(140, 5);
+    expect(framing.target.z).toBe(0);
+  });
+
+  it('frames larger rooms from further away', () => {
+    const small = computeRoomFraming({ widthCm: 200, lengthCm: 200, heightCm: 200 });
+    const large = computeRoomFraming({ widthCm: 2000, lengthCm: 2000, heightCm: 600 });
+
+    expect(large.position.z).toBeGreaterThan(small.position.z);
+    expect(large.position.y).toBeGreaterThan(small.position.y);
   });
 });

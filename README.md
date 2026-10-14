@@ -4,7 +4,7 @@
 3D modellarini matn yoki rasm orqali yaratish, brauzerda ko'rish, o'lchamlarini
 o'zgartirish va eksport qilish uchun veb-platforma.
 
-Hozirgi holat: **4-bosqich** — foydalanuvchi loyihalari va saqlash (brauzerda lokal).
+Hozirgi holat: **5-bosqich** — arxitektura, interyer joylashtirish va katta sahnalar boshqaruvi.
 
 ## 1-bosqich MVP imkoniyatlari
 
@@ -41,8 +41,7 @@ Hozirgi holat: **4-bosqich** — foydalanuvchi loyihalari va saqlash (brauzerda 
   haqiqiy AI xizmati hali tanlanmagan.
 
 Hali qo'shilmagan (keyingi bosqichlar): autentifikatsiya, obuna/to'lov, ma'lumotlar
-bazasi, tashqi AI xizmati integratsiyasi (adapter tayyor), boshqa mebel turlari,
-arxitektura moduli.
+bazasi, tashqi AI xizmati integratsiyasi (adapter tayyor), boshqa mebel turlari.
 
 ## 4-bosqich imkoniyatlari (loyihalar va saqlash)
 
@@ -67,13 +66,47 @@ arxitektura moduli.
 - Persistensiya `ProjectRepository` interfeysi ortida — kelajakda backend bilan
   almashtirilishi mumkin.
 
+## 5-bosqich imkoniyatlari (arxitektura va interyer)
+
+- **Xona muharriri**: kenglik, uzunlik va balandlikni sozlash; "Xonani tanlash" va
+  "Xonani tiklash". Xona yuzasi (pol) va to'rtta devor alohida geometriyalar sifatida
+  quriladi va o'lchamlarga mos keladi. Xato qiymatlar xabar bilan diapazonga keltiriladi.
+- **Interyer joylashtirish**: mavjud procedural stol sahnaga obyekt sifatida qo'shiladi
+  ("Stol qo'shish"); tanlangan obyektning **joylashuvi (X/Y/Z), burilishi va masshtabi**
+  tahrirlanadi; rangi va geometriyasi saqlanadi.
+- **Sahna ierarxiyasi**: barcha obyektlar ro'yxati, tanlash, ko'rsatish/yashirish va
+  xavfsiz o'chirish (tasdiq bilan). Obyektlar **barqaror ID**ga ega.
+- **Tanlash**: ro'yxatdan yoki 3D ko'rinishda sichqoncha/barmoq bilan (raycast).
+  Tanlangan obyekt ramka (BoxHelper) bilan ajratiladi.
+- **Eksport**: `.glb` endi butun sahnani (xona + ko'rinadigan obyektlar) o'z
+  geometriyasi, transformatsiyalari va materiallari bilan chiqaradi.
+- **Migratsiya**: eski (Stage 1–4) faqat-stol loyihalari standart xona + stol
+  sahnasiga aylantirilib ochiladi; ma'lumot yo'qolmaydi.
+
+**Koordinata tizimi**: o'ng qo'l tizimi, Y — yuqoriga, barcha o'lchovlar santimetrda.
+Xona poli Y = 0 tekisligida; xona X/Z markazda (x ∈ [-kenglik/2, kenglik/2],
+z ∈ [-uzunlik/2, uzunlik/2]); obyekt `position` — obyekt boshlanishining siljishi
+(y = 0 — polda turadi); `rotation` — gradusda (Euler XYZ), ko'rsatishda radianga
+o'giriladi; `scale` — o'qlar bo'yicha koeffitsient.
+
+### Muhim cheklovlar (Stage 5)
+
+- Saqlash hanuz **brauzerda lokal** (`localStorage`), **qurilmalar o'rtasida
+  sinxronlanmaydi**.
+- **Yashirilgan obyektlar `.glb` eksportdan chiqarib tashlanadi** (ko'rinadiganlari
+  kiritiladi).
+- Obyektlarni 3D ko'rinishda **sudrab (drag) ko'chirish yo'q**; transformatsiya raqamli
+  boshqaruvlar va slayderlar orqali (barqarorroq va sensorli ekranda ishonchli).
+- Yangi mebel turkumlari qo'shilmagan — faqat mavjud stol joylashtiriladi.
+
 ## Texnologiyalar
 
 - **Frontend:** React + TypeScript, Vite.
 - **Brauzerdagi 3D ko'rish qatlami:** Three.js (`WebGLRenderer`, `OrbitControls`).
 - **Eksport:** Three.js `GLTFExporter` (`.glb`, binary) — faqat brauzerda ishlaydi.
 - **AI qatlami:** adapter interfeysi + mahalliy (oflayn) qoidaga asoslangan implementatsiya.
-- **Saqlash (Stage 4):** brauzerdagi `localStorage` (`ProjectRepository` interfeysi ortida).
+- **Sahna modeli (Stage 5):** Three.js'siz `scene/` qatlami (validatsiya + reducer).
+- **Saqlash (Stage 4–5):** brauzerdagi `localStorage` (`ProjectRepository` interfeysi ortida).
 - **Testlar:** Vitest.
 
 > Eslatma: hujjatlardagi texnologiyalar tavsiya sifatida keltirilgan. Hech qanday tayyor
@@ -89,27 +122,35 @@ vite.config.ts, tsconfig.json
 src/
   main.tsx, App.tsx, App.css, index.css
   geometry/tableParams.ts   # parametrlar, diapazonlar, validatsiya (Three.js'siz)
-  geometry/buildTable.ts    # geometriya qatlami: parametrlardan Three.js modeli
-  viewer/cameraFraming.ts   # standart kamera ramkasi (sof funksiya, testlanadi)
-  viewer/TableViewer.ts     # ko'rish qatlami: scena, kamera, chiroqlar, boshqaruv
-  export/tableExport.ts     # modelni .glb baytlariga aylantirish (GLTFExporter)
+  geometry/buildTable.ts    # geometriya qatlami: parametrlardan stol modeli
+  geometry/buildRoom.ts     # geometriya qatlami: xona (pol + 4 devor)
+  scene/types.ts            # SceneData/SceneObject/RoomConfig + standartlar/diapazonlar
+  scene/sceneValidation.ts  # sahna validatsiyasi + eski loyihani migratsiya
+  scene/sceneReducer.ts     # sof sahna amallari (qo'shish/tanlash/transform/o'chirish)
+  scene/buildSceneObject.ts # SceneObject -> Three.js obyekt + transform
+  viewer/cameraFraming.ts   # stol/xona kamera ramkasi (sof funksiya, testlanadi)
+  viewer/SceneViewer.ts     # ko'rish qatlami: scena, kamera, tanlash, inkremental yangilash
+  export/sceneExport.ts     # butun sahna .glb baytlariga (GLTFExporter)
   export/downloadFile.ts    # brauzerda faylni yuklab olish (DOM)
   ai/types.ts               # AiModelAdapter interfeysi va turlar
   ai/normalizeProposal.ts   # sifat nazorati: diapazon/rang + geometriya tekshiruvi
   ai/localTableAdapter.ts   # mahalliy matn→parametr adapteri (oflayn)
-  projects/types.ts         # SavedProject, ProjectRepository interfeysi
+  projects/types.ts         # SavedProject (schema v2), ProjectRepository interfeysi
   projects/projectValidation.ts      # saqlangan ma'lumotni tekshirish/serializatsiya
   projects/localProjectRepository.ts # localStorage asosidagi repository
-  components/ControlsPanel.tsx
+  components/ControlsPanel.tsx       # stol parametrlari
+  components/RoomPanel.tsx           # xona sozlamalari
+  components/SceneHierarchyPanel.tsx # obyektlar ro'yxati
+  components/ObjectPanel.tsx         # tanlangan obyekt transformatsiyasi
   components/AiPromptPanel.tsx
   components/ProjectsPanel.tsx
   components/ExportControls.tsx
   components/ViewerCanvas.tsx
 ```
 
-Qatlamlar ajratilgan: `geometry/` hech qachon `viewer/`ni import qilmaydi; `viewer/`
-geometriyani iste'mol qiladi; `export/`, `ai/` va `projects/` alohida (UI'siz) ishlaydi;
-UI ularni birlashtiradi.
+Qatlamlar ajratilgan: `geometry/` va `scene/` hech qachon `viewer/`ni import qilmaydi;
+`scene/` — Three.js'siz (sof, testlanadi); `viewer/` geometriya/sahna quruvchilarini
+iste'mol qiladi; `export/`, `ai/`, `projects/` alohida (UI'siz) ishlaydi; UI birlashtiradi.
 
 ## Lokal ishga tushirish
 
@@ -138,49 +179,59 @@ npm run typecheck
 
 Avtomatik testlar quyidagilarni qamrab oladi:
 
-- Geometriya: qiymat diapazonlari, xato tekshiruvi, `buildTable` o'lchamlari/tuzilishi,
-  `paramsToFieldValues` ↔ `parseTableValues` mosligi.
-- Eksport tayyorlash: `buildExportScene` joriy parametrlarni ishlatishi, parametrlarni
-  o'zgartirmasligi va mavjud modelga tegmasligi.
-- Eksport baytlari: `exportTableToGlb` haqiqiy binary `.glb` (magic/versiya/BIN chunk)
-  chiqarishi, material va tanlangan rangni saqlashi (Node'da `FileReader` shim orqali).
-- Kamera ramkasi: `computeTableFraming` "Ko'rinishni tiklash" uchun asos.
-- AI adapter: matn tahlili (o'lchamlar, rang, `WxDxH`), sifat nazorati (diapazon/rang),
-  ishonch darajasi, qo'llab-quvvatlanmagan obyekt ogohlantirishi, bo'sh matn va rasm
-  kiritishni rad etish.
-- Loyihalar: saqlangan yozuvni tekshirish, buzilgan/yetishmayotgan ma'lumotni o'tkazib
-  yuborish, serializatsiya/deserializatsiya, CRUD (yaratish/yangilash/o'chirish),
-  dublikat bo'lmasligi va `updatedAt` bo'yicha tartiblash.
+- Geometriya: qiymat diapazonlari, xato tekshiruvi, `buildTable` va `buildRoom`
+  o'lchamlari/tuzilishi, `paramsToFieldValues` ↔ `parseTableValues` mosligi.
+- Sahna: `validateSceneData`/`validateSceneObject` (buzilgan, noma'lum tur, dublikat ID),
+  `sceneReducer` amallari (xona, qo'shish, tanlash, transform, ko'rinish, o'chirish,
+  yuklash/yangi), eski loyihani migratsiya qilish.
+- Sahna obyekti: `buildSceneObject` transformatsiyasi (joylashuv/burilish/masshtab) va
+  rangli/ko'rinish bayrog'i.
+- Eksport: `buildExportScene` xona + obyektlarni qamrashi, manba ma'lumotni
+  o'zgartirmasligi; `exportSceneToGlb` haqiqiy binary `.glb` (magic/versiya/BIN),
+  xona/obyekt geometriyasi, materiallar va transformatsiyalar (Node'da `FileReader` shim).
+- Kamera ramkasi: `computeTableFraming` va `computeRoomFraming`.
+- AI adapter: matn tahlili, sifat nazorati, ishonch darajasi, ogohlantirishlar, bo'sh
+  matn va rasm kiritishni rad etish.
+- Loyihalar: saqlangan yozuvni tekshirish, buzilgan ma'lumotni o'tkazib yuborish,
+  serializatsiya/deserializatsiya, CRUD, dublikat bo'lmasligi, `updatedAt` tartibi va
+  **eski (v1) loyihalarni sahnaga migratsiya**.
+- Katta sahna: **100 obyektli sahna** testi (validatsiya/serializatsiya/qayta qurish
+  vaqtlari o'lchanadi va `console.info` bilan chiqariladi).
 
 **Cheklov:** brauzerdagi haqiqiy fayl yuklab olish (download), sensorli imo-ishoralar,
-`window.confirm` oynasi va haqiqiy AI xizmati avtomatik testda to'liq tekshirilmaydi
-(WebGL/DOM/credentials talab qilinadi). Ular qo'lda tekshiriladi.
+`window.confirm` oynasi, raycast bilan tanlash va haqiqiy AI xizmati avtomatik testda
+to'liq tekshirilmaydi (WebGL/DOM/credentials talab qilinadi). Ular qo'lda tekshiriladi.
 
-### Qo'lda test tartibi (eksport, AI va sensorli ekran)
+### Qo'lda test tartibi (xona, eksport, AI va sensorli ekran)
 
 1. `npm run dev` (yoki `npm run build && npm run preview`) va sahifani oching.
-2. O'lchamlar va rangni o'zgartiring; model darhol yangilanishini ko'ring.
-3. **Modelni eksport qilish (.glb)** tugmasini bosing → `3d-studio-ai-table.glb`
-   fayli yuklab olinishi va "Model .glb fayl sifatida yuklab olindi." xabari chiqishi kerak.
-4. Yuklangan faylni glTF ko'ruvchida (masalan, https://gltf-viewer.donmccurdy.com)
-   ochib, o'lchamlar va rang mos kelishini tekshiring.
-5. **Ko'rinishni tiklash** tugmasini bosing → kamera standart holatga qaytishi kerak.
-6. **AI orqali yaratish**: masalan, "200x80x75 sm, qizil stol" kiriting va tugmani bosing →
-   parametrlar qo'llanishi, model yangilanishi va izohlar ko'rinishi kerak. "kenglik 500"
-   kabi qiymat diapazonga keltirilishini tekshiring.
-7. Android telefonda: bitta barmoq bilan aylantirish, ikki barmoq bilan zoom ishlashini
-   va sahifaning o'zi scroll bo'lmasligini tekshiring.
-8. Noto'g'ri qiymat kiriting (masalan, kenglik 999) → xato xabari chiqishi va eksport
-   tugmasi o'chirilishini tekshiring.
-9. **Loyihalar**: nom kiriting va **Saqlash** → ro'yxatda paydo bo'lishi kerak. Sahifani
-   yangilang → loyiha saqlanib qolganini tekshiring. **Ochish** → parametrlar tiklanadi.
-   Parametrni o'zgartirib **Yangilash** → dublikat yaratilmasligi kerak. **O'chirish** →
-   tasdiqlash so'rovi chiqishi va o'chirilishi kerak.
+2. **Stol parametrlari**: o'lchamlar va rangni o'zgartiring; model darhol yangilanishini
+   ko'ring.
+3. **Xona**: kenglik/uzunlik/balandlikni sozlang → pol va devorlar o'lchamga mos
+   o'zgarishi kerak. Noto'g'ri qiymat (masalan, 99999) kiriting → xato xabari chiqishi va
+   qiymat diapazonga keltirilishi kerak.
+4. **Stol qo'shish** → ro'yxatda yangi obyekt paydo bo'ladi; bir nechta stol birga
+   mavjud bo'ladi.
+5. **Transformatsiya**: tanlangan obyektning joylashuvi/burilishi/masshtabini raqamli
+   maydon va slayderlar orqali o'zgartiring → faqat shu obyekt o'zgarishi kerak.
+6. **Ko'rsatish/Yashirish** va **O'chirish** (tasdiq bilan) ishlashini tekshiring.
+7. 3D ko'rinishda obyekt ustiga bosib **tanlang** (qurilma ekranida ramka paydo bo'ladi).
+8. **Modelni eksport qilish (.glb)** → `3d-studio-ai-scene.glb` yuklab olinadi; faylni
+   glTF ko'ruvchida ochib, xona va obyektlar (geometriya/transform/material) mavjudligini
+   tekshiring.
+9. **Ko'rinishni tiklash** → kamera xona uchun standart holatga qaytishi kerak.
+10. **AI orqali yaratish**: "200x80x75 sm, qizil stol" → tanlangan stol parametrlari
+    qo'llanilishi kerak.
+11. **Loyihalar**: nom kiriting va **Saqlash** → ro'yxatda paydo bo'ladi. Sahifani
+    yangilang → loyiha saqlanib qoladi. **Ochish** → xona, obyektlar, transformlar va
+    ko'rinish holati tiklanadi. **Yangilash** → dublikat yaratilmaydi.
+12. Android telefonda: aylantirish/zoom, sahna ro'yxati va boshqaruvlarning tor ekranda
+    sig'ishi.
 
 ### Qo'lda test (faqat mobil)
 
-- Android telefonda: bitta barmoq bilan aylantirish, ikki barmoq bilan zoom, loyihalar
-  ro'yxati va tugmalarning tor ekranda sig'ishi.
+- Android telefonda: bitta barmoq bilan aylantirish, ikki barmoq bilan zoom, obyektni
+  barmoq bilan tanlash, saqlangan loyihalar ro'yxati va tugmalarning tor ekranda sig'ishi.
 
 ## Hujjatlar
 

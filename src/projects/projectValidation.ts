@@ -1,4 +1,5 @@
-import { parseTableValues, type TableFieldValues } from '../geometry/tableParams';
+import { migrateLegacyParamsToScene, validateSceneData } from '../scene/sceneValidation';
+import type { SceneData } from '../scene/types';
 import {
   DEFAULT_PROJECT_NAME,
   MAX_PROJECT_NAME_LENGTH,
@@ -31,18 +32,33 @@ function sanitizeTimestamp(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
-function coerceFieldValues(params: Record<string, unknown>): TableFieldValues {
-  return {
-    widthCm: String(params.widthCm ?? ''),
-    heightCm: String(params.heightCm ?? ''),
-    depthCm: String(params.depthCm ?? ''),
-    color: typeof params.color === 'string' ? params.color : '',
-  };
+/**
+ * Resolves the scene for a stored record, migrating legacy (v1) table-only
+ * projects that only carry `params`. Returns null when neither a usable scene
+ * nor legacy parameters are present.
+ */
+function resolveScene(value: Record<string, unknown>): SceneData | null {
+  if (isRecord(value.scene)) {
+    const result = validateSceneData(value.scene);
+    return result.scene;
+  }
+
+  if (isRecord(value.params)) {
+    const params = value.params;
+    return migrateLegacyParamsToScene({
+      widthCm: Number(params.widthCm),
+      heightCm: Number(params.heightCm),
+      depthCm: Number(params.depthCm),
+      color: typeof params.color === 'string' ? params.color : '',
+    });
+  }
+
+  return null;
 }
 
 /**
- * Validates one stored record. Returns a normalized project or `null` when the
- * entry is unusable (so a single corrupt record cannot break loading).
+ * Validates one stored record. Returns a normalized, migrated project or `null`
+ * when the entry is unusable (so a single corrupt record cannot break loading).
  */
 export function validateSavedProject(value: unknown): SavedProject | null {
   if (!isRecord(value)) {
@@ -54,23 +70,18 @@ export function validateSavedProject(value: unknown): SavedProject | null {
     return null;
   }
 
-  if (!isRecord(value.params)) {
-    return null;
-  }
-
-  const parsed = parseTableValues(coerceFieldValues(value.params));
-  if (!parsed.params) {
+  const scene = resolveScene(value);
+  if (!scene) {
     return null;
   }
 
   return {
     id: id.trim(),
     name: sanitizeName(value.name),
-    params: parsed.params,
+    scene,
     createdAt: sanitizeTimestamp(value.createdAt),
     updatedAt: sanitizeTimestamp(value.updatedAt),
-    schemaVersion:
-      typeof value.schemaVersion === 'number' ? value.schemaVersion : PROJECTS_SCHEMA_VERSION,
+    schemaVersion: PROJECTS_SCHEMA_VERSION,
   };
 }
 
