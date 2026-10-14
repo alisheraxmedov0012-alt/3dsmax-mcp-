@@ -1,0 +1,15 @@
+# Development / test tooling. NOT installed into the production image:
+# backend/Dockerfile installs only `requirements.txt`, so keeping lint and audit
+# tools here avoids shipping them at runtime.
+#
+# CI installs this file (see .github/workflows/ci.yml) so the tools are pinned
+# and reproducible in both CI and local development:
+#     pip install -r requirements-dev.txt
+
+-r requirements.txt
+
+# Backend lint (also used by CI).
+ruff==0.17.0
+
+# Dependency vulnerability audit (also used by CI).
+pip-audit==2.10.1

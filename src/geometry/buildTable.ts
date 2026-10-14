@@ -9,27 +9,35 @@ export interface BuiltTable {
   dispose: () => void;
 }
 
+export interface TableMaterial {
+  metalness?: number;
+  roughness?: number;
+}
+
 /**
  * Builds a procedural table from parameters: one top slab and four legs.
  * The result is plain Three.js geometry/meshes (no WebGL renderer), so the
  * function stays in the geometry layer and can be tested without a browser.
+ *
+ * `material` optionally overrides the PBR metalness/roughness (Stage 6);
+ * defaults preserve the Stage 1–5 appearance.
  */
-export function buildTable(params: TableParams): BuiltTable {
+export function buildTable(params: TableParams, material: TableMaterial = {}): BuiltTable {
   const { widthCm, heightCm, depthCm, color } = params;
 
   const group = new THREE.Group();
   group.name = 'table';
 
-  const material = new THREE.MeshStandardMaterial({
+  const pbr = new THREE.MeshStandardMaterial({
     color: new THREE.Color(color),
-    roughness: 0.6,
-    metalness: 0.05,
+    roughness: material.roughness ?? 0.6,
+    metalness: material.metalness ?? 0.05,
   });
   const geometries: THREE.BufferGeometry[] = [];
 
   const topGeometry = new THREE.BoxGeometry(widthCm, TABLE_TOP_THICKNESS_CM, depthCm);
   geometries.push(topGeometry);
-  const top = new THREE.Mesh(topGeometry, material);
+  const top = new THREE.Mesh(topGeometry, pbr);
   top.name = 'table-top';
   top.position.y = heightCm - TABLE_TOP_THICKNESS_CM / 2;
   top.castShadow = true;
@@ -54,7 +62,7 @@ export function buildTable(params: TableParams): BuiltTable {
   ];
 
   corners.forEach(([x, z], index) => {
-    const leg = new THREE.Mesh(legGeometry, material);
+    const leg = new THREE.Mesh(legGeometry, pbr);
     leg.name = `table-leg-${index + 1}`;
     leg.position.set(x, legHeight / 2, z);
     leg.castShadow = true;
@@ -66,7 +74,7 @@ export function buildTable(params: TableParams): BuiltTable {
     group,
     dispose: () => {
       geometries.forEach((geometry) => geometry.dispose());
-      material.dispose();
+      pbr.dispose();
     },
   };
 }

@@ -204,6 +204,647 @@ input[type='color'] {
   border: 1px solid #e05555;
 }
 
+/* ---------------- AI prompt ---------------- */
+
+.ai {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid #2a2f36;
+}
+
+.ai__title {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.ai__input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  color: #e8edf2;
+  background: #12161a;
+  border: 1px solid #2f353c;
+  border-radius: 8px;
+  resize: vertical;
+}
+
+.ai__button {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #0b1620;
+  background: #7ad0a3;
+  border: 1px solid #7ad0a3;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.ai__button:hover:not(:disabled) {
+  background: #92dcb4;
+}
+
+.ai__button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ai__message {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #9dd8b8;
+}
+
+.ai__message--error {
+  color: #ff8a8a;
+}
+
+.ai__details {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: #9aa6b2;
+}
+
+.ai__hint {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: #7f8b98;
+}
+
+/* ---------------- Projects ---------------- */
+
+.projects {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid #2a2f36;
+}
+
+.projects__title {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.projects__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.projects__save,
+.projects__new {
+  flex: 1 1 130px;
+  min-width: 0;
+  padding: 9px 12px;
+  font-size: 0.86rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.projects__save {
+  color: #0b1620;
+  background: #e2b04a;
+  border: 1px solid #e2b04a;
+}
+
+.projects__save:hover {
+  background: #ecc065;
+}
+
+.projects__new {
+  color: #e8edf2;
+  background: #262c33;
+  border: 1px solid #333b44;
+}
+
+.projects__new:hover:not(:disabled) {
+  background: #2e353d;
+}
+
+.projects__new:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.projects__message {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #e2c98a;
+}
+
+.projects__message--error {
+  color: #ff8a8a;
+}
+
+.projects__empty {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #8b96a2;
+}
+
+.projects__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.project {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #12161a;
+  border: 1px solid #2f353c;
+  border-radius: 8px;
+}
+
+.project--active {
+  border-color: #e2b04a;
+}
+
+.project__info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.project__name {
+  font-size: 0.86rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project__meta {
+  font-size: 0.72rem;
+  color: #8b96a2;
+}
+
+.project__actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.project__open,
+.project__delete {
+  padding: 6px 10px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.project__open {
+  color: #0b1620;
+  background: #4f9dff;
+  border: 1px solid #4f9dff;
+}
+
+.project__delete {
+  color: #ffd7d7;
+  background: #3a2224;
+  border: 1px solid #6b3236;
+}
+
+.projects__hint {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: #7f8b98;
+}
+
+/* ---------------- Scene panels (Stage 5) ---------------- */
+
+.table-params,
+.room,
+.hierarchy,
+.object {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid #2a2f36;
+}
+
+.table-params__title,
+.room__title,
+.hierarchy__title,
+.object__title {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.object__id {
+  margin: 0;
+  font-size: 0.74rem;
+  color: #8b96a2;
+}
+
+.object__empty {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #8b96a2;
+}
+
+.room--selected {
+  border-top-color: #4f9dff;
+}
+
+.room__actions,
+.object__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.room__select,
+.room__reset,
+.object__visibility,
+.object__delete,
+.hierarchy__add {
+  flex: 1 1 120px;
+  min-width: 0;
+  padding: 9px 12px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid #333b44;
+  background: #262c33;
+  color: #e8edf2;
+}
+
+.room__select:hover,
+.room__reset:hover,
+.object__visibility:hover,
+.hierarchy__add:hover {
+  background: #2e353d;
+}
+
+.object__delete {
+  color: #ffd7d7;
+  background: #3a2224;
+  border-color: #6b3236;
+}
+
+.hierarchy__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.node {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 8px;
+  background: #12161a;
+  border: 1px solid #2f353c;
+  border-radius: 8px;
+}
+
+.node--selected {
+  border-color: #4f9dff;
+}
+
+.node__select {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  text-align: left;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.node__name {
+  font-size: 0.84rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.node__meta {
+  font-size: 0.7rem;
+  color: #8b96a2;
+}
+
+.node__actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.node__visibility,
+.node__delete {
+  padding: 5px 8px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid #333b44;
+  background: #262c33;
+  color: #e8edf2;
+}
+
+.node__delete {
+  color: #ffd7d7;
+  background: #3a2224;
+  border-color: #6b3236;
+}
+
+.hierarchy__empty {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #8b96a2;
+}
+
+.object__group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.axis {
+  display: grid;
+  grid-template-columns: 18px 1fr 74px;
+  align-items: center;
+  gap: 6px;
+}
+
+.axis__label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #8b96a2;
+}
+
+.axis input[type='number'] {
+  padding: 6px 8px;
+  font-size: 0.8rem;
+}
+
+.readout {
+  max-width: calc(100% - 24px);
+  white-space: normal;
+  text-align: center;
+}
+
+/* ---------------- Visualization panels (Stage 6) ---------------- */
+
+.visual,
+.lighting,
+.material,
+.render {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid #2a2f36;
+}
+
+.visual__title,
+.lighting__title,
+.material__title,
+.render__title {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.visual__hint,
+.material__empty {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: #7f8b98;
+}
+
+.preset-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.preset {
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #e8edf2;
+  background: #262c33;
+  border: 1px solid #333b44;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.preset:hover {
+  background: #2e353d;
+}
+
+.preset--active {
+  border-color: #4f9dff;
+  outline: 2px solid rgba(79, 157, 255, 0.35);
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.84rem;
+  color: #e8edf2;
+  cursor: pointer;
+}
+
+.toggle input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: #4f9dff;
+}
+
+.visual-reset {
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #e8edf2;
+  background: #262c33;
+  border: 1px solid #333b44;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.visual-reset:hover {
+  background: #2e353d;
+}
+
+.render__button {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #0b1620;
+  background: #c9a1ff;
+  border: 1px solid #c9a1ff;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.render__button:hover:not(:disabled) {
+  background: #d5b6ff;
+}
+
+.render__button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.render__message {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #d9c7ff;
+}
+
+.render__message--error {
+  color: #ff8a8a;
+}
+
+/* ---------------- Account / billing (Stage 7) ---------------- */
+
+.account {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid #2a2f36;
+}
+
+.account__title {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.account__subtitle {
+  margin: 0;
+  font-size: 0.86rem;
+}
+
+.account__who,
+.account__meta,
+.account__hint {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: #8b96a2;
+}
+
+.account__block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: #12161a;
+  border: 1px solid #2f353c;
+  border-radius: 8px;
+}
+
+.account__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.account__primary,
+.account__secondary {
+  flex: 1 1 120px;
+  min-width: 0;
+  padding: 9px 12px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid #333b44;
+  background: #262c33;
+  color: #e8edf2;
+}
+
+.account__primary {
+  color: #0b1620;
+  background: #7ad0a3;
+  border-color: #7ad0a3;
+}
+
+.account__secondary:hover,
+.account__primary:hover {
+  filter: brightness(1.1);
+}
+
+.account__list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: #9aa6b2;
+}
+
+.account__message {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #9dd8b8;
+}
+
+.account__message--error {
+  color: #ff8a8a;
+}
+
+.plan-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.8rem;
+}
+
+.plan-row__name {
+  font-weight: 600;
+}
+
+.plan-row__price {
+  font-size: 0.74rem;
+  color: #8b96a2;
+  flex: 1 1 auto;
+  text-align: right;
+}
+
 /* ---------------- Export ---------------- */
 
 .export {

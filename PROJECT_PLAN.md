@@ -1,7 +1,11 @@
 # 3D Studio AI — Project Plan
 
-> Holat: 0–2-bosqich bajarildi (poydevor, MVP, o'zaro ta'sir va `.glb` eksport).
-> Ushbu hujjat reja va arxitektura tavsiyalarini belgilaydi.
+> Holat: 0–8-bosqich bajarildi (poydevor, MVP, o'zaro ta'sir/eksport, AI adapter,
+> loyihalarni saqlash, arxitektura va interyer, mahsulot vizualizatsiyasi,
+> hisoblar/obuna/to'lovlar — sandbox, xavfsizlik/testlar/deploy tayyorgarligi).
+> **Production chiqarilmagan** — tashqi resurslar (hosting, TLS, boshqariladigan
+> PostgreSQL, secret manager, monitoring) kutilmoqda. Ushbu hujjat reja va arxitektura
+> tavsiyalarini belgilaydi.
 > Diqqat: bu yerdagi barcha texnologiyalar **tavsiya** sifatida keltirilgan. Hech qanday
 > tayyor 3D generator yoki mavjud bo'lmagan API "bor" deb da'vo qilinmaydi — har bir
 > integratsiya tanlovi tegishli bosqichda tekshiriladi va tasdiqlanadi.
