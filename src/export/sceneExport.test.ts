@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { buildExportScene, exportSceneToGlb, SCENE_EXPORT_FILENAME } from './sceneExport';
-import { createTableSceneObject, SCENE_SCHEMA_VERSION, type SceneData } from '../scene/types';
+import {
+  createFurnitureSceneObject,
+  createTableSceneObject,
+  SCENE_SCHEMA_VERSION,
+  type SceneData,
+} from '../scene/types';
 import { createDefaultSettings } from '../scene/sceneSettings';
 
 /**
@@ -162,6 +167,37 @@ describe('exportSceneToGlb', () => {
 
   it('exposes a meaningful default filename', () => {
     expect(SCENE_EXPORT_FILENAME).toBe('3d-studio-ai-scene.glb');
+  });
+
+  it('exports a non-table furniture type (sofa) with all its parts', async () => {
+    const buffer = await exportSceneToGlb(
+      makeScene({ objects: [createFurnitureSceneObject('sofa', 's1')] }),
+    );
+    const { json } = parseGlb(buffer);
+
+    const node = (json.nodes ?? []).find((entry) => entry.name === 'object:s1');
+    expect(node).toBeDefined();
+    // The sofa is built from several parts, so more than one mesh is written.
+    expect((json.meshes ?? []).length).toBeGreaterThan(1);
+  });
+
+  it('exports a scene containing several different furniture types', async () => {
+    const buffer = await exportSceneToGlb(
+      makeScene({
+        objects: [
+          createTableSceneObject('t1'),
+          createFurnitureSceneObject('chair', 'c1'),
+          createFurnitureSceneObject('wardrobe', 'w1'),
+        ],
+      }),
+    );
+    const parsed = parseGlb(buffer);
+    expect(parsed.version).toBe(2);
+    expect(parsed.hasBin).toBe(true);
+    const names = (parsed.json.nodes ?? []).map((entry) => entry.name);
+    expect(names).toContain('object:t1');
+    expect(names).toContain('object:c1');
+    expect(names).toContain('object:w1');
   });
 
   it('writes per-object PBR material values into the GLB', async () => {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { AccountPanel } from './components/AccountPanel';
 import { AiPromptPanel } from './components/AiPromptPanel';
-import { ControlsPanel } from './components/ControlsPanel';
+import { FurniturePanel } from './components/FurniturePanel';
 import { ExportControls, type ExportStatus } from './components/ExportControls';
 import { LightingPanel } from './components/LightingPanel';
 import { MaterialPanel } from './components/MaterialPanel';
@@ -15,14 +15,13 @@ import { ViewerCanvas } from './components/ViewerCanvas';
 import { downloadArrayBuffer, downloadBlob } from './export/downloadFile';
 import { exportSceneToGlb, SCENE_EXPORT_FILENAME } from './export/sceneExport';
 import { exportScenePng, type PngPreset } from './export/sceneImage';
+import type { TableParams } from './geometry/tableParams';
 import {
-  DEFAULT_FIELD_VALUES,
-  paramsToFieldValues,
-  parseTableValues,
-  TABLE_DEFAULTS,
-  type TableFieldValues,
-  type TableParams,
-} from './geometry/tableParams';
+  createFurnitureParams,
+  furnitureParamsToFieldValues,
+  parseFurnitureValues,
+  type FurnitureType,
+} from './geometry/furniture';
 import { createLocalProjectRepository } from './projects/localProjectRepository';
 import type { ProjectRepository, SavedProject } from './projects/types';
 import { findSceneObject, sceneReducer } from './scene/sceneReducer';
@@ -46,7 +45,9 @@ export default function App() {
     () => createDefaultSceneState(createSceneObjectId),
   );
 
-  const [values, setValues] = useState<TableFieldValues>(DEFAULT_FIELD_VALUES);
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    furnitureParamsToFieldValues('table', createFurnitureParams('table')),
+  );
   const [resetToken, setResetToken] = useState(0);
   const [cameraPresetToken, setCameraPresetToken] = useState(0);
 
@@ -73,15 +74,18 @@ export default function App() {
   };
 
   const selectedObject = findSceneObject(scene, scene.selectedId);
-  const selectedTable = selectedObject && selectedObject.type === 'table' ? selectedObject : null;
-  const parsed = useMemo(() => parseTableValues(values), [values]);
+  const parsed = useMemo(
+    () => (selectedObject ? parseFurnitureValues(selectedObject.type, values) : null),
+    [selectedObject, values],
+  );
+  const paramsValid = parsed ? parsed.valid : true;
   const settings = scene.data.settings;
 
-  // Keep the table parameter controls in sync with the selected table.
+  // Keep the parameter controls in sync with the selected object.
   useEffect(() => {
-    const table = findSceneObject(scene, scene.selectedId);
-    if (table && table.type === 'table') {
-      setValues(paramsToFieldValues(table.params));
+    const object = findSceneObject(scene, scene.selectedId);
+    if (object) {
+      setValues(furnitureParamsToFieldValues(object.type, object.params));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene.selectedId]);
@@ -101,26 +105,35 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleTableChange = (field: keyof TableFieldValues, value: string) => {
+  const handleParamsChange = (field: string, value: string) => {
+    if (!selectedObject) {
+      return;
+    }
     const next = { ...values, [field]: value };
     setValues(next);
-    const result = parseTableValues(next);
-    if (result.params && selectedTable) {
-      dispatch({ type: 'UPDATE_PARAMS', id: selectedTable.id, params: result.params });
+    const result = parseFurnitureValues(selectedObject.type, next);
+    if (result.valid && result.params) {
+      dispatch({ type: 'UPDATE_PARAMS', id: selectedObject.id, params: result.params });
     }
   };
 
-  const handleTableReset = () => {
-    setValues(DEFAULT_FIELD_VALUES);
-    if (selectedTable) {
-      dispatch({ type: 'UPDATE_PARAMS', id: selectedTable.id, params: { ...TABLE_DEFAULTS } });
+  const handleParamsReset = () => {
+    if (!selectedObject) {
+      return;
     }
+    const defaults = createFurnitureParams(selectedObject.type);
+    setValues(furnitureParamsToFieldValues(selectedObject.type, defaults));
+    dispatch({ type: 'UPDATE_PARAMS', id: selectedObject.id, params: defaults });
+  };
+
+  const handleAddFurniture = (type: FurnitureType) => {
+    dispatch({ type: 'ADD_FURNITURE', furnitureType: type, id: createSceneObjectId() });
   };
 
   const applyProposal = (params: TableParams) => {
-    setValues(paramsToFieldValues(params));
-    if (selectedTable) {
-      dispatch({ type: 'UPDATE_PARAMS', id: selectedTable.id, params });
+    setValues(furnitureParamsToFieldValues('table', params));
+    if (selectedObject) {
+      dispatch({ type: 'UPDATE_PARAMS', id: selectedObject.id, params });
     }
   };
 
@@ -137,26 +150,26 @@ export default function App() {
     rotation?: Partial<Vec3>;
     scale?: Partial<Vec3>;
   }) => {
-    if (selectedTable) {
-      dispatch({ type: 'UPDATE_TRANSFORM', id: selectedTable.id, ...patch });
+    if (selectedObject) {
+      dispatch({ type: 'UPDATE_TRANSFORM', id: selectedObject.id, ...patch });
     }
   };
 
   const handleRename = (name: string) => {
-    if (selectedTable) {
-      dispatch({ type: 'RENAME_OBJECT', id: selectedTable.id, name });
+    if (selectedObject) {
+      dispatch({ type: 'RENAME_OBJECT', id: selectedObject.id, name });
     }
   };
 
   const handleMaterial = (patch: Partial<ObjectMaterial>) => {
-    if (selectedTable) {
-      dispatch({ type: 'UPDATE_MATERIAL', id: selectedTable.id, material: patch });
+    if (selectedObject) {
+      dispatch({ type: 'UPDATE_MATERIAL', id: selectedObject.id, material: patch });
     }
   };
 
   const handleResetMaterial = () => {
-    if (selectedTable) {
-      dispatch({ type: 'RESET_MATERIAL', id: selectedTable.id });
+    if (selectedObject) {
+      dispatch({ type: 'RESET_MATERIAL', id: selectedObject.id });
     }
   };
 
@@ -218,7 +231,7 @@ export default function App() {
 
   const handleNewProject = () => {
     dispatch({ type: 'NEW_SCENE', id: createSceneObjectId() });
-    setValues(DEFAULT_FIELD_VALUES);
+    setValues(furnitureParamsToFieldValues('table', createFurnitureParams('table')));
     setActiveProjectId(null);
     setProjectName('');
     setProjectsStatus('idle');
@@ -227,8 +240,12 @@ export default function App() {
 
   const handleOpenProject = (project: SavedProject) => {
     dispatch({ type: 'LOAD_SCENE', scene: project.scene });
-    const firstTable = project.scene.objects.find((object) => object.type === 'table');
-    setValues(firstTable ? paramsToFieldValues(firstTable.params) : DEFAULT_FIELD_VALUES);
+    const first = project.scene.objects[0];
+    setValues(
+      first
+        ? furnitureParamsToFieldValues(first.type, first.params)
+        : furnitureParamsToFieldValues('table', createFurnitureParams('table')),
+    );
     setActiveProjectId(project.id);
     setProjectName(project.name);
     setProjectsStatus('ok');
@@ -314,12 +331,13 @@ export default function App() {
 
   return (
     <div className="app">
-      <ControlsPanel
+      <FurniturePanel
+        object={selectedObject}
         values={values}
-        errors={parsed.errors}
-        onChange={handleTableChange}
-        onReset={handleTableReset}
-        tableSelected={selectedTable !== null}
+        errors={parsed?.errors ?? {}}
+        onChange={handleParamsChange}
+        onReset={handleParamsReset}
+        onAdd={handleAddFurniture}
       >
         <RoomPanel
           room={scene.data.room}
@@ -351,14 +369,14 @@ export default function App() {
           onAddTable={handleAddTable}
         />
         <ObjectPanel
-          object={selectedTable}
+          object={selectedObject}
           onTransform={handleTransform}
           onRename={handleRename}
-          onToggleVisibility={() => selectedTable && handleToggleVisibility(selectedTable.id)}
-          onDelete={() => selectedTable && handleDeleteObject(selectedTable.id)}
+          onToggleVisibility={() => selectedObject && handleToggleVisibility(selectedObject.id)}
+          onDelete={() => selectedObject && handleDeleteObject(selectedObject.id)}
         />
         <MaterialPanel
-          object={selectedTable}
+          object={selectedObject}
           onMaterial={handleMaterial}
           onReset={handleResetMaterial}
         />
@@ -379,7 +397,7 @@ export default function App() {
         <ExportControls
           status={exportStatus}
           message={exportMessage}
-          disabled={!parsed.valid}
+          disabled={!paramsValid}
           onExport={handleExportGlb}
         />
         <RenderExportPanel
@@ -390,7 +408,7 @@ export default function App() {
           onPresetChange={setPngPreset}
           onExport={handleExportPng}
         />
-      </ControlsPanel>
+      </FurniturePanel>
 
       <main className="stage">
         <ViewerCanvas
@@ -416,9 +434,9 @@ export default function App() {
           {scene.data.room.heightCm} sm · {scene.data.objects.length} obyekt
         </div>
 
-        {!parsed.valid && (
+        {!paramsValid && (
           <div className="banner" role="alert">
-            Stol qiymatlari noto'g'ri — model oxirgi to'g'ri holatda ko'rsatilmoqda.
+            Mebel qiymatlari noto'g'ri — model oxirgi to'g'ri holatda ko'rsatilmoqda.
           </div>
         )}
       </main>

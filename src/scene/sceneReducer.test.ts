@@ -192,6 +192,51 @@ describe('sceneReducer', () => {
     expect(findSceneObject(reset, id)?.material.roughness).toBe(0.6);
   });
 
+  it('adds a furniture object of the chosen type and selects it', () => {
+    const state = sceneReducer(initialState(), {
+      type: 'ADD_FURNITURE',
+      furnitureType: 'wardrobe',
+      id: 'w1',
+    });
+    const added = findSceneObject(state, 'w1');
+    expect(added?.type).toBe('wardrobe');
+    expect(state.selectedId).toBe('w1');
+    expect(added?.params.widthCm).toBeGreaterThan(0);
+    expect(state.data.objects).toHaveLength(2);
+  });
+
+  it('applies transform/visibility/delete to any furniture type', () => {
+    let state = sceneReducer(initialState(), {
+      type: 'ADD_FURNITURE',
+      furnitureType: 'sofa',
+      id: 's1',
+    });
+    state = sceneReducer(state, {
+      type: 'UPDATE_TRANSFORM',
+      id: 's1',
+      position: { x: 100 },
+    });
+    expect(findSceneObject(state, 's1')?.position.x).toBe(100);
+
+    state = sceneReducer(state, { type: 'TOGGLE_VISIBILITY', id: 's1' });
+    expect(findSceneObject(state, 's1')?.visible).toBe(false);
+
+    state = sceneReducer(state, { type: 'DELETE_OBJECT', id: 's1' });
+    expect(findSceneObject(state, 's1')).toBeNull();
+  });
+
+  it('ignores UPDATE_PARAMS with values invalid for the object type', () => {
+    const state0 = initialState();
+    const id = state0.data.objects[0].id; // a table
+    const next = sceneReducer(state0, {
+      type: 'UPDATE_PARAMS',
+      id,
+      params: { widthCm: 9999, heightCm: 75, depthCm: 60, color: '#a9744f' },
+    });
+    // Out of range -> rejected, the object keeps its previous parameters.
+    expect(findSceneObject(next, id)?.params.widthCm).toBe(120);
+  });
+
   it('sets the scene background', () => {
     const state = sceneReducer(initialState(), { type: 'SET_BACKGROUND', color: '#ff0000' });
     expect(state.data.settings.background).toBe('#ff0000');
