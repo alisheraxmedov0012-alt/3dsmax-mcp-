@@ -4,7 +4,7 @@
 3D modellarini matn yoki rasm orqali yaratish, brauzerda ko'rish, o'lchamlarini
 o'zgartirish va eksport qilish uchun veb-platforma.
 
-Hozirgi holat: **2-bosqich** — 3D model bilan o'zaro ta'sir va `.glb` eksport.
+Hozirgi holat: **3-bosqich** — AI orqali model yaratishni yaxshilash (mahalliy adapter).
 
 ## 1-bosqich MVP imkoniyatlari
 
@@ -27,19 +27,35 @@ Hozirgi holat: **2-bosqich** — 3D model bilan o'zaro ta'sir va `.glb` eksport.
 - Eksport holati va xatolari foydalanuvchiga o'zbek tilida ko'rsatiladi.
 - Tor mobil ekranlarda ham boshqaruv elementlari sig'adi (gorizontal scroll yo'q).
 
+## 3-bosqich imkoniyatlari (AI orqali yaratish)
+
+- **AI adapter interfeysi** (`AiModelAdapter`) — matn→3D va rasm→3D qobiliyatlari
+  bilan; kelajakda haqiqiy AI xizmatini shu interfeys orqali ulash mumkin.
+- **Mahalliy (oflayn) adapter**: matn tavsifini tahlil qilib stol parametrlarini
+  aniqlaydi (o'lchamlar, rang). Tashqi AI xizmati, API kaliti yoki tarmoq ishlatilmaydi.
+- **Sifat nazorati**: qiymatlarni ruxsat etilgan diapazonga keltirish, rangni
+  normallashtirish, natijani geometriya qatlami tekshiruvidan o'tkazish, ogohlantirishlar
+  va ishonch darajasi (yuqori/o'rta/past).
+- Natija mavjud boshqaruvlarga qo'llaniladi — model darhol yangilanadi.
+- Hozircha **rasm→3D qo'llab-quvvatlanmaydi** (adapter buni aniq bildiradi), chunki
+  haqiqiy AI xizmati hali tanlanmagan.
+
 Hali qo'shilmagan (keyingi bosqichlar): autentifikatsiya, obuna/to'lov, ma'lumotlar
-bazasi, tashqi AI API integratsiyasi, boshqa mebel turlari, arxitektura moduli.
+bazasi, tashqi AI xizmati integratsiyasi (adapter tayyor), boshqa mebel turlari,
+arxitektura moduli.
 
 ## Texnologiyalar
 
 - **Frontend:** React + TypeScript, Vite.
 - **Brauzerdagi 3D ko'rish qatlami:** Three.js (`WebGLRenderer`, `OrbitControls`).
 - **Eksport:** Three.js `GLTFExporter` (`.glb`, binary) — faqat brauzerda ishlaydi.
+- **AI qatlami:** adapter interfeysi + mahalliy (oflayn) qoidaga asoslangan implementatsiya.
 - **Testlar:** Vitest.
 
 > Eslatma: hujjatlardagi texnologiyalar tavsiya sifatida keltirilgan. Hech qanday tayyor
-> 3D generator yoki mavjud bo'lmagan API "bor" deb da'vo qilinmaydi. Bu loyihada geometriya
-> **parametrik (procedural)** usulda, kodda quriladi — AI ishlatilmaydi.
+> 3D generator yoki mavjud bo'lmagan API "bor" deb da'vo qilinmaydi. Geometriya hanuz
+> **parametrik (procedural)** usulda, kodda quriladi; Stage 3'dagi "AI" qismi — tashqi
+> xizmatga tayyor **adapter** va **mahalliy** matn tahlili, haqiqiy AI xizmati emas.
 
 ## Loyiha tuzilishi
 
@@ -54,13 +70,18 @@ src/
   viewer/TableViewer.ts     # ko'rish qatlami: scena, kamera, chiroqlar, boshqaruv
   export/tableExport.ts     # modelni .glb baytlariga aylantirish (GLTFExporter)
   export/downloadFile.ts    # brauzerda faylni yuklab olish (DOM)
+  ai/types.ts               # AiModelAdapter interfeysi va turlar
+  ai/normalizeProposal.ts   # sifat nazorati: diapazon/rang + geometriya tekshiruvi
+  ai/localTableAdapter.ts   # mahalliy matn→parametr adapteri (oflayn)
   components/ControlsPanel.tsx
+  components/AiPromptPanel.tsx
   components/ExportControls.tsx
   components/ViewerCanvas.tsx
 ```
 
 Qatlamlar ajratilgan: `geometry/` hech qachon `viewer/`ni import qilmaydi; `viewer/`
-geometriyani iste'mol qiladi; `export/` alohida (UI'siz) ishlaydi; UI ularni birlashtiradi.
+geometriyani iste'mol qiladi; `export/` va `ai/` alohida (UI'siz) ishlaydi; UI ularni
+birlashtiradi.
 
 ## Lokal ishga tushirish
 
@@ -89,18 +110,22 @@ npm run typecheck
 
 Avtomatik testlar quyidagilarni qamrab oladi:
 
-- Geometriya: qiymat diapazonlari, xato tekshiruvi, `buildTable` o'lchamlari/tuzilishi.
+- Geometriya: qiymat diapazonlari, xato tekshiruvi, `buildTable` o'lchamlari/tuzilishi,
+  `paramsToFieldValues` ↔ `parseTableValues` mosligi.
 - Eksport tayyorlash: `buildExportScene` joriy parametrlarni ishlatishi, parametrlarni
   o'zgartirmasligi va mavjud modelga tegmasligi.
 - Eksport baytlari: `exportTableToGlb` haqiqiy binary `.glb` (magic/versiya/BIN chunk)
   chiqarishi, material va tanlangan rangni saqlashi (Node'da `FileReader` shim orqali).
 - Kamera ramkasi: `computeTableFraming` "Ko'rinishni tiklash" uchun asos.
+- AI adapter: matn tahlili (o'lchamlar, rang, `WxDxH`), sifat nazorati (diapazon/rang),
+  ishonch darajasi, qo'llab-quvvatlanmagan obyekt ogohlantirishi, bo'sh matn va rasm
+  kiritishni rad etish.
 
-**Cheklov:** brauzerdagi haqiqiy fayl yuklab olish (download) va sensorli imo-ishoralar
-avtomatik testda to'liq tekshirilmaydi (WebGL/DOM talab qilinadi). Ular quyida qo'lda
-tekshiriladi.
+**Cheklov:** brauzerdagi haqiqiy fayl yuklab olish (download), sensorli imo-ishoralar va
+haqiqiy AI xizmati avtomatik testda to'liq tekshirilmaydi (WebGL/DOM/credentials talab
+qilinadi). Ular quyida qo'lda tekshiriladi.
 
-### Qo'lda test tartibi (eksport va sensorli ekran)
+### Qo'lda test tartibi (eksport, AI va sensorli ekran)
 
 1. `npm run dev` (yoki `npm run build && npm run preview`) va sahifani oching.
 2. O'lchamlar va rangni o'zgartiring; model darhol yangilanishini ko'ring.
@@ -109,9 +134,12 @@ tekshiriladi.
 4. Yuklangan faylni glTF ko'ruvchida (masalan, https://gltf-viewer.donmccurdy.com)
    ochib, o'lchamlar va rang mos kelishini tekshiring.
 5. **Ko'rinishni tiklash** tugmasini bosing → kamera standart holatga qaytishi kerak.
-6. Android telefonda: bitta barmoq bilan aylantirish, ikki barmoq bilan zoom ishlashini
+6. **AI orqali yaratish**: masalan, "200x80x75 sm, qizil stol" kiriting va tugmani bosing →
+   parametrlar qo'llanishi, model yangilanishi va izohlar ko'rinishi kerak. "kenglik 500"
+   kabi qiymat diapazonga keltirilishini tekshiring.
+7. Android telefonda: bitta barmoq bilan aylantirish, ikki barmoq bilan zoom ishlashini
    va sahifaning o'zi scroll bo'lmasligini tekshiring.
-7. Noto'g'ri qiymat kiriting (masalan, kenglik 999) → xato xabari chiqishi va eksport
+8. Noto'g'ri qiymat kiriting (masalan, kenglik 999) → xato xabari chiqishi va eksport
    tugmasi o'chirilishini tekshiring.
 
 ## Hujjatlar
