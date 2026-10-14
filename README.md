@@ -4,7 +4,7 @@
 3D modellarini matn yoki rasm orqali yaratish, brauzerda ko'rish, o'lchamlarini
 o'zgartirish va eksport qilish uchun veb-platforma.
 
-Hozirgi holat: **3-bosqich** — AI orqali model yaratishni yaxshilash (mahalliy adapter).
+Hozirgi holat: **4-bosqich** — foydalanuvchi loyihalari va saqlash (brauzerda lokal).
 
 ## 1-bosqich MVP imkoniyatlari
 
@@ -44,12 +44,36 @@ Hali qo'shilmagan (keyingi bosqichlar): autentifikatsiya, obuna/to'lov, ma'lumot
 bazasi, tashqi AI xizmati integratsiyasi (adapter tayyor), boshqa mebel turlari,
 arxitektura moduli.
 
+## 4-bosqich imkoniyatlari (loyihalar va saqlash)
+
+- **Loyihani saqlash**: joriy model parametrlari (o'lchamlar + rang) va nom bilan
+  saqlanadi.
+- **Ro'yxat**: saqlangan loyihalar ro'yxati (nomi va o'lchamlari bilan) ko'rsatiladi.
+- **Qayta ochish**: saqlangan loyiha tanlanadi va uning parametrlari/ko'rinishi tiklanadi.
+- **Yangilash**: faol loyiha ustidan saqlash — dublikat yaratmaydi ("Saqlash" tugmasi
+  faol loyihada "Yangilash"ga aylanadi).
+- **O'chirish**: tasdiqlash so'rovi bilan (`window.confirm`).
+- **Bo'sh holat va xabarlar**: o'zbek tilida; yuklangan ma'lumotlar qo'llashdan oldin
+  tekshiriladi; buzilgan/yaroqsiz yozuvlar ilovani buzmasdan o'tkazib yuboriladi.
+
+### Muhim cheklovlar (Stage 4)
+
+- Saqlash **brauzerda lokal** (`localStorage`) — hozircha backend/ma'lumotlar bazasi
+  yo'q. Ma'lumotlar **qurilmalar o'rtasida sinxronlanmaydi** va brauzer ma'lumotlari
+  tozalansa yo'qoladi.
+- Reja "egalik va rollar" hamda "versiyalash"ni eslatadi, ammo **egalik/rollar**
+  autentifikatsiya (7-bosqich) talab qiladi va **to'liq versiya tarixi** hali
+  qo'shilmagan. Bular keyingi bosqichlarga qoldirilgan (hujjatlashtirilgan).
+- Persistensiya `ProjectRepository` interfeysi ortida — kelajakda backend bilan
+  almashtirilishi mumkin.
+
 ## Texnologiyalar
 
 - **Frontend:** React + TypeScript, Vite.
 - **Brauzerdagi 3D ko'rish qatlami:** Three.js (`WebGLRenderer`, `OrbitControls`).
 - **Eksport:** Three.js `GLTFExporter` (`.glb`, binary) — faqat brauzerda ishlaydi.
 - **AI qatlami:** adapter interfeysi + mahalliy (oflayn) qoidaga asoslangan implementatsiya.
+- **Saqlash (Stage 4):** brauzerdagi `localStorage` (`ProjectRepository` interfeysi ortida).
 - **Testlar:** Vitest.
 
 > Eslatma: hujjatlardagi texnologiyalar tavsiya sifatida keltirilgan. Hech qanday tayyor
@@ -73,15 +97,19 @@ src/
   ai/types.ts               # AiModelAdapter interfeysi va turlar
   ai/normalizeProposal.ts   # sifat nazorati: diapazon/rang + geometriya tekshiruvi
   ai/localTableAdapter.ts   # mahalliy matn→parametr adapteri (oflayn)
+  projects/types.ts         # SavedProject, ProjectRepository interfeysi
+  projects/projectValidation.ts      # saqlangan ma'lumotni tekshirish/serializatsiya
+  projects/localProjectRepository.ts # localStorage asosidagi repository
   components/ControlsPanel.tsx
   components/AiPromptPanel.tsx
+  components/ProjectsPanel.tsx
   components/ExportControls.tsx
   components/ViewerCanvas.tsx
 ```
 
 Qatlamlar ajratilgan: `geometry/` hech qachon `viewer/`ni import qilmaydi; `viewer/`
-geometriyani iste'mol qiladi; `export/` va `ai/` alohida (UI'siz) ishlaydi; UI ularni
-birlashtiradi.
+geometriyani iste'mol qiladi; `export/`, `ai/` va `projects/` alohida (UI'siz) ishlaydi;
+UI ularni birlashtiradi.
 
 ## Lokal ishga tushirish
 
@@ -120,10 +148,13 @@ Avtomatik testlar quyidagilarni qamrab oladi:
 - AI adapter: matn tahlili (o'lchamlar, rang, `WxDxH`), sifat nazorati (diapazon/rang),
   ishonch darajasi, qo'llab-quvvatlanmagan obyekt ogohlantirishi, bo'sh matn va rasm
   kiritishni rad etish.
+- Loyihalar: saqlangan yozuvni tekshirish, buzilgan/yetishmayotgan ma'lumotni o'tkazib
+  yuborish, serializatsiya/deserializatsiya, CRUD (yaratish/yangilash/o'chirish),
+  dublikat bo'lmasligi va `updatedAt` bo'yicha tartiblash.
 
-**Cheklov:** brauzerdagi haqiqiy fayl yuklab olish (download), sensorli imo-ishoralar va
-haqiqiy AI xizmati avtomatik testda to'liq tekshirilmaydi (WebGL/DOM/credentials talab
-qilinadi). Ular quyida qo'lda tekshiriladi.
+**Cheklov:** brauzerdagi haqiqiy fayl yuklab olish (download), sensorli imo-ishoralar,
+`window.confirm` oynasi va haqiqiy AI xizmati avtomatik testda to'liq tekshirilmaydi
+(WebGL/DOM/credentials talab qilinadi). Ular qo'lda tekshiriladi.
 
 ### Qo'lda test tartibi (eksport, AI va sensorli ekran)
 
@@ -141,6 +172,15 @@ qilinadi). Ular quyida qo'lda tekshiriladi.
    va sahifaning o'zi scroll bo'lmasligini tekshiring.
 8. Noto'g'ri qiymat kiriting (masalan, kenglik 999) → xato xabari chiqishi va eksport
    tugmasi o'chirilishini tekshiring.
+9. **Loyihalar**: nom kiriting va **Saqlash** → ro'yxatda paydo bo'lishi kerak. Sahifani
+   yangilang → loyiha saqlanib qolganini tekshiring. **Ochish** → parametrlar tiklanadi.
+   Parametrni o'zgartirib **Yangilash** → dublikat yaratilmasligi kerak. **O'chirish** →
+   tasdiqlash so'rovi chiqishi va o'chirilishi kerak.
+
+### Qo'lda test (faqat mobil)
+
+- Android telefonda: bitta barmoq bilan aylantirish, ikki barmoq bilan zoom, loyihalar
+  ro'yxati va tugmalarning tor ekranda sig'ishi.
 
 ## Hujjatlar
 

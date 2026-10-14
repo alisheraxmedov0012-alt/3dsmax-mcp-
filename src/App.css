@@ -279,6 +279,159 @@ input[type='color'] {
   color: #7f8b98;
 }
 
+/* ---------------- Projects ---------------- */
+
+.projects {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid #2a2f36;
+}
+
+.projects__title {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.projects__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.projects__save,
+.projects__new {
+  flex: 1 1 130px;
+  min-width: 0;
+  padding: 9px 12px;
+  font-size: 0.86rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.projects__save {
+  color: #0b1620;
+  background: #e2b04a;
+  border: 1px solid #e2b04a;
+}
+
+.projects__save:hover {
+  background: #ecc065;
+}
+
+.projects__new {
+  color: #e8edf2;
+  background: #262c33;
+  border: 1px solid #333b44;
+}
+
+.projects__new:hover:not(:disabled) {
+  background: #2e353d;
+}
+
+.projects__new:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.projects__message {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #e2c98a;
+}
+
+.projects__message--error {
+  color: #ff8a8a;
+}
+
+.projects__empty {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #8b96a2;
+}
+
+.projects__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.project {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #12161a;
+  border: 1px solid #2f353c;
+  border-radius: 8px;
+}
+
+.project--active {
+  border-color: #e2b04a;
+}
+
+.project__info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.project__name {
+  font-size: 0.86rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project__meta {
+  font-size: 0.72rem;
+  color: #8b96a2;
+}
+
+.project__actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.project__open,
+.project__delete {
+  padding: 6px 10px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.project__open {
+  color: #0b1620;
+  background: #4f9dff;
+  border: 1px solid #4f9dff;
+}
+
+.project__delete {
+  color: #ffd7d7;
+  background: #3a2224;
+  border: 1px solid #6b3236;
+}
+
+.projects__hint {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: #7f8b98;
+}
+
 /* ---------------- Export ---------------- */
 
 .export {
