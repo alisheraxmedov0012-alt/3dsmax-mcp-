@@ -1,0 +1,72 @@
+# Local development / test stack: PostgreSQL + Redis + backend + frontend.
+# All values here are LOCAL placeholders — never use them in production.
+# Production uses managed PostgreSQL, a managed Redis, and secrets injected by
+# the platform's secret manager (see README).
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: studio
+      POSTGRES_PASSWORD: studio_local_dev
+      POSTGRES_DB: studio
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U studio -d studio"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      APP_ENVIRONMENT: development
+      APP_DEBUG: "false"
+      APP_DATABASE_URL: postgresql+psycopg://studio:studio_local_dev@db:5432/studio
+      APP_SECRET_KEY: local-dev-only-not-a-real-secret-key-change-me
+      APP_COOKIE_SECURE: "false"
+      APP_EXPOSE_DEV_TOKENS: "true"
+      APP_CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      APP_RATE_LIMIT_BACKEND: redis
+      APP_REDIS_URL: redis://redis:6379/0
+      APP_PAYMENT_PROVIDER: fake
+      APP_PAYMENT_WEBHOOK_SECRET: local-sandbox-webhook-secret
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm ci && npm run dev -- --host 0.0.0.0"
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - .:/app
+    depends_on:
+      - backend
+
+volumes:
+  db_data:

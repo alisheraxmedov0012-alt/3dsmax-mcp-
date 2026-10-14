@@ -11,9 +11,10 @@ from ..config import get_settings
 from ..database import get_db
 from ..deps import get_current_user, require_csrf
 from ..errors import ApiError
+from ..guards import ip_rate_limit
 from ..models import OneTimeToken, User
 from ..models import Session as SessionModel
-from ..rate_limit import install_rate_limiter
+from ..rate_limit import get_rate_limiter
 from ..schemas import (
     ForgotPasswordRequest,
     LoginRequest,
@@ -36,7 +37,7 @@ from ..security import (
 from ..services.email import deliver
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
-limiter = install_rate_limiter()
+limiter = get_rate_limiter()
 
 PURPOSE_EMAIL_VERIFY = "email_verify"
 PURPOSE_PASSWORD_RESET = "password_reset"
@@ -234,7 +235,11 @@ def forgot_password(
 
 
 @router.post("/reset-password", response_model=MessageResponse)
-def reset_password(payload: ResetPasswordRequest, db: OrmSession = Depends(get_db)) -> MessageResponse:
+def reset_password(
+    payload: ResetPasswordRequest,
+    _: None = Depends(ip_rate_limit("reset")),
+    db: OrmSession = Depends(get_db),
+) -> MessageResponse:
     token_hash = hash_token(payload.token)
     row = db.execute(
         select(OneTimeToken).where(

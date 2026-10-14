@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ROOM_LIMITS, type RoomConfig } from '../scene/types';
 
 interface RoomPanelProps {
@@ -34,13 +34,23 @@ export function RoomPanel({
   onSelectRoom,
 }: RoomPanelProps) {
   const [drafts, setDrafts] = useState(() => toDraft(room));
+  const [lastRoom, setLastRoom] = useState(room);
   const [errors, setErrors] = useState<RoomErrors>({});
 
-  // Re-sync the text inputs when the room changes externally (slider, reset,
-  // or loading a saved project).
-  useEffect(() => {
-    setDrafts(toDraft(room));
-  }, [room.widthCm, room.lengthCm, room.heightCm]);
+  // Re-sync the text inputs when the room changes externally (slider, reset, or
+  // loading a saved project). Adjusting state during render (rather than in an
+  // effect) is the React-recommended pattern for derived-from-props state and
+  // avoids an extra render pass.
+  if (room !== lastRoom) {
+    if (
+      room.widthCm !== lastRoom.widthCm ||
+      room.lengthCm !== lastRoom.lengthCm ||
+      room.heightCm !== lastRoom.heightCm
+    ) {
+      setDrafts(toDraft(room));
+    }
+    setLastRoom(room);
+  }
 
   const commit = (key: RoomField, raw: string) => {
     const range = ROOM_LIMITS[key];

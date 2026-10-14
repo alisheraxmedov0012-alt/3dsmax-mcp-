@@ -1,0 +1,33 @@
+# Ruff configuration for the backend.
+#
+# Rule selection is deliberately focused on correctness and hygiene rather than
+# stylistic churn: pycodestyle errors/warnings, pyflakes, bugbear, import
+# ordering, pyupgrade, pie and a couple of pylint warnings. Formatting-only
+# rules (line length E501) are ignored so enabling lint does not cause a mass
+# reflow of the existing code.
+
+line-length = 100
+target-version = "py313"
+exclude = ["alembic/versions"]
+
+[lint]
+select = ["E", "F", "W", "B", "I", "UP", "PIE", "RUF", "PLW"]
+ignore = [
+  "E501",  # line length: enforced by review, not by massive reflow
+  "RUF012", # mutable class attrs: not applicable to our code
+]
+
+[lint.flake8-bugbear]
+# FastAPI's Depends/Query/... in default arguments are the documented exception.
+extend-immutable-calls = [
+  "fastapi.Depends",
+  "fastapi.Query",
+  "fastapi.Header",
+  "fastapi.Path",
+  "fastapi.Body",
+  "Depends",
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["PLW", "B011"]
+"alembic/env.py" = ["E402"]

@@ -38,3 +38,9 @@ venv/
 .mypy_cache/
 .ruff_cache/
 
+# Backups / dumps must never be committed (Stage 8)
+*.dump
+*.sql
+backups/
+/var/backups/
+

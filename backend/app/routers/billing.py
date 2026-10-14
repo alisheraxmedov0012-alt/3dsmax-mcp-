@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session as OrmSession
 from ..database import get_db
 from ..deps import get_current_user, require_csrf
 from ..errors import ApiError
-from ..models import Invoice, PaymentAttempt, Plan, User
+from ..guards import ip_rate_limit, user_rate_limit
+from ..models import PaymentAttempt, Plan, User
 from ..schemas import (
     BillingEventResponse,
     CheckoutConfirmRequest,
@@ -48,6 +49,7 @@ def list_invoices(
 def create_checkout(
     payload: CheckoutRequest,
     _: None = Depends(require_csrf),
+    __: None = Depends(user_rate_limit("checkout")),
     user: User = Depends(get_current_user),
     db: OrmSession = Depends(get_db),
 ) -> CheckoutResponse:
@@ -117,6 +119,7 @@ def create_checkout(
 def sandbox_confirm(
     payload: CheckoutConfirmRequest,
     _: None = Depends(require_csrf),
+    __: None = Depends(user_rate_limit("sandbox")),
     user: User = Depends(get_current_user),
     db: OrmSession = Depends(get_db),
 ) -> CheckoutResponse:
@@ -169,7 +172,10 @@ def sandbox_confirm(
 
 @router.post("/billing/webhook/{provider_name}")
 async def provider_webhook(
-    provider_name: str, request: Request, db: OrmSession = Depends(get_db)
+    provider_name: str,
+    request: Request,
+    _: None = Depends(ip_rate_limit("webhook")),
+    db: OrmSession = Depends(get_db),
 ) -> dict:
     """Handle a provider webhook with signature verification and idempotency."""
     try:

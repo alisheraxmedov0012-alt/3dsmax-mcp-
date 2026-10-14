@@ -108,7 +108,7 @@ def test_verification_token_is_single_use(client):
 
 def test_password_reset_flow_revokes_sessions(client):
     register(client, "judy@example.com")
-    headers = auth_headers(client, "judy@example.com")
+    auth_headers(client, "judy@example.com")  # establish a session to be revoked
 
     forgot = client.post("/api/auth/forgot-password", json={"email": "judy@example.com"})
     token = forgot.json()["dev_token"]

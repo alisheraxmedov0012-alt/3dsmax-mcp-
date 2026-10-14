@@ -1,15 +1,23 @@
+# Runtime dependencies (pinned to versions verified to install and run).
+# Regenerate with:  pip freeze > requirements.lock.txt
 fastapi==0.143.0
-uvicorn[standard]==0.38.0
+uvicorn[standard]==0.54.0
 sqlalchemy==2.1.4
 alembic==1.20.0
 pydantic==2.14.1
-pydantic-settings==2.13.0
+pydantic-settings==2.15.0
 passlib==1.7.4
 bcrypt==4.0.1
-python-multipart==0.0.20
-email-validator==2.4.0
-psycopg[binary]==3.2.12
+python-multipart==0.0.32
+email-validator==2.3.0
+psycopg[binary]==3.3.6
 
-# Development / test only
-pytest==8.4.2
+# Shared rate-limit store (optional at runtime; required for multi-worker limits).
+redis==6.4.0
+
+# Optional error tracking (active only when APP_ERROR_TRACKING_DSN is set).
+sentry-sdk==2.72.0
+
+# --- Development / test only ---
+pytest==9.1.1
 httpx==0.28.1

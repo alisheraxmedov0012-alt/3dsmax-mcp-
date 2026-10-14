@@ -5,14 +5,14 @@ Table naming follows the existing project style (snake_case plural).
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     ForeignKey,
     Integer,
-    JSON,
     String,
     UniqueConstraint,
 )
@@ -26,7 +26,7 @@ def _uuid() -> str:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class TimestampMixin:
@@ -47,7 +47,7 @@ class User(Base, TimestampMixin):
     is_email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
-    subscriptions: Mapped[list["Subscription"]] = relationship(back_populates="user")
+    subscriptions: Mapped[list[Subscription]] = relationship(back_populates="user")
 
 
 class Session(Base):
@@ -184,14 +184,14 @@ class UsageCounter(Base, TimestampMixin):
 
 
 __all__ = [
-    "User",
-    "Session",
-    "OneTimeToken",
-    "Plan",
-    "Subscription",
-    "PaymentAttempt",
-    "Invoice",
     "BillingEvent",
+    "Invoice",
+    "OneTimeToken",
+    "PaymentAttempt",
+    "Plan",
     "Project",
+    "Session",
+    "Subscription",
     "UsageCounter",
+    "User",
 ]

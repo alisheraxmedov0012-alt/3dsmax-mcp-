@@ -8,14 +8,32 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .database import Base, SessionLocal, engine
+from .error_tracking import init_error_tracking
 from .errors import install_error_handlers
+from .logging_config import configure_logging
+from .middleware import ObservabilityMiddleware
 from .routers import admin, auth, billing, health, plans, projects
 from .services.plans import seed_plans
 
-logging.basicConfig(level=logging.INFO)
+settings = get_settings()
+configure_logging()
 logger = logging.getLogger("app")
 
-settings = get_settings()
+
+def _validate_production_config() -> None:
+    problems = settings.production_problems()
+    if problems:
+        for problem in problems:
+            logger.error("Unsafe production configuration: %s", problem)
+        raise RuntimeError(
+            "Production konfiguratsiyasi xavfsiz emas. Muammolar: " + "; ".join(problems)
+        )
+
+
+if settings.is_production:
+    _validate_production_config()
+
+init_error_tracking()
 
 # Interactive API docs are available in development only. In production they are
 # disabled so the API surface is not publicly enumerable.
@@ -28,6 +46,9 @@ app = FastAPI(
     openapi_url="/openapi.json" if _docs_enabled else None,
 )
 
+# Observability/security headers middleware must wrap everything else.
+app.add_middleware(ObservabilityMiddleware)
+
 install_error_handlers(app)
 
 app.add_middleware(
@@ -35,7 +56,7 @@ app.add_middleware(
     allow_origins=settings.cors_origin_list,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", settings.csrf_header_name],
+    allow_headers=["Content-Type", settings.csrf_header_name, "X-Request-ID"],
 )
 
 app.include_router(health.router)
@@ -48,13 +69,16 @@ app.include_router(admin.router)
 
 @app.on_event("startup")
 def _startup() -> None:
-    # For local/dev convenience create tables if migrations have not been run.
-    # Production uses Alembic migrations (see README).
-    Base.metadata.create_all(bind=engine)
+    # Auto-creating tables is a local/test convenience only. In production the
+    # schema is owned by Alembic migrations, so we do not create anything here.
+    if not settings.is_production:
+        Base.metadata.create_all(bind=engine)
     with SessionLocal() as db:
         seed_plans(db)
-    if settings.is_production and not settings.cookie_secure:
-        logger.warning("Production muhitida APP_COOKIE_SECURE=true bo'lishi kerak.")
+    logger.info(
+        "Startup complete",
+        extra={"metric": "startup", "environment": settings.environment},
+    )
 
 
 @app.get("/")
