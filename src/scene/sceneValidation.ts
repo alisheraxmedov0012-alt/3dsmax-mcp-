@@ -13,14 +13,21 @@ import { validateSceneSettings } from './sceneSettings';
 import {
   MATERIAL_DEFAULTS,
   MATERIAL_LIMITS,
+  MAX_OPENINGS_PER_ROOM,
   OBJECT_LIMITS,
   OBJECT_NAME_MAX_LENGTH,
+  OPENING_LIMITS,
   ROOM_DEFAULTS,
   ROOM_LIMITS,
+  ROOM_WALLS,
   SCENE_SCHEMA_VERSION,
   createTableSceneObject,
+  type NumericRange,
   type ObjectMaterial,
+  type OpeningKind,
   type RoomConfig,
+  type RoomOpening,
+  type RoomWall,
   type SceneData,
   type SceneObject,
   type Vec3,
@@ -78,13 +85,47 @@ function normalizeMaterial(value: unknown): ObjectMaterial {
   };
 }
 
+/** Validates a single stored door/window entry, or null when unusable. */
+export function validateRoomOpening(value: unknown): RoomOpening | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const id = value.id;
+  if (typeof id !== 'string' || id.trim() === '') {
+    return null;
+  }
+  const wall = value.wall;
+  if (typeof wall !== 'string' || !(ROOM_WALLS as readonly string[]).includes(wall)) {
+    return null;
+  }
+  const kind: OpeningKind = value.kind === 'window' ? 'window' : 'door';
+
+  const number = (raw: unknown, range: NumericRange, fallback: number): number => {
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+      return fallback;
+    }
+    return clamp(raw, range.min, range.max);
+  };
+
+  return {
+    id: id.trim().slice(0, OBJECT_NAME_MAX_LENGTH),
+    kind,
+    wall: wall as RoomWall,
+    offsetCm: number(value.offsetCm, OPENING_LIMITS.offsetCm, 0),
+    widthCm: number(value.widthCm, OPENING_LIMITS.widthCm, 90),
+    heightCm: number(value.heightCm, OPENING_LIMITS.heightCm, kind === 'window' ? 120 : 200),
+    sillCm: number(value.sillCm, OPENING_LIMITS.sillCm, kind === 'window' ? 90 : 0),
+  };
+}
+
 /**
  * Validates and normalizes a room configuration. Missing or non-finite values
  * fall back to defaults; out-of-range values are clamped to `ROOM_LIMITS`.
+ * `showCeiling` and the door/window model are optional (W6).
  */
 export function validateRoomConfig(value: unknown): RoomConfig {
   const record = isRecord(value) ? value : {};
-  const dimension = (key: keyof RoomConfig): number => {
+  const dimension = (key: 'widthCm' | 'lengthCm' | 'heightCm'): number => {
     const range = ROOM_LIMITS[key];
     const raw = record[key];
     if (typeof raw !== 'number' || !Number.isFinite(raw)) {
@@ -93,11 +134,36 @@ export function validateRoomConfig(value: unknown): RoomConfig {
     return clamp(raw, range.min, range.max);
   };
 
-  return {
+  const room: RoomConfig = {
     widthCm: dimension('widthCm'),
     lengthCm: dimension('lengthCm'),
     heightCm: dimension('heightCm'),
   };
+  // Only store W6 extras when actually set, so the validated room of an old
+  // project is byte-for-byte identical to the Stage 6 shape.
+  if (record.showCeiling === true) {
+    room.showCeiling = true;
+  }
+
+  if (Array.isArray(record.openings)) {
+    const openings: RoomOpening[] = [];
+    const seen = new Set<string>();
+    for (const entry of record.openings) {
+      const opening = validateRoomOpening(entry);
+      if (opening && !seen.has(opening.id)) {
+        seen.add(opening.id);
+        openings.push(opening);
+      }
+      if (openings.length >= MAX_OPENINGS_PER_ROOM) {
+        break;
+      }
+    }
+    if (openings.length > 0) {
+      room.openings = openings;
+    }
+  }
+
+  return room;
 }
 
 /** Validates one stored scene object. Returns null when it is unusable. */

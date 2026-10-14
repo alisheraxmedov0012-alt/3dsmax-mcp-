@@ -149,8 +149,13 @@ export class SceneViewer {
       data.room.widthCm,
       data.room.lengthCm,
       data.room.heightCm,
+      data.room.showCeiling === true,
       data.settings.roomMaterials.floorColor,
       data.settings.roomMaterials.wallColor,
+      data.settings.roomMaterials.ceilingColor,
+      // Openings only affect markers; fold them into the key so toggling them
+      // rebuilds the room without a separate code path.
+      JSON.stringify(data.room.openings ?? []),
     ].join(':');
 
     if (!this.room || this.room.key !== roomKey) {
