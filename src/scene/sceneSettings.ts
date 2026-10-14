@@ -43,6 +43,8 @@ export interface LightSettings {
 export interface RoomMaterialSettings {
   floorColor: string;
   wallColor: string;
+  /** W6: ceiling material colour (used when the room shows a ceiling). */
+  ceilingColor: string;
 }
 
 export interface SceneSettings {
@@ -89,6 +91,7 @@ export const DEFAULT_SETTINGS: SceneSettings = {
   roomMaterials: {
     floorColor: '#3b3f45',
     wallColor: '#565d66',
+    ceilingColor: '#d9dee5',
   },
   cameraPreset: 'iso',
   lightingPreset: 'custom',
@@ -186,6 +189,10 @@ export function validateSceneSettings(value: unknown): SceneSettings {
     roomMaterials: {
       floorColor: validateColor(room.floorColor, DEFAULT_SETTINGS.roomMaterials.floorColor),
       wallColor: validateColor(room.wallColor, DEFAULT_SETTINGS.roomMaterials.wallColor),
+      ceilingColor: validateColor(
+        room.ceilingColor,
+        DEFAULT_SETTINGS.roomMaterials.ceilingColor,
+      ),
     },
     cameraPreset: validatePreset(record.cameraPreset),
     lightingPreset: validateLightingPreset(record.lightingPreset),

@@ -26,12 +26,19 @@ import { createLocalProjectRepository } from './projects/localProjectRepository'
 import type { ProjectRepository, SavedProject } from './projects/types';
 import { findSceneObject, sceneReducer } from './scene/sceneReducer';
 import { createSceneObjectId } from './scene/sceneIds';
+import {
+  createLayoutObjects,
+  isLayoutPresetId,
+  type LayoutPresetId,
+} from './scene/layoutPresets';
+import { findPlacementIssues, type WallId } from './scene/placement';
 import type { CameraPreset, LightSettings, RoomMaterialSettings } from './scene/sceneSettings';
 import {
   ROOM_DEFAULTS,
   ROOM_OBJECT_ID,
   createDefaultSceneState,
   type ObjectMaterial,
+  type OpeningKind,
   type RoomConfig,
   type Vec3,
 } from './scene/types';
@@ -61,6 +68,7 @@ export default function App() {
   const [pngPreset, setPngPreset] = useState<PngPreset>('standard');
   const [renderStatus, setRenderStatus] = useState<RenderStatus>('idle');
   const [renderMessage, setRenderMessage] = useState('');
+  const [layoutPreset, setLayoutPreset] = useState<LayoutPresetId>('empty');
 
   const [projects, setProjects] = useState<SavedProject[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
@@ -85,6 +93,12 @@ export default function App() {
   );
   const paramsValid = parsed ? parsed.valid : true;
   const settings = scene.data.settings;
+  const placementIssues = useMemo(
+    () => findPlacementIssues(scene.data.objects, scene.data.room),
+    [scene.data.objects, scene.data.room],
+  );
+  const outsideCount = placementIssues.filter((issue) => issue.kind === 'outside').length;
+  const collisionCount = placementIssues.filter((issue) => issue.kind === 'collision').length;
 
   // Keep the parameter controls in sync with the selected object.
   useEffect(() => {
@@ -147,6 +161,47 @@ export default function App() {
   const handleSetRoom = (room: Partial<RoomConfig>) => dispatch({ type: 'SET_ROOM', room });
   const handleResetRoom = () => dispatch({ type: 'SET_ROOM', room: { ...ROOM_DEFAULTS } });
   const handleSelectRoom = () => dispatch({ type: 'SELECT', id: ROOM_OBJECT_ID });
+
+  const handleToggleCeiling = (showCeiling: boolean) =>
+    dispatch({ type: 'SET_ROOM_CEILING', showCeiling });
+
+  const handleLayoutPresetChange = (preset: LayoutPresetId) => {
+    if (isLayoutPresetId(preset)) {
+      setLayoutPreset(preset);
+    }
+  };
+
+  const handleApplyLayout = () => {
+    const preset = isLayoutPresetId(layoutPreset) ? layoutPreset : 'empty';
+    const objects =
+      preset === 'empty'
+        ? []
+        : createLayoutObjects(preset, scene.data.room, createSceneObjectId);
+    dispatch({ type: 'SET_LAYOUT', room: scene.data.room, objects });
+  };
+
+  const handleAddOpening = (kind: OpeningKind, wall: WallId) => {
+    dispatch({
+      type: 'ADD_ROOM_OPENING',
+      opening: {
+        id: createSceneObjectId(),
+        kind,
+        wall,
+        offsetCm: 0,
+        widthCm: kind === 'window' ? 120 : 90,
+        heightCm: kind === 'window' ? 120 : 200,
+        sillCm: kind === 'window' ? 90 : 0,
+      },
+    });
+  };
+
+  const handleRemoveOpening = (id: string) => dispatch({ type: 'REMOVE_ROOM_OPENING', id });
+
+  const handlePlaceAgainstWall = () => {
+    if (selectedObject) {
+      dispatch({ type: 'PLACE_AGAINST_WALL', id: selectedObject.id });
+    }
+  };
   const handleAddTable = () => dispatch({ type: 'ADD_TABLE', id: createSceneObjectId() });
   const handleSelect = (id: string | null) => dispatch({ type: 'SELECT', id });
 
@@ -359,9 +414,15 @@ export default function App() {
         <RoomPanel
           room={scene.data.room}
           isRoomSelected={scene.selectedId === ROOM_OBJECT_ID}
+          layoutPreset={layoutPreset}
           onApply={handleSetRoom}
           onResetRoom={handleResetRoom}
           onSelectRoom={handleSelectRoom}
+          onToggleCeiling={handleToggleCeiling}
+          onLayoutPresetChange={handleLayoutPresetChange}
+          onApplyLayout={handleApplyLayout}
+          onAddOpening={handleAddOpening}
+          onRemoveOpening={handleRemoveOpening}
         />
         <SceneSettingsPanel
           background={settings.background}
@@ -397,6 +458,7 @@ export default function App() {
           onRename={handleRename}
           onToggleVisibility={() => selectedObject && handleToggleVisibility(selectedObject.id)}
           onDelete={() => selectedObject && handleDeleteObject(selectedObject.id)}
+          onPlaceAgainstWall={handlePlaceAgainstWall}
         />
         <MaterialPanel
           object={selectedObject}
@@ -461,7 +523,17 @@ export default function App() {
 
         {!paramsValid && (
           <div className="banner" role="alert">
-            Mebel qiymatlari noto'g'ri — model oxirgi to'g'ri holatda ko'rsatilmoqda.
+            Mebel qiymatlari noto&apos;g&apos;ri — model oxirgi to&apos;g&apos;ri holatda ko&apos;rsatilmoqda.
+          </div>
+        )}
+
+        {(outsideCount > 0 || collisionCount > 0) && (
+          <div className="banner" role="status" aria-live="polite">
+            Joylashuv ogohlantirishi:
+            {outsideCount > 0 && ` ${outsideCount} obyekt xona tashqarisida`}
+            {outsideCount > 0 && collisionCount > 0 && ' ·'}
+            {collisionCount > 0 && ` ${collisionCount} to'qnashuv`}
+            . Obyektni tanlab, «Devorga joylash» yoki joylashuvni qo&apos;lda to&apos;g&apos;rilang.
           </div>
         )}
       </main>

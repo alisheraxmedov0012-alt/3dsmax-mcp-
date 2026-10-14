@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { findSceneObject, sceneReducer } from './sceneReducer';
-import { createDefaultSceneState, ROOM_DEFAULTS, ROOM_LIMITS, ROOM_OBJECT_ID } from './types';
+import {
+  createDefaultSceneState,
+  createTableSceneObject,
+  ROOM_DEFAULTS,
+  ROOM_LIMITS,
+  ROOM_OBJECT_ID,
+} from './types';
+import { createLayoutObjects } from './layoutPresets';
 import { createDefaultSettings } from './sceneSettings';
 import { buildTable } from '../geometry/buildTable';
 
@@ -267,10 +274,12 @@ describe('sceneReducer', () => {
       type: 'UPDATE_ROOM_MATERIALS',
       floorColor: '#101010',
       wallColor: '#202020',
+      ceilingColor: '#303030',
     });
     expect(state.data.settings.roomMaterials).toEqual({
       floorColor: '#101010',
       wallColor: '#202020',
+      ceilingColor: '#303030',
     });
   });
 
@@ -342,6 +351,70 @@ describe('sceneReducer', () => {
 
     expect(JSON.stringify(state.data.objects)).toBe(objectsBefore);
     expect(state.data.room).toEqual(before.data.room);
+  });
+
+  it('applies a layout via SET_LAYOUT (validated, replaces objects)', () => {
+    const state0 = initialState();
+    let counter = 0;
+    const objects = createLayoutObjects('living', state0.data.room, () => `layout-${++counter}`);
+    const next = sceneReducer(state0, { type: 'SET_LAYOUT', room: state0.data.room, objects });
+    expect(next.data.objects.length).toBe(objects.length);
+    expect(next.selectedId).toBe(next.data.objects[0].id);
+  });
+
+  it('SET_LAYOUT drops invalid objects and never injects a bad one', () => {
+    const state0 = initialState();
+    const bad = { ...createTableSceneObject('bad'), params: { widthCm: 1, color: 'nope' } };
+    const next = sceneReducer(state0, {
+      type: 'SET_LAYOUT',
+      room: state0.data.room,
+      objects: [createTableSceneObject('ok'), bad as never],
+    });
+    expect(next.data.objects.map((o) => o.id)).toEqual(['ok']);
+  });
+
+  it('places the selected object against the nearest wall', () => {
+    const state0 = initialState();
+    const id = state0.data.objects[0].id;
+    const moved = sceneReducer(state0, {
+      type: 'UPDATE_TRANSFORM',
+      id,
+      position: { x: 0, y: 0, z: -240 },
+    });
+    const placed = sceneReducer(moved, { type: 'PLACE_AGAINST_WALL', id });
+    const object = findSceneObject(placed, id);
+    // North wall -> rotation 0 and the footprint pushed in from the wall.
+    expect(object?.rotation.y).toBe(0);
+    expect(object?.position.z).toBeGreaterThan(-state0.data.room.lengthCm / 2);
+  });
+
+  it('toggles the room ceiling and stores it only when enabled', () => {
+    const state0 = initialState();
+    const on = sceneReducer(state0, { type: 'SET_ROOM_CEILING', showCeiling: true });
+    expect(on.data.room.showCeiling).toBe(true);
+    const off = sceneReducer(on, { type: 'SET_ROOM_CEILING', showCeiling: false });
+    expect(off.data.room.showCeiling).toBeUndefined();
+  });
+
+  it('adds and removes door/window openings with validation', () => {
+    const state0 = initialState();
+    const added = sceneReducer(state0, {
+      type: 'ADD_ROOM_OPENING',
+      opening: {
+        id: 'd1',
+        kind: 'door',
+        wall: 'north',
+        offsetCm: 0,
+        widthCm: 90,
+        heightCm: 200,
+        sillCm: 0,
+      },
+    });
+    expect(added.data.room.openings).toHaveLength(1);
+    expect(added.data.room.openings?.[0].id).toBe('d1');
+
+    const removed = sceneReducer(added, { type: 'REMOVE_ROOM_OPENING', id: 'd1' });
+    expect(removed.data.room.openings).toBeUndefined();
   });
 
   it('loads and resets scenes', () => {

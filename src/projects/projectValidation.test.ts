@@ -151,7 +151,7 @@ describe('validateSavedProject', () => {
             fillColor: '#ffffff',
             shadowsEnabled: false,
           },
-          roomMaterials: { floorColor: '#111111', wallColor: '#222222' },
+          roomMaterials: { floorColor: '#111111', wallColor: '#222222', ceilingColor: '#333333' },
           cameraPreset: 'top',
           lightingPreset: 'warmInterior',
           qualityPreset: 'high',
@@ -203,6 +203,48 @@ describe('validateSavedProject', () => {
     // Type-specific channels survive the round-trip.
     expect(restored.scene.objects[1].params).toEqual(project.scene.objects[1].params);
     expect(restored.scene.objects[2].params).toEqual(project.scene.objects[2].params);
+  });
+
+  it('round-trips W6 room ceiling, openings and furniture placement', () => {
+    const project: SavedProject = {
+      ...validProject,
+      scene: {
+        ...validProject.scene,
+        room: {
+          widthCm: 520,
+          lengthCm: 640,
+          heightCm: 290,
+          showCeiling: true,
+          openings: [
+            { id: 'd1', kind: 'door', wall: 'south', offsetCm: 0, widthCm: 90, heightCm: 205, sillCm: 0 },
+            { id: 'w1', kind: 'window', wall: 'east', offsetCm: -80, widthCm: 130, heightCm: 120, sillCm: 95 },
+          ],
+        },
+        objects: [
+          createFurnitureSceneObject('sofa', 's1', {
+            position: { x: -200, y: 0, z: -280 },
+            rotation: { x: 0, y: 0, z: 0 },
+          }),
+          createFurnitureSceneObject('bed', 'b1', { rotation: { x: 0, y: 180, z: 0 } }),
+        ],
+      },
+    };
+
+    const raw = serializeProjects([project]);
+    const [restored] = deserializeProjects(raw).projects;
+
+    expect(restored.scene.room.showCeiling).toBe(true);
+    expect(restored.scene.room.openings?.map((entry) => entry.id)).toEqual(['d1', 'w1']);
+    expect(restored.scene.objects[0].position).toEqual({ x: -200, y: 0, z: -280 });
+    expect(restored.scene.objects[1].rotation.y).toBe(180);
+  });
+
+  it('opens an old Stage 6 project without W6 fields', () => {
+    // An old project has no showCeiling/openings — it must open unchanged.
+    const [restored] = deserializeProjects(serializeProjects([validProject])).projects;
+    expect(restored.scene.room.showCeiling).toBeUndefined();
+    expect(restored.scene.room.openings).toBeUndefined();
+    expect(restored.scene.room.widthCm).toBe(validProject.scene.room.widthCm);
   });
 });
 

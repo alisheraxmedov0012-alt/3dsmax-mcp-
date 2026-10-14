@@ -3,7 +3,12 @@ import {
   type FurnitureParams,
   type FurnitureType,
 } from '../geometry/furniture';
-import { validateRoomConfig } from './sceneValidation';
+import { validateRoomConfig, validateSceneObject } from './sceneValidation';
+import {
+  nearestWall,
+  placeAgainstWall,
+  type WallId,
+} from './placement';
 import { createDefaultSettings, validateColor, validateSceneSettings, CAMERA_PRESETS, type LightSettings, type CameraPreset, type SceneSettings } from './sceneSettings';
 import {
   LIGHTING_PRESET_CONFIGS,
@@ -26,6 +31,7 @@ import {
   createFurnitureSceneObject,
   type ObjectMaterial,
   type RoomConfig,
+  type RoomOpening,
   type SceneData,
   type SceneObject,
   type SceneState,
@@ -34,6 +40,11 @@ import {
 
 export type SceneAction =
   | { type: 'SET_ROOM'; room: Partial<RoomConfig> }
+  | { type: 'SET_LAYOUT'; room: RoomConfig; objects: SceneObject[] }
+  | { type: 'PLACE_AGAINST_WALL'; id: string; wall?: WallId }
+  | { type: 'SET_ROOM_CEILING'; showCeiling: boolean }
+  | { type: 'ADD_ROOM_OPENING'; opening: RoomOpening }
+  | { type: 'REMOVE_ROOM_OPENING'; id: string }
   | { type: 'ADD_TABLE'; id: string }
   | { type: 'ADD_FURNITURE'; furnitureType: FurnitureType; id: string }
   | { type: 'SELECT'; id: string | null }
@@ -54,7 +65,7 @@ export type SceneAction =
   | { type: 'UPDATE_LIGHTS'; lights: Partial<LightSettings> }
   | { type: 'RESET_LIGHTS' }
   | { type: 'APPLY_LIGHTING_PRESET'; preset: LightingPresetId }
-  | { type: 'UPDATE_ROOM_MATERIALS'; floorColor?: string; wallColor?: string }
+  | { type: 'UPDATE_ROOM_MATERIALS'; floorColor?: string; wallColor?: string; ceilingColor?: string }
   | { type: 'SET_CAMERA_PRESET'; preset: CameraPreset }
   | { type: 'SET_RENDER_QUALITY'; quality: QualityPresetId }
   | { type: 'SET_EXPOSURE'; exposure: number }
@@ -127,6 +138,60 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
         ...state,
         data: { ...state.data, room },
       };
+    }
+
+    case 'SET_LAYOUT': {
+      // Replace the room and its objects with a generated layout. Objects are
+      // validated/deduplicated exactly like a loaded scene, so a bad preset can
+      // never inject an invalid object.
+      const room = validateRoomConfig(action.room);
+      const objects: SceneObject[] = [];
+      const seen = new Set<string>();
+      for (const candidate of action.objects) {
+        const object = validateSceneObject(candidate);
+        if (object && !seen.has(object.id)) {
+          seen.add(object.id);
+          objects.push(object);
+        }
+      }
+      return {
+        data: {
+          ...state.data,
+          schemaVersion: SCENE_SCHEMA_VERSION,
+          room,
+          objects,
+        },
+        selectedId: objects[0]?.id ?? ROOM_OBJECT_ID,
+      };
+    }
+
+    case 'PLACE_AGAINST_WALL':
+      return replaceObject(state, action.id, (object) => {
+        const wall = action.wall ?? nearestWall(object, state.data.room);
+        const placed = placeAgainstWall(object, state.data.room, wall);
+        return { ...object, position: placed.position, rotation: placed.rotation };
+      });
+
+    case 'SET_ROOM_CEILING': {
+      const room = validateRoomConfig({ ...state.data.room, showCeiling: action.showCeiling });
+      return { ...state, data: { ...state.data, room } };
+    }
+
+    case 'ADD_ROOM_OPENING': {
+      const opening = action.opening;
+      const current = state.data.room.openings ?? [];
+      const next = [...current.filter((entry) => entry.id !== opening.id), opening];
+      const room = validateRoomConfig({ ...state.data.room, openings: next });
+      return { ...state, data: { ...state.data, room } };
+    }
+
+    case 'REMOVE_ROOM_OPENING': {
+      const current = state.data.room.openings ?? [];
+      const next = current.filter((entry) => entry.id !== action.id);
+      const room = validateRoomConfig({ ...state.data.room, openings: next });
+      // `validateRoomConfig` omits an empty openings array; drop the key so a
+      // room with no openings matches the Stage 6 shape.
+      return { ...state, data: { ...state.data, room } };
     }
 
     case 'ADD_TABLE': {
@@ -289,6 +354,7 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
           roomMaterials: {
             floorColor: action.floorColor ?? state.data.settings.roomMaterials.floorColor,
             wallColor: action.wallColor ?? state.data.settings.roomMaterials.wallColor,
+            ceilingColor: action.ceilingColor ?? state.data.settings.roomMaterials.ceilingColor,
           },
         }).roomMaterials,
       });

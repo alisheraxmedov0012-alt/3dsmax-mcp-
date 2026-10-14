@@ -164,6 +164,15 @@ export function SceneSettingsPanel({
             onChange={(event) => onRoomMaterials({ wallColor: event.target.value })}
           />
         </div>
+        <div className="axis">
+          <span className="axis__label">Shift</span>
+          <input
+            type="color"
+            value={roomMaterials.ceilingColor}
+            aria-label="Shift rangi"
+            onChange={(event) => onRoomMaterials({ ceilingColor: event.target.value })}
+          />
+        </div>
       </div>
     </section>
   );

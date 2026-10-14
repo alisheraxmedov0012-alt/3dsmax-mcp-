@@ -36,6 +36,38 @@ describe('validateRoomConfig', () => {
     expect(room.lengthCm).toBe(ROOM_LIMITS.lengthCm.min);
     expect(room.heightCm).toBe(ROOM_LIMITS.heightCm.max);
   });
+
+  it('preserves the Stage 6 shape when no W6 extras are set', () => {
+    expect(validateRoomConfig({ widthCm: 400, lengthCm: 500, heightCm: 280 })).toEqual({
+      widthCm: 400,
+      lengthCm: 500,
+      heightCm: 280,
+    });
+    expect('showCeiling' in validateRoomConfig({})).toBe(false);
+    expect('openings' in validateRoomConfig({})).toBe(false);
+  });
+
+  it('keeps showCeiling only when true', () => {
+    expect(validateRoomConfig({ showCeiling: true }).showCeiling).toBe(true);
+    expect(validateRoomConfig({ showCeiling: false }).showCeiling).toBeUndefined();
+    expect(validateRoomConfig({ showCeiling: 'yes' }).showCeiling).toBeUndefined();
+  });
+
+  it('validates and clamps door/window openings, dropping unusable ones', () => {
+    const room = validateRoomConfig({
+      openings: [
+        { id: 'd1', kind: 'door', wall: 'north', offsetCm: 0, widthCm: 90, heightCm: 200, sillCm: 0 },
+        { id: '', wall: 'north' },
+        { id: 'x', wall: 'ceiling' },
+        { id: 'w1', kind: 'window', wall: 'west', offsetCm: 99999, widthCm: Number.NaN, heightCm: 120, sillCm: 90 },
+      ],
+    });
+    expect(room.openings?.map((entry) => entry.id)).toEqual(['d1', 'w1']);
+    expect(room.openings?.[1].wall).toBe('west');
+    // Out-of-range offset is clamped; non-finite width falls back to a default.
+    expect(room.openings?.[1].offsetCm).toBeLessThanOrEqual(2000);
+    expect(Number.isFinite(room.openings?.[1].widthCm)).toBe(true);
+  });
 });
 
 describe('validateSceneObject', () => {
