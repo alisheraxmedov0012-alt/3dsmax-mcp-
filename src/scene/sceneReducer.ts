@@ -46,7 +46,7 @@ export type SceneAction =
   | { type: 'ADD_ROOM_OPENING'; opening: RoomOpening }
   | { type: 'REMOVE_ROOM_OPENING'; id: string }
   | { type: 'ADD_TABLE'; id: string }
-  | { type: 'ADD_FURNITURE'; furnitureType: FurnitureType; id: string }
+  | { type: 'ADD_FURNITURE'; furnitureType: FurnitureType; id: string; params?: FurnitureParams }
   | { type: 'SELECT'; id: string | null }
   | {
       type: 'UPDATE_TRANSFORM';
@@ -209,6 +209,14 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
 
     case 'ADD_FURNITURE': {
       const object = createFurnitureSceneObject(action.furnitureType, action.id);
+      // Optional explicit parameters (e.g. from the W7 image reference flow) are
+      // validated against the object's own type before they are applied.
+      if (action.params) {
+        const validated = validateFurnitureParams(action.furnitureType, action.params);
+        if (validated) {
+          object.params = validated;
+        }
+      }
       return {
         data: {
           ...state.data,

@@ -214,6 +214,57 @@ input[type='color'] {
   border-top: 1px solid #2a2f36;
 }
 
+.image-ref {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid #2a2f36;
+}
+
+.image-ref__title {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.image-ref__subtitle {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.image-ref__preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.image-ref__image {
+  max-width: 100%;
+  max-height: 180px;
+  border-radius: 8px;
+  object-fit: contain;
+  background: #14181d;
+}
+
+.image-ref__dims {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #aeb9c4;
+}
+
+.image-ref__notes,
+.image-ref__warnings {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: #9aa6b2;
+}
+
+.image-ref__warnings {
+  color: #d6a35c;
+}
+
 .ai__title {
   margin: 0;
   font-size: 0.95rem;

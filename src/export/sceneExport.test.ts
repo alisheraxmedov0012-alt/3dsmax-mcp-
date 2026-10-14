@@ -9,6 +9,7 @@ import {
 } from '../scene/types';
 import { createDefaultSettings } from '../scene/sceneSettings';
 import { FURNITURE_TYPES } from '../geometry/furniture/types';
+import { inferDesignSpec, specToFurnitureParams } from '../image/referenceInference';
 
 /**
  * Node has no FileReader, which GLTFExporter uses to assemble the binary (.glb)
@@ -249,5 +250,28 @@ describe('exportSceneToGlb', () => {
       const names = (parsed.json.nodes ?? []).map((entry) => entry.name);
       expect(names).toContain(`object:x-${type}`);
     }
+  });
+
+  it('exports a scene containing an image-derived object with all its parts', async () => {
+    // Emulate the confirmed W7 flow: inference -> params -> scene object.
+    const inference = inferDesignSpec({
+      type: 'wardrobe',
+      sample: { aspectRatio: 0.9, averageColor: '#8b5a2b' },
+      referenceWidthCm: 180,
+      reference: 'widthCm',
+    });
+    expect(inference.ok).toBe(true);
+    if (!inference.ok) return;
+
+    const params = specToFurnitureParams(inference.spec.furniture, inference.spec.dimensions);
+    const object = createFurnitureSceneObject('wardrobe', 'img-1', { params });
+
+    const buffer = await exportSceneToGlb(makeScene({ objects: [object] }));
+    const parsed = parseGlb(buffer);
+    expect(parsed.version).toBe(2);
+    expect(parsed.hasBin).toBe(true);
+    expect((parsed.json.meshes ?? []).length).toBeGreaterThan(1);
+    const names = (parsed.json.nodes ?? []).map((entry) => entry.name);
+    expect(names).toContain('object:img-1');
   });
 });

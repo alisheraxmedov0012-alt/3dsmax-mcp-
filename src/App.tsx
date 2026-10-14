@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { AccountPanel } from './components/AccountPanel';
 import { AiPromptPanel } from './components/AiPromptPanel';
+import { ImageReferencePanel } from './components/ImageReferencePanel';
 import { FurniturePanel } from './components/FurniturePanel';
 import { ExportControls, type ExportStatus } from './components/ExportControls';
 import { LightingPanel } from './components/LightingPanel';
@@ -32,6 +33,8 @@ import {
   type LayoutPresetId,
 } from './scene/layoutPresets';
 import { findPlacementIssues, type WallId } from './scene/placement';
+import { specToFurnitureParams } from './image/referenceInference';
+import type { DesignSpec } from './image/designSpec';
 import type { CameraPreset, LightSettings, RoomMaterialSettings } from './scene/sceneSettings';
 import {
   ROOM_DEFAULTS,
@@ -147,6 +150,13 @@ export default function App() {
 
   const handleAddFurniture = (type: FurnitureType) => {
     dispatch({ type: 'ADD_FURNITURE', furnitureType: type, id: createSceneObjectId() });
+  };
+
+  const handleImageReferenceConfirm = (type: FurnitureType, spec: DesignSpec) => {
+    // Confirmed image-derived parameters are turned into builder parameters and
+    // added exactly like a hand-created object (validated in the reducer).
+    const params = specToFurnitureParams(type, spec.dimensions);
+    dispatch({ type: 'ADD_FURNITURE', furnitureType: type, id: createSceneObjectId(), params });
   };
 
   const applyProposal = (params: TableParams) => {
@@ -466,6 +476,7 @@ export default function App() {
           onReset={handleResetMaterial}
         />
         <AiPromptPanel onApply={applyProposal} />
+        <ImageReferencePanel onConfirm={handleImageReferenceConfirm} />
         <AccountPanel />
         <ProjectsPanel
           projects={projects}
