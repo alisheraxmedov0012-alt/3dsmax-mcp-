@@ -36,6 +36,11 @@ import {
   type Vec3,
 } from './scene/types';
 import type { SceneViewer } from './viewer/SceneViewer';
+import type {
+  LightingPresetChoice,
+  QualityPresetId,
+  ToneMappingMode,
+} from './render/renderPresets';
 import './App.css';
 
 export default function App() {
@@ -199,6 +204,18 @@ export default function App() {
     setCameraPresetToken((token) => token + 1);
   };
 
+  const handleLightingPreset = (preset: LightingPresetChoice) => {
+    if (preset === 'custom') {
+      return;
+    }
+    dispatch({ type: 'APPLY_LIGHTING_PRESET', preset });
+  };
+  const handleExposure = (exposure: number) => dispatch({ type: 'SET_EXPOSURE', exposure });
+  const handleToneMapping = (toneMapping: ToneMappingMode) =>
+    dispatch({ type: 'SET_TONE_MAPPING', toneMapping });
+  const handleQuality = (quality: QualityPresetId) =>
+    dispatch({ type: 'SET_RENDER_QUALITY', quality });
+
   const handleSaveProject = async () => {
     try {
       const repository = getRepository();
@@ -350,9 +367,15 @@ export default function App() {
           background={settings.background}
           cameraPreset={settings.cameraPreset}
           roomMaterials={settings.roomMaterials}
+          lightingPreset={settings.lightingPreset}
+          exposure={settings.exposure}
+          toneMapping={settings.toneMapping}
           onBackground={handleBackground}
           onCameraPreset={handleCameraPreset}
           onRoomMaterials={handleRoomMaterials}
+          onLightingPreset={handleLightingPreset}
+          onExposure={handleExposure}
+          onToneMapping={handleToneMapping}
         />
         <LightingPanel
           lights={settings.lights}
@@ -402,10 +425,12 @@ export default function App() {
         />
         <RenderExportPanel
           preset={pngPreset}
+          quality={settings.qualityPreset}
           status={renderStatus}
           message={renderMessage}
           disabled={false}
           onPresetChange={setPngPreset}
+          onQualityChange={handleQuality}
           onExport={handleExportPng}
         />
       </FurniturePanel>

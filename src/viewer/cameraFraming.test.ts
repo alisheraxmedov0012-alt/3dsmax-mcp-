@@ -118,6 +118,14 @@ describe('computePresetFraming', () => {
     expect(computePresetFraming(ROOM, 'iso')).toEqual(computeRoomFraming(ROOM));
   });
 
+  it('gives the product preset an elevated three-quarter view', () => {
+    const product = computePresetFraming(ROOM, 'product');
+    expect(product.position.z).toBeGreaterThan(0);
+    expect(product.position.x).toBeGreaterThan(0);
+    expect(product.position.y).toBeGreaterThan(ROOM.heightCm / 2);
+    expect(product.target).toEqual({ x: 0, y: ROOM.heightCm / 2, z: 0 });
+  });
+
   it('never moves the orbit target out of the room centre (object coords unchanged)', () => {
     CAMERA_PRESETS.forEach((preset) => {
       const framing = computePresetFraming(ROOM, preset);

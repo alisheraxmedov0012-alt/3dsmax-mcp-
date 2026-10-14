@@ -11,6 +11,11 @@ import {
 
 describe('resolvePngSize', () => {
   it('returns the documented preset sizes', () => {
+    expect(resolvePngSize('preview')).toEqual({
+      width: PNG_PRESETS.preview.width,
+      height: PNG_PRESETS.preview.height,
+      clamped: false,
+    });
     expect(resolvePngSize('standard')).toEqual({
       width: PNG_PRESETS.standard.width,
       height: PNG_PRESETS.standard.height,
@@ -59,6 +64,7 @@ describe('clampPngSize', () => {
 
 describe('pngFileName', () => {
   it('produces a clear per-preset filename', () => {
+    expect(pngFileName('preview')).toBe('3d-studio-ai-render-preview.png');
     expect(pngFileName('standard')).toBe('3d-studio-ai-render-standard.png');
     expect(pngFileName('high')).toBe('3d-studio-ai-render-high.png');
   });
@@ -92,5 +98,23 @@ describe('exportScenePng', () => {
 
     await expect(exportScenePng('high', { capture, download })).rejects.toThrow('renderer failed');
     expect(download).not.toHaveBeenCalled();
+  });
+
+  it('exports a preview PNG at the preview size', async () => {
+    const blob = new Blob([new Uint8Array(512)], { type: 'image/png' });
+    const capture = vi.fn(async () => blob);
+    const download = vi.fn();
+
+    const result = await exportScenePng('preview', { capture, download });
+
+    expect(capture).toHaveBeenCalledWith({
+      width: PNG_PRESETS.preview.width,
+      height: PNG_PRESETS.preview.height,
+    });
+    expect(download).toHaveBeenCalledWith(blob, '3d-studio-ai-render-preview.png');
+    expect(result.size).toEqual({
+      width: PNG_PRESETS.preview.width,
+      height: PNG_PRESETS.preview.height,
+    });
   });
 });
