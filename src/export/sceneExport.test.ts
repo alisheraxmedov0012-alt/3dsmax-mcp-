@@ -8,6 +8,7 @@ import {
   type SceneData,
 } from '../scene/types';
 import { createDefaultSettings } from '../scene/sceneSettings';
+import { FURNITURE_TYPES } from '../geometry/furniture/types';
 
 /**
  * Node has no FileReader, which GLTFExporter uses to assemble the binary (.glb)
@@ -231,5 +232,22 @@ describe('exportSceneToGlb', () => {
     const parsed = parseGlb(buffer);
     expect(parsed.version).toBe(2);
     expect(parsed.hasBin).toBe(true);
+  });
+
+  it('exports every W2 furniture type as a valid multi-mesh GLB', async () => {
+    for (const type of FURNITURE_TYPES) {
+      // Sequential on purpose: GLTFExporter is not run concurrently here.
+      // eslint-disable-next-line no-await-in-loop
+      const buffer = await exportSceneToGlb(
+        makeScene({ objects: [createFurnitureSceneObject(type, `x-${type}`)] }),
+      );
+      const parsed = parseGlb(buffer);
+      expect(parsed.version).toBe(2);
+      expect(parsed.hasBin).toBe(true);
+      // Each furniture type is made of several parts.
+      expect((parsed.json.meshes ?? []).length).toBeGreaterThan(1);
+      const names = (parsed.json.nodes ?? []).map((entry) => entry.name);
+      expect(names).toContain(`object:x-${type}`);
+    }
   });
 });

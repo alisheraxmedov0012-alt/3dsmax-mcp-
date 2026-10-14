@@ -9,6 +9,7 @@ import {
   furnitureParamsToFieldValues,
   parseFurnitureValues,
   relationErrors,
+  sanitizeBaseDimensions,
   validateFurnitureParams,
 } from './params';
 
@@ -140,6 +141,47 @@ describe('relationErrors', () => {
   it('is empty for every type at its defaults', () => {
     for (const type of FURNITURE_TYPES) {
       expect(relationErrors(type, createFurnitureParams(type))).toEqual({});
+    }
+  });
+});
+
+describe('sanitizeBaseDimensions', () => {
+  it('leaves in-range base dimensions untouched', () => {
+    for (const type of FURNITURE_TYPES) {
+      const params = createFurnitureParams(type);
+      expect(sanitizeBaseDimensions(type, params)).toEqual(params);
+    }
+  });
+
+  it('replaces non-finite base dimensions with the type default', () => {
+    for (const type of FURNITURE_TYPES) {
+      const defaults = createFurnitureParams(type);
+      const safe = sanitizeBaseDimensions(type, {
+        ...defaults,
+        widthCm: Number.NaN,
+        heightCm: Number.POSITIVE_INFINITY,
+        depthCm: Number.NEGATIVE_INFINITY,
+      });
+      expect(safe.widthCm).toBe(defaults.widthCm);
+      expect(safe.heightCm).toBe(defaults.heightCm);
+      expect(safe.depthCm).toBe(defaults.depthCm);
+    }
+  });
+
+  it('clamps finite out-of-range dimensions into the declared range', () => {
+    for (const type of FURNITURE_TYPES) {
+      const spec = FURNITURE_FIELDS[type].find((f) => f.key === 'widthCm')!;
+      const high = sanitizeBaseDimensions(type, {
+        ...createFurnitureParams(type),
+        widthCm: spec.range.max + 10_000,
+      });
+      expect(high.widthCm).toBe(spec.range.max);
+
+      const low = sanitizeBaseDimensions(type, {
+        ...createFurnitureParams(type),
+        widthCm: spec.range.min - 10_000,
+      });
+      expect(low.widthCm).toBe(spec.range.min);
     }
   });
 });
