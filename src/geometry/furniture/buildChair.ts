@@ -39,8 +39,13 @@ export function buildChair(
     }
   }
 
+  // The backrest must not rise above the declared total height: when little room
+  // is left above the seat, cap it instead of forcing a minimum that overflows.
   const available = Math.max(heightCm - seatHeight, 6);
-  const backHeight = clampValue(params.backHeightCm, 6, available, available);
+  const backHeight = Math.min(
+    clampValue(params.backHeightCm, 6, available, available),
+    Math.max(heightCm - seatHeight, 1),
+  );
   builder.box(
     'chair-back',
     [widthCm, backHeight, BACK_THICKNESS_CM],

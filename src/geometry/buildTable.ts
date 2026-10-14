@@ -67,7 +67,9 @@ export function buildTable(params: TableBuildParams, material: TableMaterial = {
   geometries.push(topGeometry);
   const top = new THREE.Mesh(topGeometry, pbr);
   top.name = 'table-top';
-  top.userData.partId = 'top';
+  // Unique, stable part id (matches the name) so parts can be addressed
+  // individually — e.g. W4 per-part materials. Other builders already do this.
+  top.userData.partId = 'table-top';
   top.position.y = heightCm - topThicknessCm / 2;
   top.castShadow = true;
   top.receiveShadow = true;
@@ -99,7 +101,7 @@ export function buildTable(params: TableBuildParams, material: TableMaterial = {
       legIndex += 1;
       const leg = new THREE.Mesh(legGeometry, pbr);
       leg.name = `table-leg-${legIndex}`;
-      leg.userData.partId = 'leg';
+      leg.userData.partId = `table-leg-${legIndex}`;
       leg.position.set(x, legHeight / 2, z);
       leg.castShadow = true;
       leg.receiveShadow = true;

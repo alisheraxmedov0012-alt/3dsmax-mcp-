@@ -19,7 +19,9 @@ export function buildBed(
 
   const frameTop = clampValue(heightCm, FRAME_THICKNESS_CM + 4, 120, 40);
   const legHeight = Math.max(frameTop - FRAME_THICKNESS_CM, 1);
-  const legInset = LEG_THICKNESS_CM / 2 - 1;
+  // Inset legs so their outer faces stay flush with the frame edge (a bigger
+  // offset made them stick out by 1 cm beyond the declared width/depth).
+  const legInset = LEG_THICKNESS_CM / 2;
 
   // Corner legs.
   const insetX = Math.max(widthCm / 2 - legInset, 0);
