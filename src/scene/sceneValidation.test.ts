@@ -85,6 +85,31 @@ describe('validateSceneObject', () => {
     expect(clamped?.material.metalness).toBe(1);
     expect(clamped?.material.roughness).toBe(0);
   });
+
+  it('sanitizes W4 material channels and drops unusable ones', () => {
+    const clamped = validateSceneObject({
+      ...createTableSceneObject('c'),
+      material: {
+        metalness: 0.5,
+        roughness: 0.5,
+        materialId: 'wood-oak',
+        opacity: 5,
+        textureScale: -3,
+        normalStrength: Number.NaN,
+      },
+    });
+    expect(clamped?.material.materialId).toBe('wood-oak');
+    expect(clamped?.material.opacity).toBe(1);
+    expect(clamped?.material.textureScale).toBe(0.25);
+    // Non-finite normalStrength is dropped, not stored as NaN.
+    expect(clamped?.material.normalStrength).toBeUndefined();
+
+    const unknownPreset = validateSceneObject({
+      ...createTableSceneObject('d'),
+      material: { metalness: 0.5, roughness: 0.5, materialId: 'nope' },
+    });
+    expect(unknownPreset?.material.materialId).toBeUndefined();
+  });
 });
 
 describe('validateSceneData', () => {

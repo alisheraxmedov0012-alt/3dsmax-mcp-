@@ -1,4 +1,6 @@
 import type { TableParams } from '../geometry/tableParams';
+import { getMaterialPreset, MATERIAL_PRESET_IDS } from '../materials/presets';
+import { PBR_LIMITS, type NumericRange } from '../materials/types';
 import { validateRoomConfig } from './sceneValidation';
 import { createDefaultSettings, validateColor, validateSceneSettings, CAMERA_PRESETS, type LightSettings, type CameraPreset, type SceneSettings } from './sceneSettings';
 import {
@@ -31,6 +33,7 @@ export type SceneAction =
   | { type: 'RENAME_OBJECT'; id: string; name: string }
   | { type: 'UPDATE_PARAMS'; id: string; params: TableParams }
   | { type: 'UPDATE_MATERIAL'; id: string; material: Partial<ObjectMaterial> }
+  | { type: 'APPLY_MATERIAL_PRESET'; id: string; presetId: string }
   | { type: 'RESET_MATERIAL'; id: string }
   | { type: 'TOGGLE_VISIBILITY'; id: string }
   | { type: 'DELETE_OBJECT'; id: string }
@@ -79,16 +82,53 @@ function replaceObject(
   return { ...state, data: { ...state.data, objects } };
 }
 
-/** Clamps a material patch into 0–1, keeping the other channel unchanged. */
+/**
+ * Merges a material patch into the current material, clamping numeric values
+ * into their supported ranges. The W4 channels are optional and are only added
+ * to the result when they are present on the base or the patch, so scenes that
+ * never used them stay byte-for-byte identical.
+ */
 function mergeMaterial(base: ObjectMaterial, patch: Partial<ObjectMaterial>): ObjectMaterial {
   const clampUnit = (value: number | undefined, current: number): number => {
     const next = typeof value === 'number' && Number.isFinite(value) ? value : current;
     return clamp(next, MATERIAL_LIMITS.metalness.min, MATERIAL_LIMITS.metalness.max);
   };
-  return {
+  const merged: ObjectMaterial = {
     metalness: clampUnit(patch.metalness, base.metalness),
     roughness: clampUnit(patch.roughness, base.roughness),
   };
+
+  const optionalChannel = (
+    raw: unknown,
+    current: number | undefined,
+    range: NumericRange,
+  ): number | undefined => {
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+      return clamp(raw, range.min, range.max);
+    }
+    return current;
+  };
+
+  const materialId = patch.materialId ?? base.materialId;
+  if (materialId !== undefined) {
+    merged.materialId = MATERIAL_PRESET_IDS.has(materialId) ? materialId : base.materialId;
+  }
+  const opacity = optionalChannel(patch.opacity, base.opacity, PBR_LIMITS.opacity);
+  if (opacity !== undefined) merged.opacity = opacity;
+  const textureScale = optionalChannel(
+    patch.textureScale,
+    base.textureScale,
+    PBR_LIMITS.textureScale,
+  );
+  if (textureScale !== undefined) merged.textureScale = textureScale;
+  const normalStrength = optionalChannel(
+    patch.normalStrength,
+    base.normalStrength,
+    PBR_LIMITS.normalStrength,
+  );
+  if (normalStrength !== undefined) merged.normalStrength = normalStrength;
+
+  return merged;
 }
 
 function withSettings(state: SceneState, settings: SceneSettings): SceneState {
@@ -165,6 +205,24 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
         ...object,
         material: mergeMaterial(object.material, action.material),
       }));
+
+    case 'APPLY_MATERIAL_PRESET': {
+      const preset = getMaterialPreset(action.presetId);
+      return replaceObject(state, action.id, (object) => ({
+        ...object,
+        material: {
+          materialId: preset.id,
+          metalness: preset.metalness,
+          roughness: preset.roughness,
+          opacity: preset.opacity,
+          textureScale: preset.textureScale,
+          normalStrength: preset.normalStrength,
+        },
+        // A preset may suggest a base colour; apply it through the existing
+        // table colour so there is still a single source of truth.
+        params: preset.color ? { ...object.params, color: preset.color } : object.params,
+      }));
+    }
 
     case 'RESET_MATERIAL':
       return replaceObject(state, action.id, (object) => ({

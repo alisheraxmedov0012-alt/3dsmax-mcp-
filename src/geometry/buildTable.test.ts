@@ -100,4 +100,27 @@ describe('buildTable', () => {
     expect(material(custom.group).roughness).toBeCloseTo(0.1, 5);
     custom.dispose();
   });
+
+  it('applies W4 preset channels (opacity) and names the material', () => {
+    let pbr: THREE.MeshStandardMaterial | null = null;
+    const glass = buildTable(params, { materialId: 'glass-clear' });
+    glass.group.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (mesh.isMesh) {
+        pbr = mesh.material as THREE.MeshStandardMaterial;
+      }
+    });
+    const resolved = pbr as unknown as THREE.MeshStandardMaterial;
+    expect(resolved.opacity).toBeCloseTo(0.3, 5);
+    expect(resolved.transparent).toBe(true);
+    expect(resolved.name).toBe('table-material');
+    glass.dispose();
+  });
+
+  it('does not let a non-finite material value break geometry building', () => {
+    const table = buildTable(params, { metalness: Number.NaN, opacity: Number.NaN });
+    const size = measure(table.group);
+    expect(size.x).toBeCloseTo(params.widthCm, 5);
+    table.dispose();
+  });
 });
