@@ -737,6 +737,114 @@ input[type='color'] {
   color: #ff8a8a;
 }
 
+/* ---------------- Account / billing (Stage 7) ---------------- */
+
+.account {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid #2a2f36;
+}
+
+.account__title {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.account__subtitle {
+  margin: 0;
+  font-size: 0.86rem;
+}
+
+.account__who,
+.account__meta,
+.account__hint {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: #8b96a2;
+}
+
+.account__block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: #12161a;
+  border: 1px solid #2f353c;
+  border-radius: 8px;
+}
+
+.account__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.account__primary,
+.account__secondary {
+  flex: 1 1 120px;
+  min-width: 0;
+  padding: 9px 12px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid #333b44;
+  background: #262c33;
+  color: #e8edf2;
+}
+
+.account__primary {
+  color: #0b1620;
+  background: #7ad0a3;
+  border-color: #7ad0a3;
+}
+
+.account__secondary:hover,
+.account__primary:hover {
+  filter: brightness(1.1);
+}
+
+.account__list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: #9aa6b2;
+}
+
+.account__message {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #9dd8b8;
+}
+
+.account__message--error {
+  color: #ff8a8a;
+}
+
+.plan-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.8rem;
+}
+
+.plan-row__name {
+  font-weight: 600;
+}
+
+.plan-row__price {
+  font-size: 0.74rem;
+  color: #8b96a2;
+  flex: 1 1 auto;
+  text-align: right;
+}
+
 /* ---------------- Export ---------------- */
 
 .export {

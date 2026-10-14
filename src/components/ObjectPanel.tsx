@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { OBJECT_LIMITS, type SceneObject, type Vec3 } from '../scene/types';
 
 interface ObjectPanelProps {
@@ -56,8 +56,12 @@ export function ObjectPanel({
   );
   const [invalid, setInvalid] = useState<Partial<Record<Path, boolean>>>({});
   const [nameDraft, setNameDraft] = useState(object?.name ?? '');
+  const [lastObject, setLastObject] = useState<SceneObject | null>(object);
 
-  useEffect(() => {
+  // Adjust derived state during render when the selected object changes (the
+  // React-recommended pattern) instead of using an effect.
+  if (object !== lastObject) {
+    setLastObject(object);
     if (object) {
       setDrafts(collectDrafts(object));
       setNameDraft(object.name);
@@ -65,7 +69,7 @@ export function ObjectPanel({
     } else {
       setDrafts(null);
     }
-  }, [object]);
+  }
 
   if (!object || !drafts) {
     return (
