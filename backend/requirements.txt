@@ -7,7 +7,7 @@ pydantic-settings==2.13.0
 passlib==1.7.4
 bcrypt==4.0.1
 python-multipart==0.0.20
-email-validator==2.4.0
+email-validator==2.3.0
 psycopg[binary]==3.2.12
 
 # Development / test only
