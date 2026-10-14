@@ -9,8 +9,10 @@ import {
   ROOM_DEFAULTS,
   ROOM_LIMITS,
   SCENE_SCHEMA_VERSION,
+  createFurnitureSceneObject,
   createTableSceneObject,
 } from './types';
+import { FURNITURE_TYPES, FURNITURE_TYPE_LABELS } from '../geometry/furniture';
 
 describe('validateRoomConfig', () => {
   it('keeps valid dimensions', () => {
@@ -44,7 +46,7 @@ describe('validateSceneObject', () => {
 
   it('rejects objects without a usable id or with an unknown type', () => {
     expect(validateSceneObject({ ...createTableSceneObject('x'), id: '' })).toBeNull();
-    expect(validateSceneObject({ ...createTableSceneObject('x'), type: 'sofa' })).toBeNull();
+    expect(validateSceneObject({ ...createTableSceneObject('x'), type: 'spaceship' })).toBeNull();
     expect(validateSceneObject(null)).toBeNull();
   });
 
@@ -84,6 +86,27 @@ describe('validateSceneObject', () => {
     });
     expect(clamped?.material.metalness).toBe(1);
     expect(clamped?.material.roughness).toBe(0);
+  });
+  it('accepts a valid object of every W2 furniture type', () => {
+    for (const type of FURNITURE_TYPES) {
+      const object = createFurnitureSceneObject(type, `id-${type}`);
+      const validated = validateSceneObject(object);
+      expect(validated?.type).toBe(type);
+      expect(validated?.params).toEqual(object.params);
+      expect(validated?.name).toBe(FURNITURE_TYPE_LABELS[type]);
+    }
+  });
+
+  it('drops an unusable optional channel but keeps the object', () => {
+    const object = {
+      ...createFurnitureSceneObject('wardrobe', 'w'),
+      params: { widthCm: 180, heightCm: 200, depthCm: 60, color: '#a9744f', wallThicknessCm: 999 },
+    };
+    const validated = validateSceneObject(object);
+    expect(validated).not.toBeNull();
+    // The out-of-range optional channel is dropped, not stored.
+    expect(validated?.params.wallThicknessCm).toBeUndefined();
+    expect(validated?.params.widthCm).toBe(180);
   });
 });
 

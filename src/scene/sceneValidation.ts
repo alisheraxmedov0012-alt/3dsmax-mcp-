@@ -4,6 +4,11 @@ import {
   TABLE_DEFAULTS,
   type TableParams,
 } from '../geometry/tableParams';
+import {
+  FURNITURE_DEFAULT_NAMES,
+  isFurnitureType,
+  validateFurnitureParams,
+} from '../geometry/furniture';
 import { validateSceneSettings } from './sceneSettings';
 import {
   MATERIAL_DEFAULTS,
@@ -13,7 +18,6 @@ import {
   ROOM_DEFAULTS,
   ROOM_LIMITS,
   SCENE_SCHEMA_VERSION,
-  TABLE_OBJECT_DEFAULT_NAME,
   createTableSceneObject,
   type ObjectMaterial,
   type RoomConfig,
@@ -107,38 +111,25 @@ export function validateSceneObject(value: unknown): SceneObject | null {
     return null;
   }
 
-  // Only the table type exists in Stage 5; unknown types are dropped.
-  if (value.type !== 'table') {
+  // Any known W2 furniture type is accepted; unknown types are dropped.
+  if (!isFurnitureType(value.type)) {
     return null;
   }
 
-  if (!isRecord(value.params)) {
-    return null;
-  }
-  const params = parseTableValues(
-    {
-      widthCm: String((value.params as Record<string, unknown>).widthCm ?? ''),
-      heightCm: String((value.params as Record<string, unknown>).heightCm ?? ''),
-      depthCm: String((value.params as Record<string, unknown>).depthCm ?? ''),
-      color:
-        typeof (value.params as Record<string, unknown>).color === 'string'
-          ? ((value.params as Record<string, unknown>).color as string)
-          : '',
-    },
-  );
-  if (!params.params) {
+  const params = validateFurnitureParams(value.type, value.params);
+  if (!params) {
     return null;
   }
 
   return {
     id: id.trim(),
-    type: 'table',
-    name: normalizeName(value.name, TABLE_OBJECT_DEFAULT_NAME),
+    type: value.type,
+    name: normalizeName(value.name, FURNITURE_DEFAULT_NAMES[value.type]),
     position: normalizeVec3(value.position, OBJECT_LIMITS.position.min, OBJECT_LIMITS.position.max),
     rotation: normalizeVec3(value.rotation, OBJECT_LIMITS.rotation.min, OBJECT_LIMITS.rotation.max),
     scale: normalizeVec3(value.scale, OBJECT_LIMITS.scale.min, OBJECT_LIMITS.scale.max),
     visible: typeof value.visible === 'boolean' ? value.visible : true,
-    params: params.params,
+    params,
     material: normalizeMaterial(value.material),
   };
 }

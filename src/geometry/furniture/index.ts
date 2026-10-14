@@ -1,0 +1,11 @@
+export * from './types';
+export * from './params';
+export * from './parts';
+export { buildFurniture } from './buildFurniture';
+export { buildChair } from './buildChair';
+export { buildArmchair } from './buildArmchair';
+export { buildSofa } from './buildSofa';
+export { buildBed } from './buildBed';
+export { buildWardrobe } from './buildWardrobe';
+export { buildShelf } from './buildShelf';
+export { buildDresser } from './buildDresser';

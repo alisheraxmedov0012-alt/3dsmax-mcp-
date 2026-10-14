@@ -1,4 +1,8 @@
-import type { TableParams } from '../geometry/tableParams';
+import {
+  validateFurnitureParams,
+  type FurnitureParams,
+  type FurnitureType,
+} from '../geometry/furniture';
 import { validateRoomConfig } from './sceneValidation';
 import { createDefaultSettings, validateColor, validateSceneSettings, CAMERA_PRESETS, type LightSettings, type CameraPreset, type SceneSettings } from './sceneSettings';
 import {
@@ -9,6 +13,7 @@ import {
   ROOM_OBJECT_ID,
   SCENE_SCHEMA_VERSION,
   createTableSceneObject,
+  createFurnitureSceneObject,
   type ObjectMaterial,
   type RoomConfig,
   type SceneData,
@@ -20,6 +25,7 @@ import {
 export type SceneAction =
   | { type: 'SET_ROOM'; room: Partial<RoomConfig> }
   | { type: 'ADD_TABLE'; id: string }
+  | { type: 'ADD_FURNITURE'; furnitureType: FurnitureType; id: string }
   | { type: 'SELECT'; id: string | null }
   | {
       type: 'UPDATE_TRANSFORM';
@@ -29,7 +35,7 @@ export type SceneAction =
       scale?: Partial<Vec3>;
     }
   | { type: 'RENAME_OBJECT'; id: string; name: string }
-  | { type: 'UPDATE_PARAMS'; id: string; params: TableParams }
+  | { type: 'UPDATE_PARAMS'; id: string; params: FurnitureParams }
   | { type: 'UPDATE_MATERIAL'; id: string; material: Partial<ObjectMaterial> }
   | { type: 'RESET_MATERIAL'; id: string }
   | { type: 'TOGGLE_VISIBILITY'; id: string }
@@ -122,6 +128,19 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
       };
     }
 
+    case 'ADD_FURNITURE': {
+      const object = createFurnitureSceneObject(action.furnitureType, action.id);
+      return {
+        data: {
+          ...state.data,
+          schemaVersion: SCENE_SCHEMA_VERSION,
+          objects: [...state.data.objects, object],
+          settings: state.data.settings,
+        },
+        selectedId: object.id,
+      };
+    }
+
     case 'SELECT':
       return { ...state, selectedId: action.id };
 
@@ -158,7 +177,12 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
       });
 
     case 'UPDATE_PARAMS':
-      return replaceObject(state, action.id, (object) => ({ ...object, params: action.params }));
+      return replaceObject(state, action.id, (object) => {
+        // Re-validate against the object's own type so a wrong-type or invalid
+        // parameter set can never replace a working model.
+        const validated = validateFurnitureParams(object.type, action.params);
+        return validated ? { ...object, params: validated } : object;
+      });
 
     case 'UPDATE_MATERIAL':
       return replaceObject(state, action.id, (object) => ({

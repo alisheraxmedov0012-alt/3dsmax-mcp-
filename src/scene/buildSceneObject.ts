@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildTable } from '../geometry/buildTable';
+import { buildFurniture } from '../geometry/furniture';
 import type { SceneObject } from './types';
 
 const DEG_TO_RAD = Math.PI / 180;
@@ -28,15 +28,12 @@ export function applyObjectTransform(group: THREE.Object3D, object: SceneObject)
 
 /**
  * Builds the Three.js representation of a scene object from its parameters.
- * Only the table type exists in Stage 5; unknown types throw so a bad scene is
- * surfaced rather than silently rendered as nothing.
+ * Dispatches to the parametric builder for the object's W2 furniture type; an
+ * unknown type throws so a bad scene is surfaced rather than silently rendered
+ * as nothing.
  */
 export function buildSceneObject(object: SceneObject): BuiltSceneObject {
-  if (object.type !== 'table') {
-    throw new Error(`Qo'llab-quvvatlanmaydigan obyekt turi: ${object.type}`);
-  }
-
-  const built = buildTable(object.params, object.material);
+  const built = buildFurniture(object.type, object.params, object.material);
   built.group.name = `object:${object.id}`;
   built.group.userData.sceneObjectId = object.id;
 
