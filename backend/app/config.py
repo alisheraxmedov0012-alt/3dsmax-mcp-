@@ -77,6 +77,18 @@ class Settings(BaseSettings):
     payment_provider: str = "fake"
     payment_webhook_secret: str | None = None
 
+    # AI design provider (W1). "none" (default) reports the integration as
+    # unconfigured; "local" is the offline, credential-free fallback;
+    # "openai_compatible" talks to any OpenAI-compatible /chat/completions API.
+    # The API key is read from the server environment only and never logged or
+    # exposed to the frontend.
+    ai_provider: str = "none"  # none | local | openai_compatible
+    ai_api_key: str | None = None
+    ai_base_url: str = "https://api.openai.com/v1"
+    ai_model: str | None = None
+    ai_timeout_seconds: float = 20.0
+    ai_max_retries: int = 1
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
