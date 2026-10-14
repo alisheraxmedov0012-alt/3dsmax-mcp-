@@ -219,3 +219,33 @@ export function validateFurnitureParams(type: FurnitureType, raw: unknown): Furn
   }
   return params;
 }
+
+/**
+ * Last-resort safety net for the geometry builders.
+ *
+ * The authoritative validation happens earlier (UI `parseFurnitureValues`, scene
+ * `validateFurnitureParams`), so this never runs for normal user input. It exists
+ * because builders can also be driven by other callers (e.g. a future W1
+ * `DesignSpec`), and a NaN/Infinity dimension would otherwise produce non-finite
+ * vertex coordinates. Non-finite base dimensions fall back to the type default;
+ * finite ones are clamped into the type's declared range. Optional channels are
+ * left untouched — the builders already clamp those.
+ */
+export function sanitizeBaseDimensions(type: FurnitureType, params: FurnitureParams): FurnitureParams {
+  const safe: FurnitureParams = { ...params };
+  for (const key of BASE_DIMENSIONS) {
+    const spec = FURNITURE_FIELDS[type].find((entry) => entry.key === key);
+    const fallback = FURNITURE_DEFAULTS[type][key];
+    const raw = params[key];
+    if (spec === undefined) {
+      safe[key] = typeof raw === 'number' && Number.isFinite(raw) ? raw : (fallback as number);
+      continue;
+    }
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+      safe[key] = fallback as number;
+    } else {
+      safe[key] = Math.min(Math.max(raw, spec.range.min), spec.range.max);
+    }
+  }
+  return safe;
+}

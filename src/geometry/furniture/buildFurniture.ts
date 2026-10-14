@@ -11,6 +11,7 @@
  * (materialId/opacity/texture) can be routed per part without changing this API.
  */
 import { buildTable } from '../buildTable';
+import { sanitizeBaseDimensions } from './params';
 import { buildArmchair } from './buildArmchair';
 import { buildBed } from './buildBed';
 import { buildChair } from './buildChair';
@@ -26,24 +27,28 @@ export function buildFurniture(
   params: FurnitureParams,
   material: PartMaterialOptions = {},
 ): BuiltFurniture {
+  // Defence in depth: the validators reject bad input before it reaches here, but
+  // a NaN/Infinity base dimension would produce non-finite geometry, so sanitize
+  // the base dimensions once for every builder.
+  const safeParams = sanitizeBaseDimensions(type, params);
   const built = ((): { group: BuiltFurniture['group']; dispose: () => void } => {
     switch (type) {
       case 'table':
-        return buildTable(params, material);
+        return buildTable(safeParams, material);
       case 'chair':
-        return buildChair(params, material);
+        return buildChair(safeParams, material);
       case 'armchair':
-        return buildArmchair(params, material);
+        return buildArmchair(safeParams, material);
       case 'sofa':
-        return buildSofa(params, material);
+        return buildSofa(safeParams, material);
       case 'bed':
-        return buildBed(params, material);
+        return buildBed(safeParams, material);
       case 'wardrobe':
-        return buildWardrobe(params, material);
+        return buildWardrobe(safeParams, material);
       case 'shelf':
-        return buildShelf(params, material);
+        return buildShelf(safeParams, material);
       case 'dresser':
-        return buildDresser(params, material);
+        return buildDresser(safeParams, material);
       default: {
         const exhaustive: never = type;
         throw new Error(`Qo'llab-quvvatlanmaydigan mebel turi: ${String(exhaustive)}`);

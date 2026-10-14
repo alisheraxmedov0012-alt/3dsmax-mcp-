@@ -39,8 +39,12 @@ export function buildArmchair(
     }
   }
 
+  // Keep the backrest within the declared total height (see buildChair).
   const available = Math.max(heightCm - seatHeight, 6);
-  const backHeight = clampValue(params.backHeightCm, 6, available, available);
+  const backHeight = Math.min(
+    clampValue(params.backHeightCm, 6, available, available),
+    Math.max(heightCm - seatHeight, 1),
+  );
   builder.box(
     'armchair-back',
     [widthCm, backHeight, BACK_THICKNESS_CM],
