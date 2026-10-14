@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { RoomConfig } from '../scene/types';
+import { DEFAULT_SETTINGS, type RoomMaterialSettings } from '../scene/sceneSettings';
 
 export const ROOM_WALL_THICKNESS_CM = 4;
 export const ROOM_FLOOR_THICKNESS_CM = 4;
@@ -17,27 +18,33 @@ export interface BuiltRoom {
  * stand on it), the room is centred on the X/Z origin, and walls rise to
  * `heightCm`. Kept in the geometry layer (no renderer) so it is testable
  * without a browser.
+ *
+ * `materials` optionally overrides the floor/wall colours (Stage 6); defaults
+ * preserve the Stage 5 appearance.
  */
-export function buildRoom(room: RoomConfig): BuiltRoom {
+export function buildRoom(
+  room: RoomConfig,
+  materials: RoomMaterialSettings = DEFAULT_SETTINGS.roomMaterials,
+): BuiltRoom {
   const { widthCm, lengthCm, heightCm } = room;
 
   const group = new THREE.Group();
   group.name = 'room';
 
   const floorMaterial = new THREE.MeshStandardMaterial({
-    color: '#3b3f45',
+    color: new THREE.Color(materials.floorColor),
     roughness: 0.95,
     metalness: 0,
   });
   const wallMaterial = new THREE.MeshStandardMaterial({
-    color: '#565d66',
+    color: new THREE.Color(materials.wallColor),
     roughness: 0.9,
     metalness: 0,
     side: THREE.DoubleSide,
   });
 
   const geometries: THREE.BufferGeometry[] = [];
-  const materials = [floorMaterial, wallMaterial];
+  const materialList = [floorMaterial, wallMaterial];
 
   const floorGeometry = new THREE.BoxGeometry(widthCm, ROOM_FLOOR_THICKNESS_CM, lengthCm);
   geometries.push(floorGeometry);
@@ -74,7 +81,7 @@ export function buildRoom(room: RoomConfig): BuiltRoom {
     group,
     dispose: () => {
       geometries.forEach((geometry) => geometry.dispose());
-      materials.forEach((material) => material.dispose());
+      materialList.forEach((material) => material.dispose());
     },
   };
 }

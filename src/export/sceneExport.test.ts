@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { buildExportScene, exportSceneToGlb, SCENE_EXPORT_FILENAME } from './sceneExport';
 import { createTableSceneObject, SCENE_SCHEMA_VERSION, type SceneData } from '../scene/types';
+import { createDefaultSettings } from '../scene/sceneSettings';
 
 /**
  * Node has no FileReader, which GLTFExporter uses to assemble the binary (.glb)
@@ -68,6 +69,7 @@ function makeScene(overrides?: Partial<SceneData>): SceneData {
     schemaVersion: SCENE_SCHEMA_VERSION,
     room: { widthCm: 400, lengthCm: 500, heightCm: 280 },
     objects: [createTableSceneObject('t1')],
+    settings: createDefaultSettings(),
     ...overrides,
   };
 }
@@ -160,5 +162,38 @@ describe('exportSceneToGlb', () => {
 
   it('exposes a meaningful default filename', () => {
     expect(SCENE_EXPORT_FILENAME).toBe('3d-studio-ai-scene.glb');
+  });
+
+  it('writes per-object PBR material values into the GLB', async () => {
+    const buffer = await exportSceneToGlb(
+      makeScene({
+        objects: [createTableSceneObject('t1', { material: { metalness: 0.9, roughness: 0.1 } })],
+      }),
+    );
+    const { json } = parseGlb(buffer);
+
+    const match = (json.materials ?? []).some((material) => {
+      const pbr = (material as { pbrMetallicRoughness?: { metallicFactor?: number; roughnessFactor?: number } })
+        .pbrMetallicRoughness;
+      return (
+        pbr !== undefined &&
+        Math.abs((pbr.metallicFactor ?? 0) - 0.9) < 0.001 &&
+        Math.abs((pbr.roughnessFactor ?? 0) - 0.1) < 0.001
+      );
+    });
+    expect(match).toBe(true);
+  });
+
+  it('still exports a valid GLB when visualization settings are customized', async () => {
+    const scene = makeScene();
+    scene.settings.background = '#000000';
+    scene.settings.lights.keyEnabled = false;
+    scene.settings.lights.shadowsEnabled = false;
+    scene.settings.roomMaterials.floorColor = '#101010';
+
+    const buffer = await exportSceneToGlb(scene);
+    const parsed = parseGlb(buffer);
+    expect(parsed.version).toBe(2);
+    expect(parsed.hasBin).toBe(true);
   });
 });

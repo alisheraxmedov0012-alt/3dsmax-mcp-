@@ -1,8 +1,8 @@
 # 3D Studio AI — Project Plan
 
-> Holat: 0–5-bosqich bajarildi (poydevor, MVP, o'zaro ta'sir/eksport, AI adapter,
-> loyihalarni saqlash, arxitektura va interyer moduli). Ushbu hujjat reja va arxitektura
-> tavsiyalarini belgilaydi.
+> Holat: 0–6-bosqich bajarildi (poydevor, MVP, o'zaro ta'sir/eksport, AI adapter,
+> loyihalarni saqlash, arxitektura va interyer, mahsulot vizualizatsiyasi). Ushbu hujjat
+> reja va arxitektura tavsiyalarini belgilaydi.
 > Diqqat: bu yerdagi barcha texnologiyalar **tavsiya** sifatida keltirilgan. Hech qanday
 > tayyor 3D generator yoki mavjud bo'lmagan API "bor" deb da'vo qilinmaydi — har bir
 > integratsiya tanlovi tegishli bosqichda tekshiriladi va tasdiqlanadi.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { findSceneObject, sceneReducer } from './sceneReducer';
 import { createDefaultSceneState, ROOM_DEFAULTS, ROOM_LIMITS, ROOM_OBJECT_ID } from './types';
+import { createDefaultSettings } from './sceneSettings';
 import { buildTable } from '../geometry/buildTable';
 
 function initialState() {
@@ -146,14 +147,105 @@ describe('sceneReducer', () => {
     expect(state.selectedId).toBe(ROOM_OBJECT_ID);
   });
 
+  it('updates material for only the targeted object', () => {
+    let state = initialState();
+    state = sceneReducer(state, { type: 'ADD_TABLE', id: 'table-2' });
+    const [a, b] = state.data.objects;
+
+    state = sceneReducer(state, {
+      type: 'UPDATE_MATERIAL',
+      id: a.id,
+      material: { metalness: 0.9, roughness: 0.2 },
+    });
+
+    expect(findSceneObject(state, a.id)?.material).toEqual({ metalness: 0.9, roughness: 0.2 });
+    expect(findSceneObject(state, b.id)?.material).toEqual(b.material);
+  });
+
+  it('clamps material values into 0–1', () => {
+    const state0 = initialState();
+    const id = state0.data.objects[0].id;
+
+    const high = sceneReducer(state0, {
+      type: 'UPDATE_MATERIAL',
+      id,
+      material: { metalness: 5, roughness: -3 },
+    });
+    expect(findSceneObject(high, id)?.material.metalness).toBe(1);
+    expect(findSceneObject(high, id)?.material.roughness).toBe(0);
+
+    const nan = sceneReducer(state0, {
+      type: 'UPDATE_MATERIAL',
+      id,
+      material: { metalness: Number.NaN },
+    });
+    expect(findSceneObject(nan, id)?.material.metalness).toBe(state0.data.objects[0].material.metalness);
+  });
+
+  it('resets material to defaults', () => {
+    const state0 = initialState();
+    const id = state0.data.objects[0].id;
+    const changed = sceneReducer(state0, { type: 'UPDATE_MATERIAL', id, material: { metalness: 1 } });
+    const reset = sceneReducer(changed, { type: 'RESET_MATERIAL', id });
+
+    expect(findSceneObject(reset, id)?.material.metalness).toBe(0.05);
+    expect(findSceneObject(reset, id)?.material.roughness).toBe(0.6);
+  });
+
+  it('sets the scene background', () => {
+    const state = sceneReducer(initialState(), { type: 'SET_BACKGROUND', color: '#ff0000' });
+    expect(state.data.settings.background).toBe('#ff0000');
+  });
+
+  it('ignores an invalid background colour (keeps the current one)', () => {
+    const custom = sceneReducer(initialState(), { type: 'SET_BACKGROUND', color: '#123456' });
+    const still = sceneReducer(custom, { type: 'SET_BACKGROUND', color: 'not-a-colour' });
+    expect(still.data.settings.background).toBe('#123456');
+  });
+
+  it('updates and resets lights with clamping', () => {
+    const state0 = initialState();
+    const updated = sceneReducer(state0, {
+      type: 'UPDATE_LIGHTS',
+      lights: { keyIntensity: 99, keyEnabled: false },
+    });
+    expect(updated.data.settings.lights.keyIntensity).toBe(5);
+    expect(updated.data.settings.lights.keyEnabled).toBe(false);
+
+    const reset = sceneReducer(updated, { type: 'RESET_LIGHTS' });
+    expect(reset.data.settings.lights.keyIntensity).toBe(2);
+    expect(reset.data.settings.lights.keyEnabled).toBe(true);
+  });
+
+  it('updates room material colours', () => {
+    const state = sceneReducer(initialState(), {
+      type: 'UPDATE_ROOM_MATERIALS',
+      floorColor: '#101010',
+      wallColor: '#202020',
+    });
+    expect(state.data.settings.roomMaterials).toEqual({
+      floorColor: '#101010',
+      wallColor: '#202020',
+    });
+  });
+
+  it('sets a valid camera preset and ignores an invalid one', () => {
+    const good = sceneReducer(initialState(), { type: 'SET_CAMERA_PRESET', preset: 'front' });
+    expect(good.data.settings.cameraPreset).toBe('front');
+
+    const bad = sceneReducer(good, { type: 'SET_CAMERA_PRESET', preset: 'diagonal' as never });
+    expect(bad.data.settings.cameraPreset).toBe('front');
+  });
+
   it('loads and resets scenes', () => {
     const state0 = initialState();
     const loaded = sceneReducer(state0, {
       type: 'LOAD_SCENE',
       scene: {
-        schemaVersion: 2,
+        schemaVersion: 3,
         room: { widthCm: 300, lengthCm: 300, heightCm: 250 },
         objects: [findSceneObject(state0, state0.selectedId)!],
+        settings: createDefaultSettings(),
       },
     });
     expect(loaded.data.room.widthCm).toBe(300);

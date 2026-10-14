@@ -3,7 +3,8 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { buildRoom } from '../geometry/buildRoom';
 import { applyObjectTransform, buildSceneObject } from '../scene/buildSceneObject';
 import { ROOM_OBJECT_ID, type SceneData } from '../scene/types';
-import { computeRoomFraming } from './cameraFraming';
+import type { CameraPreset, SceneSettings } from '../scene/sceneSettings';
+import { computePresetFraming, computeRoomFraming } from './cameraFraming';
 
 export interface SceneViewerOptions {
   onSelect?: (id: string | null) => void;
@@ -18,10 +19,10 @@ interface ObjectEntry {
 const CLICK_MOVE_THRESHOLD_PX = 6;
 
 /**
- * Viewer layer for the Stage 5 scene: owns the WebGL renderer, scene, camera,
- * lights, camera controls, selection highlighting and pointer picking. It only
- * renders geometry produced by the geometry/scene builders and never mutates
- * the scene data model.
+ * Viewer layer for the scene (Stage 5–6): owns the WebGL renderer, scene,
+ * camera, lights, camera controls, selection highlighting, pointer picking and
+ * PNG capture. It only renders geometry produced by the geometry/scene builders
+ * and never mutates the scene data model.
  *
  * Updates are incremental: only the room or the affected object is rebuilt.
  */
@@ -35,6 +36,11 @@ export class SceneViewer {
   private readonly raycaster = new THREE.Raycaster();
   private readonly onSelect?: (id: string | null) => void;
 
+  private readonly background = new THREE.Color('#1b1f24');
+  private readonly ambient: THREE.HemisphereLight;
+  private readonly keyLight: THREE.DirectionalLight;
+  private readonly fillLight: THREE.DirectionalLight;
+
   private room: { group: THREE.Group; dispose: () => void; key: string } | null = null;
   private readonly objects = new Map<string, ObjectEntry>();
   private selectionHelper: THREE.BoxHelper | null = null;
@@ -43,6 +49,7 @@ export class SceneViewer {
   private selectedId: string | null = null;
   private frameId: number | null = null;
   private hasFramedOnce = false;
+  private shadowsEnabled = true;
 
   private pointerDown: { x: number; y: number } | null = null;
   private readonly handlePointerDown: (event: PointerEvent) => void;
@@ -53,7 +60,7 @@ export class SceneViewer {
     this.onSelect = options.onSelect;
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color('#1b1f24');
+    this.scene.background = this.background;
 
     this.camera = new THREE.PerspectiveCamera(45, 1, 1, 20000);
     this.camera.position.set(600, 500, 700);
@@ -76,24 +83,24 @@ export class SceneViewer {
     this.controls.maxPolarAngle = Math.PI / 2 - 0.02;
     this.controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
 
-    const hemisphere = new THREE.HemisphereLight(0xffffff, 0x30363d, 1.0);
-    this.scene.add(hemisphere);
+    this.ambient = new THREE.HemisphereLight(0xffffff, 0x30363d, 1.0);
+    this.scene.add(this.ambient);
 
-    const keyLight = new THREE.DirectionalLight(0xffffff, 2.0);
-    keyLight.position.set(400, 700, 500);
-    keyLight.castShadow = true;
-    keyLight.shadow.mapSize.set(1024, 1024);
-    keyLight.shadow.camera.near = 10;
-    keyLight.shadow.camera.far = 4000;
-    keyLight.shadow.camera.left = -1500;
-    keyLight.shadow.camera.right = 1500;
-    keyLight.shadow.camera.top = 1500;
-    keyLight.shadow.camera.bottom = -1500;
-    this.scene.add(keyLight);
+    this.keyLight = new THREE.DirectionalLight(0xffffff, 2.0);
+    this.keyLight.position.set(400, 700, 500);
+    this.keyLight.castShadow = true;
+    this.keyLight.shadow.mapSize.set(1024, 1024);
+    this.keyLight.shadow.camera.near = 10;
+    this.keyLight.shadow.camera.far = 4000;
+    this.keyLight.shadow.camera.left = -1500;
+    this.keyLight.shadow.camera.right = 1500;
+    this.keyLight.shadow.camera.top = 1500;
+    this.keyLight.shadow.camera.bottom = -1500;
+    this.scene.add(this.keyLight);
 
-    const fillLight = new THREE.DirectionalLight(0xffffff, 0.6);
-    fillLight.position.set(-500, 400, -400);
-    this.scene.add(fillLight);
+    this.fillLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    this.fillLight.position.set(-500, 400, -400);
+    this.scene.add(this.fillLight);
 
     this.handlePointerDown = (event) => this.onPointerDown(event);
     this.handlePointerUp = (event) => this.onPointerUp(event);
@@ -112,13 +119,22 @@ export class SceneViewer {
     this.data = data;
     this.selectedId = selectedId;
 
-    const roomKey = `${data.room.widthCm}:${data.room.lengthCm}:${data.room.heightCm}`;
+    this.applySettings(data.settings);
+
+    const roomKey = [
+      data.room.widthCm,
+      data.room.lengthCm,
+      data.room.heightCm,
+      data.settings.roomMaterials.floorColor,
+      data.settings.roomMaterials.wallColor,
+    ].join(':');
+
     if (!this.room || this.room.key !== roomKey) {
       if (this.room) {
         this.scene.remove(this.room.group);
         this.room.dispose();
       }
-      const built = buildRoom(data.room);
+      const built = buildRoom(data.room, data.settings.roomMaterials);
       built.group.userData.sceneObjectId = ROOM_OBJECT_ID;
       this.scene.add(built.group);
       this.room = { group: built.group, dispose: built.dispose, key: roomKey };
@@ -135,27 +151,19 @@ export class SceneViewer {
     }
 
     for (const object of data.objects) {
-      const paramsKey = JSON.stringify(object.params);
+      const paramsKey = JSON.stringify([object.params, object.material]);
       const existing = this.objects.get(object.id);
 
       if (!existing) {
         const built = buildSceneObject(object);
         this.scene.add(built.group);
-        this.objects.set(object.id, {
-          group: built.group,
-          dispose: built.dispose,
-          paramsKey,
-        });
+        this.objects.set(object.id, { group: built.group, dispose: built.dispose, paramsKey });
       } else if (existing.paramsKey !== paramsKey) {
         this.scene.remove(existing.group);
         existing.dispose();
         const built = buildSceneObject(object);
         this.scene.add(built.group);
-        this.objects.set(object.id, {
-          group: built.group,
-          dispose: built.dispose,
-          paramsKey,
-        });
+        this.objects.set(object.id, { group: built.group, dispose: built.dispose, paramsKey });
       } else {
         applyObjectTransform(existing.group, object);
       }
@@ -170,7 +178,38 @@ export class SceneViewer {
     this.controls.update();
   }
 
-  /** Restores the default camera framing for the current room. */
+  /** Applies background, lighting and shadow settings without rebuilding geometry. */
+  private applySettings(settings: SceneSettings): void {
+    this.background.set(settings.background);
+
+    this.ambient.intensity = settings.lights.ambientIntensity;
+    this.ambient.color.set(settings.lights.ambientColor);
+
+    this.keyLight.visible = settings.lights.keyEnabled;
+    this.keyLight.intensity = settings.lights.keyIntensity;
+    this.keyLight.color.set(settings.lights.keyColor);
+    this.keyLight.castShadow = settings.lights.shadowsEnabled;
+
+    this.fillLight.visible = settings.lights.fillEnabled;
+    this.fillLight.intensity = settings.lights.fillIntensity;
+    this.fillLight.color.set(settings.lights.fillColor);
+
+    if (this.shadowsEnabled !== settings.lights.shadowsEnabled) {
+      this.shadowsEnabled = settings.lights.shadowsEnabled;
+      this.renderer.shadowMap.enabled = settings.lights.shadowsEnabled;
+      // Toggling shadows requires materials to recompile.
+      this.scene.traverse((object) => {
+        const material = (object as THREE.Mesh).material;
+        if (Array.isArray(material)) {
+          material.forEach((entry) => (entry.needsUpdate = true));
+        } else if (material) {
+          material.needsUpdate = true;
+        }
+      });
+    }
+  }
+
+  /** Restores the default (isometric) camera framing for the current room. */
   resetView(): void {
     if (!this.data) {
       return;
@@ -179,6 +218,75 @@ export class SceneViewer {
     this.camera.position.set(framing.position.x, framing.position.y, framing.position.z);
     this.controls.target.set(framing.target.x, framing.target.y, framing.target.z);
     this.controls.update();
+  }
+
+  /** Moves the camera to a named preset. Object coordinates are never changed. */
+  applyCameraPreset(preset: CameraPreset): void {
+    if (!this.data) {
+      return;
+    }
+    const framing = computePresetFraming(this.data.room, preset);
+    this.camera.position.set(framing.position.x, framing.position.y, framing.position.z);
+    this.controls.target.set(framing.target.x, framing.target.y, framing.target.z);
+    this.controls.update();
+  }
+
+  /**
+   * Renders the current scene composition at the requested pixel size and
+   * returns a PNG Blob. Uses a temporary render target (no global
+   * `preserveDrawingBuffer`), and always disposes it and restores the camera
+   * aspect so the visible view is never left broken.
+   */
+  async capturePng(width: number, height: number): Promise<Blob> {
+    const prevAspect = this.camera.aspect;
+    this.camera.aspect = width / height;
+    this.camera.updateProjectionMatrix();
+
+    const target = new THREE.WebGLRenderTarget(width, height, {
+      depthBuffer: true,
+      stencilBuffer: false,
+    });
+    target.texture.colorSpace = THREE.SRGBColorSpace;
+
+    const prevTarget = this.renderer.getRenderTarget();
+
+    try {
+      this.renderer.setRenderTarget(target);
+      this.renderer.render(this.scene, this.camera);
+
+      const pixels = new Uint8Array(width * height * 4);
+      this.renderer.readRenderTargetPixels(target, 0, 0, width, height, pixels);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      if (!context) {
+        throw new Error('2D kontekst mavjud emas.');
+      }
+
+      const imageData = context.createImageData(width, height);
+      // WebGL reads bottom-up; flip vertically into the 2D canvas.
+      for (let y = 0; y < height; y += 1) {
+        const src = (height - 1 - y) * width * 4;
+        imageData.data.set(pixels.subarray(src, src + width * 4), y * width * 4);
+      }
+      context.putImageData(imageData, 0, 0);
+
+      return await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (result) => (result ? resolve(result) : reject(new Error("PNG yaratib bo'lmadi."))),
+          'image/png',
+        );
+      });
+    } finally {
+      this.renderer.setRenderTarget(prevTarget ?? null);
+      target.dispose();
+      this.camera.aspect = prevAspect;
+      this.camera.updateProjectionMatrix();
+      // Redraw the visible frame at the restored size.
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 
   private updateSelectionHelper(): void {

@@ -70,6 +70,21 @@ describe('validateSceneObject', () => {
     expect(object?.scale.x).toBe(0.1);
     expect(object?.visible).toBe(true);
   });
+
+  it('defaults missing material and clamps out-of-range material', () => {
+    const missing = validateSceneObject({
+      ...createTableSceneObject('a'),
+      material: undefined,
+    });
+    expect(missing?.material).toEqual({ metalness: 0.05, roughness: 0.6 });
+
+    const clamped = validateSceneObject({
+      ...createTableSceneObject('b'),
+      material: { metalness: 9, roughness: -1 },
+    });
+    expect(clamped?.material.metalness).toBe(1);
+    expect(clamped?.material.roughness).toBe(0);
+  });
 });
 
 describe('validateSceneData', () => {
@@ -105,6 +120,18 @@ describe('validateSceneData', () => {
     const result = validateSceneData({ room: {} });
     expect(result.scene?.objects).toEqual([]);
   });
+
+  it('adds default settings for a legacy (v2) scene without settings', () => {
+    const result = validateSceneData({
+      schemaVersion: 2,
+      room: { widthCm: 400, lengthCm: 500, heightCm: 280 },
+      objects: [createTableSceneObject('a')],
+    });
+
+    expect(result.scene?.settings.background).toBe('#1b1f24');
+    expect(result.scene?.settings.cameraPreset).toBe('iso');
+    expect(result.scene?.schemaVersion).toBe(SCENE_SCHEMA_VERSION);
+  });
 });
 
 describe('migrateLegacyParamsToScene', () => {
@@ -125,5 +152,6 @@ describe('migrateLegacyParamsToScene', () => {
       depthCm: 70,
       color: '#c0392b',
     });
+    expect(scene.settings.cameraPreset).toBe('iso');
   });
 });

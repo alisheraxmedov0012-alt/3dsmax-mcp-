@@ -1,4 +1,5 @@
 import { TABLE_DEFAULTS, type TableParams } from '../geometry/tableParams';
+import { createDefaultSettings, type SceneSettings } from './sceneSettings';
 
 /**
  * Scene data model (Stage 5).
@@ -44,12 +45,27 @@ export interface SceneObject {
   scale: Vec3;
   visible: boolean;
   params: TableParams;
+  /** PBR material overrides (metalness/roughness). Base colour is `params.color`. */
+  material: ObjectMaterial;
 }
+
+export interface ObjectMaterial {
+  metalness: number;
+  roughness: number;
+}
+
+export const MATERIAL_DEFAULTS: ObjectMaterial = { metalness: 0.05, roughness: 0.6 };
+
+export const MATERIAL_LIMITS = {
+  metalness: { min: 0, max: 1, step: 0.01 },
+  roughness: { min: 0, max: 1, step: 0.01 },
+} satisfies Record<'metalness' | 'roughness', NumericRange>;
 
 export interface SceneData {
   schemaVersion: number;
   room: RoomConfig;
   objects: SceneObject[];
+  settings: SceneSettings;
 }
 
 /** Runtime scene state: persisted data plus transient selection. */
@@ -58,22 +74,25 @@ export interface SceneState {
   selectedId: string | null;
 }
 
-export const SCENE_SCHEMA_VERSION = 2;
+export const SCENE_SCHEMA_VERSION = 3;
 
 /** Pseudo-id used to select the room itself in the hierarchy / viewer. */
 export const ROOM_OBJECT_ID = 'room';
 
-export interface RoomRange {
+export interface NumericRange {
   min: number;
   max: number;
   step: number;
 }
 
+/** @deprecated kept as an alias; use {@link NumericRange}. */
+export type RoomRange = NumericRange;
+
 export const ROOM_LIMITS = {
   widthCm: { min: 100, max: 2000, step: 10 },
   lengthCm: { min: 100, max: 2000, step: 10 },
   heightCm: { min: 100, max: 600, step: 10 },
-} satisfies Record<'widthCm' | 'lengthCm' | 'heightCm', RoomRange>;
+} satisfies Record<'widthCm' | 'lengthCm' | 'heightCm', NumericRange>;
 
 export const ROOM_DEFAULTS: RoomConfig = {
   widthCm: 400,
@@ -108,6 +127,7 @@ export function createTableSceneObject(
     scale: { x: 1, y: 1, z: 1 },
     visible: true,
     params: { ...TABLE_DEFAULTS },
+    material: { ...MATERIAL_DEFAULTS },
     ...overrides,
   };
 }
@@ -118,6 +138,7 @@ export function createDefaultScene(idFactory: () => string): SceneData {
     schemaVersion: SCENE_SCHEMA_VERSION,
     room: { ...ROOM_DEFAULTS },
     objects: [createTableSceneObject(idFactory())],
+    settings: createDefaultSettings(),
   };
 }
 

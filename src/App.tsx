@@ -2,13 +2,18 @@ import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { AiPromptPanel } from './components/AiPromptPanel';
 import { ControlsPanel } from './components/ControlsPanel';
 import { ExportControls, type ExportStatus } from './components/ExportControls';
+import { LightingPanel } from './components/LightingPanel';
+import { MaterialPanel } from './components/MaterialPanel';
 import { ObjectPanel } from './components/ObjectPanel';
 import { ProjectsPanel, type ProjectsStatus } from './components/ProjectsPanel';
+import { RenderExportPanel, type RenderStatus } from './components/RenderExportPanel';
 import { RoomPanel } from './components/RoomPanel';
 import { SceneHierarchyPanel } from './components/SceneHierarchyPanel';
+import { SceneSettingsPanel } from './components/SceneSettingsPanel';
 import { ViewerCanvas } from './components/ViewerCanvas';
-import { downloadArrayBuffer } from './export/downloadFile';
+import { downloadArrayBuffer, downloadBlob } from './export/downloadFile';
 import { exportSceneToGlb, SCENE_EXPORT_FILENAME } from './export/sceneExport';
+import { exportScenePng, type PngPreset } from './export/sceneImage';
 import {
   DEFAULT_FIELD_VALUES,
   paramsToFieldValues,
@@ -21,13 +26,16 @@ import { createLocalProjectRepository } from './projects/localProjectRepository'
 import type { ProjectRepository, SavedProject } from './projects/types';
 import { findSceneObject, sceneReducer } from './scene/sceneReducer';
 import { createSceneObjectId } from './scene/sceneIds';
+import type { CameraPreset, LightSettings, RoomMaterialSettings } from './scene/sceneSettings';
 import {
   ROOM_DEFAULTS,
   ROOM_OBJECT_ID,
   createDefaultSceneState,
+  type ObjectMaterial,
   type RoomConfig,
   type Vec3,
 } from './scene/types';
+import type { SceneViewer } from './viewer/SceneViewer';
 import './App.css';
 
 export default function App() {
@@ -39,8 +47,13 @@ export default function App() {
 
   const [values, setValues] = useState<TableFieldValues>(DEFAULT_FIELD_VALUES);
   const [resetToken, setResetToken] = useState(0);
+  const [cameraPresetToken, setCameraPresetToken] = useState(0);
+
   const [exportStatus, setExportStatus] = useState<ExportStatus>('idle');
   const [exportMessage, setExportMessage] = useState('');
+  const [pngPreset, setPngPreset] = useState<PngPreset>('standard');
+  const [renderStatus, setRenderStatus] = useState<RenderStatus>('idle');
+  const [renderMessage, setRenderMessage] = useState('');
 
   const [projects, setProjects] = useState<SavedProject[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
@@ -49,6 +62,7 @@ export default function App() {
   const [projectsMessage, setProjectsMessage] = useState('');
 
   const repositoryRef = useRef<ProjectRepository | null>(null);
+  const viewerRef = useRef<SceneViewer | null>(null);
 
   const getRepository = (): ProjectRepository => {
     if (!repositoryRef.current) {
@@ -60,6 +74,7 @@ export default function App() {
   const selectedObject = findSceneObject(scene, scene.selectedId);
   const selectedTable = selectedObject && selectedObject.type === 'table' ? selectedObject : null;
   const parsed = useMemo(() => parseTableValues(values), [values]);
+  const settings = scene.data.settings;
 
   // Keep the table parameter controls in sync with the selected table.
   useEffect(() => {
@@ -132,6 +147,18 @@ export default function App() {
     }
   };
 
+  const handleMaterial = (patch: Partial<ObjectMaterial>) => {
+    if (selectedTable) {
+      dispatch({ type: 'UPDATE_MATERIAL', id: selectedTable.id, material: patch });
+    }
+  };
+
+  const handleResetMaterial = () => {
+    if (selectedTable) {
+      dispatch({ type: 'RESET_MATERIAL', id: selectedTable.id });
+    }
+  };
+
   const handleToggleVisibility = (id: string) => dispatch({ type: 'TOGGLE_VISIBILITY', id });
 
   const handleDeleteObject = (id: string) => {
@@ -141,6 +168,21 @@ export default function App() {
       return;
     }
     dispatch({ type: 'DELETE_OBJECT', id });
+  };
+
+  const handleBackground = (color: string) => dispatch({ type: 'SET_BACKGROUND', color });
+  const handleLights = (lights: Partial<LightSettings>) =>
+    dispatch({ type: 'UPDATE_LIGHTS', lights });
+  const handleResetLights = () => dispatch({ type: 'RESET_LIGHTS' });
+  const handleRoomMaterials = (patch: Partial<RoomMaterialSettings>) =>
+    dispatch({
+      type: 'UPDATE_ROOM_MATERIALS',
+      floorColor: patch.floorColor,
+      wallColor: patch.wallColor,
+    });
+  const handleCameraPreset = (preset: CameraPreset) => {
+    dispatch({ type: 'SET_CAMERA_PRESET', preset });
+    setCameraPresetToken((token) => token + 1);
   };
 
   const handleSaveProject = async () => {
@@ -179,7 +221,7 @@ export default function App() {
     setActiveProjectId(null);
     setProjectName('');
     setProjectsStatus('idle');
-    setProjectsMessage('Yangi loyiha. Xona va obyektlarni sozlab, saqlang.');
+    setProjectsMessage('Yangi loyiha. Xona, yorug\u2019lik va obyektlarni sozlab, saqlang.');
   };
 
   const handleOpenProject = (project: SavedProject) => {
@@ -218,7 +260,7 @@ export default function App() {
     }
   };
 
-  const handleExport = async () => {
+  const handleExportGlb = async () => {
     if (exportStatus === 'exporting') {
       return;
     }
@@ -238,6 +280,37 @@ export default function App() {
     }
   };
 
+  const handleExportPng = async () => {
+    if (renderStatus === 'working') {
+      return;
+    }
+
+    const viewer = viewerRef.current;
+    if (!viewer) {
+      setRenderStatus('error');
+      setRenderMessage("3D ko'rinish hali tayyor emas. Birozdan so'ng urinib ko'ring.");
+      return;
+    }
+
+    setRenderStatus('working');
+    setRenderMessage('Render qilinmoqda…');
+
+    try {
+      const result = await exportScenePng(pngPreset, {
+        capture: (size) => viewer.capturePng(size.width, size.height),
+        download: (blob, filename) => downloadBlob(blob, filename),
+      });
+      setRenderStatus('success');
+      setRenderMessage(
+        `PNG saqlandi (${result.size.width}×${result.size.height}, ${Math.round(result.bytes / 1024)} KB).`,
+      );
+    } catch (error) {
+      setRenderStatus('error');
+      setRenderMessage("Render amalga oshmadi. Iltimos, qaytadan urinib ko'ring.");
+      console.error('PNG eksport xatosi:', error);
+    }
+  };
+
   return (
     <div className="app">
       <ControlsPanel
@@ -254,6 +327,19 @@ export default function App() {
           onResetRoom={handleResetRoom}
           onSelectRoom={handleSelectRoom}
         />
+        <SceneSettingsPanel
+          background={settings.background}
+          cameraPreset={settings.cameraPreset}
+          roomMaterials={settings.roomMaterials}
+          onBackground={handleBackground}
+          onCameraPreset={handleCameraPreset}
+          onRoomMaterials={handleRoomMaterials}
+        />
+        <LightingPanel
+          lights={settings.lights}
+          onUpdate={handleLights}
+          onReset={handleResetLights}
+        />
         <SceneHierarchyPanel
           room={scene.data.room}
           objects={scene.data.objects}
@@ -269,6 +355,11 @@ export default function App() {
           onRename={handleRename}
           onToggleVisibility={() => selectedTable && handleToggleVisibility(selectedTable.id)}
           onDelete={() => selectedTable && handleDeleteObject(selectedTable.id)}
+        />
+        <MaterialPanel
+          object={selectedTable}
+          onMaterial={handleMaterial}
+          onReset={handleResetMaterial}
         />
         <AiPromptPanel onApply={applyProposal} />
         <ProjectsPanel
@@ -287,7 +378,15 @@ export default function App() {
           status={exportStatus}
           message={exportMessage}
           disabled={!parsed.valid}
-          onExport={handleExport}
+          onExport={handleExportGlb}
+        />
+        <RenderExportPanel
+          preset={pngPreset}
+          status={renderStatus}
+          message={renderMessage}
+          disabled={false}
+          onPresetChange={setPngPreset}
+          onExport={handleExportPng}
         />
       </ControlsPanel>
 
@@ -296,7 +395,12 @@ export default function App() {
           scene={scene.data}
           selectedId={scene.selectedId}
           resetToken={resetToken}
+          cameraPreset={settings.cameraPreset}
+          cameraPresetToken={cameraPresetToken}
           onSelect={handleSelect}
+          onReady={(viewer) => {
+            viewerRef.current = viewer;
+          }}
         />
 
         <div className="stage__toolbar">

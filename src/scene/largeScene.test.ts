@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { sceneReducer } from './sceneReducer';
 import { createTableSceneObject, SCENE_SCHEMA_VERSION, type SceneData } from './types';
+import { createDefaultSettings } from './sceneSettings';
 import { validateSceneData } from './sceneValidation';
 import { buildSceneObject } from './buildSceneObject';
 
@@ -26,6 +27,7 @@ function buildLargeScene(): SceneData {
     schemaVersion: SCENE_SCHEMA_VERSION,
     room: { widthCm: 2000, lengthCm: 2000, heightCm: 400 },
     objects,
+    settings: createDefaultSettings(),
   };
 }
 
