@@ -13,8 +13,11 @@ import { RoomPanel } from './components/RoomPanel';
 import { SceneHierarchyPanel } from './components/SceneHierarchyPanel';
 import { SceneSettingsPanel } from './components/SceneSettingsPanel';
 import { ViewerCanvas } from './components/ViewerCanvas';
-import { downloadArrayBuffer, downloadBlob } from './export/downloadFile';
-import { exportSceneToGlb, SCENE_EXPORT_FILENAME } from './export/sceneExport';
+import { downloadBlob } from './export/downloadFile';
+import { exportSceneToFormat } from './export/sceneFileExport';
+import { parseSceneJson } from './export/sceneJson';
+import { ExportError } from './export/exportTypes';
+import type { ExportFormatId } from './export/exportFormats';
 import { exportScenePng, type PngPreset } from './export/sceneImage';
 import type { TableParams } from './geometry/tableParams';
 import {
@@ -67,6 +70,8 @@ export default function App() {
   const [cameraPresetToken, setCameraPresetToken] = useState(0);
 
   const [exportStatus, setExportStatus] = useState<ExportStatus>('idle');
+  const [exportFormat, setExportFormat] = useState<ExportFormatId>('glb');
+  const [includeRoom, setIncludeRoom] = useState(true);
   const [exportMessage, setExportMessage] = useState('');
   const [pngPreset, setPngPreset] = useState<PngPreset>('standard');
   const [renderStatus, setRenderStatus] = useState<RenderStatus>('idle');
@@ -360,7 +365,7 @@ export default function App() {
     }
   };
 
-  const handleExportGlb = async () => {
+  const handleExportFile = async () => {
     if (exportStatus === 'exporting') {
       return;
     }
@@ -368,15 +373,65 @@ export default function App() {
     setExportStatus('exporting');
     setExportMessage('Eksport qilinmoqda…');
 
+    const metadata = {
+      name: projectName.trim() !== '' ? projectName : '3d-studio-ai',
+      furnitureType: selectedObject?.type ?? scene.data.objects[0]?.type ?? null,
+      units: 'cm' as const,
+    };
+
     try {
-      const data = await exportSceneToGlb(scene.data);
-      downloadArrayBuffer(data, SCENE_EXPORT_FILENAME);
+      const artifact = await exportSceneToFormat(exportFormat, scene.data, metadata, {
+        includeRoom,
+      });
+      downloadBlob(artifact.blob, artifact.filename);
       setExportStatus('success');
-      setExportMessage('Sahna .glb fayl sifatida yuklab olindi.');
+      setExportMessage(`Sahna "${artifact.filename}" sifatida yuklab olindi.`);
     } catch (error) {
       setExportStatus('error');
-      setExportMessage("Eksport amalga oshmadi. Iltimos, qaytadan urinib ko'ring.");
-      console.error('GLB eksport xatosi:', error);
+      setExportMessage(
+        error instanceof ExportError ? error.message : "Eksport amalga oshmadi.",
+      );
+      console.error('Eksport xatosi:', error);
+    }
+  };
+
+  const handleImportJson = async (file: File) => {
+    if (exportStatus === 'exporting') {
+      return;
+    }
+    setExportStatus('exporting');
+    setExportMessage('JSON tekshirilmoqda…');
+
+    try {
+      const text = await file.text();
+      const result = parseSceneJson(text);
+      if (!result.ok) {
+        // Import failure leaves the current scene untouched.
+        setExportStatus('error');
+        setExportMessage(result.message);
+        return;
+      }
+
+      const label = `${result.name} (${result.scene.objects.length} obyekt)`;
+      if (!window.confirm(`"${label}" joriy sahna ustidan yuklansinmi?`)) {
+        setExportStatus('idle');
+        setExportMessage('');
+        return;
+      }
+
+      dispatch({ type: 'LOAD_SCENE', scene: result.scene });
+      setActiveProjectId(null);
+      setProjectName(result.name);
+      setExportStatus('success');
+      setExportMessage(
+        result.droppedObjects > 0
+          ? `Import qilindi; ${result.droppedObjects} yaroqsiz obyekt o'tkazib yuborildi.`
+          : 'JSON loyiha import qilindi.',
+      );
+    } catch (error) {
+      setExportStatus('error');
+      setExportMessage("Faylni o'qib bo'lmadi.");
+      console.error('JSON import xatosi:', error);
     }
   };
 
@@ -491,10 +546,15 @@ export default function App() {
           onDelete={handleDeleteProject}
         />
         <ExportControls
+          format={exportFormat}
+          includeRoom={includeRoom}
           status={exportStatus}
           message={exportMessage}
           disabled={!paramsValid}
-          onExport={handleExportGlb}
+          onFormatChange={setExportFormat}
+          onIncludeRoomChange={setIncludeRoom}
+          onExport={handleExportFile}
+          onImportFile={handleImportJson}
         />
         <RenderExportPanel
           preset={pngPreset}
