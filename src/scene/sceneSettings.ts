@@ -1,14 +1,25 @@
 /**
- * Stage 6 visualization settings: scene background, lighting, room materials
- * and the selected camera preset. Kept free of Three.js so it can be validated,
- * serialized and tested without a WebGL context.
+ * Stage 6 visualization settings, extended in W5 with the render pipeline
+ * (lighting preset, render quality, tone mapping, exposure). Kept free of
+ * Three.js so it can be validated, serialized and tested without a WebGL
+ * context.
  */
+import {
+  isLightingPresetId,
+  isQualityPresetId,
+  isToneMappingMode,
+  validateExposure,
+  type LightingPresetChoice,
+  type QualityPresetId,
+  type ToneMappingMode,
+} from '../render/renderPresets';
 
-export type CameraPreset = 'iso' | 'front' | 'side' | 'top';
+export type CameraPreset = 'product' | 'iso' | 'front' | 'side' | 'top';
 
-export const CAMERA_PRESETS: readonly CameraPreset[] = ['iso', 'front', 'side', 'top'];
+export const CAMERA_PRESETS: readonly CameraPreset[] = ['product', 'iso', 'front', 'side', 'top'];
 
 export const CAMERA_PRESET_LABELS: Record<CameraPreset, string> = {
+  product: 'Mahsulot (perspektiva)',
   iso: 'Izometrik',
   front: 'Old',
   side: 'Yon',
@@ -39,6 +50,14 @@ export interface SceneSettings {
   lights: LightSettings;
   roomMaterials: RoomMaterialSettings;
   cameraPreset: CameraPreset;
+  /** W5: which lighting preset produced `lights` ('custom' = hand-edited). */
+  lightingPreset: LightingPresetChoice;
+  /** W5: render quality preset (drives pixel ratio, shadows, export size). */
+  qualityPreset: QualityPresetId;
+  /** W5: tone mapping exposure. */
+  exposure: number;
+  /** W5: tone mapping operator. */
+  toneMapping: ToneMappingMode;
 }
 
 export interface NumericRange {
@@ -53,6 +72,9 @@ export const LIGHT_LIMITS: Record<'intensity', NumericRange> = {
 
 export const DEFAULT_SETTINGS: SceneSettings = {
   background: '#1b1f24',
+  // Stage 6 lighting defaults are preserved exactly, so existing scenes look
+  // unchanged. `lightingPreset: 'custom'` records that these values are the
+  // hand-set default rather than one of the W5 presets.
   lights: {
     ambientIntensity: 1,
     ambientColor: '#ffffff',
@@ -69,6 +91,12 @@ export const DEFAULT_SETTINGS: SceneSettings = {
     wallColor: '#565d66',
   },
   cameraPreset: 'iso',
+  lightingPreset: 'custom',
+  qualityPreset: 'standard',
+  // Tone mapping is off by default so the Stage 1–6 appearance is unchanged;
+  // exposure 1 with no tone mapping is exactly the previous behaviour.
+  exposure: 1,
+  toneMapping: 'none',
 };
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
@@ -103,6 +131,21 @@ function validatePreset(value: unknown): CameraPreset {
   return typeof value === 'string' && (CAMERA_PRESETS as readonly string[]).includes(value)
     ? (value as CameraPreset)
     : DEFAULT_SETTINGS.cameraPreset;
+}
+
+function validateLightingPreset(value: unknown): LightingPresetChoice {
+  if (value === 'custom' || isLightingPresetId(value)) {
+    return value;
+  }
+  return DEFAULT_SETTINGS.lightingPreset;
+}
+
+function validateQuality(value: unknown): QualityPresetId {
+  return isQualityPresetId(value) ? value : DEFAULT_SETTINGS.qualityPreset;
+}
+
+function validateToneMapping(value: unknown): ToneMappingMode {
+  return isToneMappingMode(value) ? value : DEFAULT_SETTINGS.toneMapping;
 }
 
 /**
@@ -145,6 +188,10 @@ export function validateSceneSettings(value: unknown): SceneSettings {
       wallColor: validateColor(room.wallColor, DEFAULT_SETTINGS.roomMaterials.wallColor),
     },
     cameraPreset: validatePreset(record.cameraPreset),
+    lightingPreset: validateLightingPreset(record.lightingPreset),
+    qualityPreset: validateQuality(record.qualityPreset),
+    exposure: validateExposure(record.exposure, DEFAULT_SETTINGS.exposure),
+    toneMapping: validateToneMapping(record.toneMapping),
   };
 }
 
@@ -154,5 +201,9 @@ export function createDefaultSettings(): SceneSettings {
     lights: { ...DEFAULT_SETTINGS.lights },
     roomMaterials: { ...DEFAULT_SETTINGS.roomMaterials },
     cameraPreset: DEFAULT_SETTINGS.cameraPreset,
+    lightingPreset: DEFAULT_SETTINGS.lightingPreset,
+    qualityPreset: DEFAULT_SETTINGS.qualityPreset,
+    exposure: DEFAULT_SETTINGS.exposure,
+    toneMapping: DEFAULT_SETTINGS.toneMapping,
   };
 }

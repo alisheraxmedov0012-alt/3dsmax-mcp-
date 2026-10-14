@@ -6,6 +6,16 @@ import {
 import { validateRoomConfig } from './sceneValidation';
 import { createDefaultSettings, validateColor, validateSceneSettings, CAMERA_PRESETS, type LightSettings, type CameraPreset, type SceneSettings } from './sceneSettings';
 import {
+  LIGHTING_PRESET_CONFIGS,
+  isLightingPresetId,
+  isQualityPresetId,
+  isToneMappingMode,
+  validateExposure,
+  type LightingPresetId,
+  type QualityPresetId,
+  type ToneMappingMode,
+} from '../render/renderPresets';
+import {
   MATERIAL_DEFAULTS,
   MATERIAL_LIMITS,
   OBJECT_NAME_MAX_LENGTH,
@@ -43,8 +53,12 @@ export type SceneAction =
   | { type: 'SET_BACKGROUND'; color: string }
   | { type: 'UPDATE_LIGHTS'; lights: Partial<LightSettings> }
   | { type: 'RESET_LIGHTS' }
+  | { type: 'APPLY_LIGHTING_PRESET'; preset: LightingPresetId }
   | { type: 'UPDATE_ROOM_MATERIALS'; floorColor?: string; wallColor?: string }
   | { type: 'SET_CAMERA_PRESET'; preset: CameraPreset }
+  | { type: 'SET_RENDER_QUALITY'; quality: QualityPresetId }
+  | { type: 'SET_EXPOSURE'; exposure: number }
+  | { type: 'SET_TONE_MAPPING'; toneMapping: ToneMappingMode }
   | { type: 'LOAD_SCENE'; scene: SceneData }
   | { type: 'NEW_SCENE'; id: string };
 
@@ -240,7 +254,8 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
         ...state.data.settings,
         lights: { ...state.data.settings.lights, ...action.lights },
       }).lights;
-      return withSettings(state, { ...state.data.settings, lights });
+      // Editing a light by hand means the values no longer come from a preset.
+      return withSettings(state, { ...state.data.settings, lights, lightingPreset: 'custom' });
     }
 
     case 'RESET_LIGHTS':
@@ -248,6 +263,23 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
         ...state.data.settings,
         lights: createDefaultSettings().lights,
       });
+
+    case 'APPLY_LIGHTING_PRESET': {
+      const preset = isLightingPresetId(action.preset)
+        ? action.preset
+        : state.data.settings.lightingPreset;
+      if (preset === 'custom') {
+        return state;
+      }
+      const config = LIGHTING_PRESET_CONFIGS[preset];
+      // Write the preset's concrete light values so the manual controls reflect
+      // exactly what the renderer will use (single source of truth = settings.lights).
+      const lights = validateSceneSettings({
+        ...state.data.settings,
+        lights: { ...state.data.settings.lights, ...config },
+      }).lights;
+      return withSettings(state, { ...state.data.settings, lights, lightingPreset: preset });
+    }
 
     case 'UPDATE_ROOM_MATERIALS':
       return withSettings(state, {
@@ -266,6 +298,26 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
         ? action.preset
         : state.data.settings.cameraPreset;
       return withSettings(state, { ...state.data.settings, cameraPreset });
+    }
+
+    case 'SET_RENDER_QUALITY': {
+      const qualityPreset = isQualityPresetId(action.quality)
+        ? action.quality
+        : state.data.settings.qualityPreset;
+      return withSettings(state, { ...state.data.settings, qualityPreset });
+    }
+
+    case 'SET_EXPOSURE':
+      return withSettings(state, {
+        ...state.data.settings,
+        exposure: validateExposure(action.exposure, state.data.settings.exposure),
+      });
+
+    case 'SET_TONE_MAPPING': {
+      const toneMapping = isToneMappingMode(action.toneMapping)
+        ? action.toneMapping
+        : state.data.settings.toneMapping;
+      return withSettings(state, { ...state.data.settings, toneMapping });
     }
 
     default:

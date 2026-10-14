@@ -4,6 +4,7 @@ export interface PngSize {
 }
 
 export const PNG_PRESETS = {
+  preview: { width: 1024, height: 576 },
   standard: { width: 1280, height: 720 },
   high: { width: 2560, height: 1440 },
 } as const satisfies Record<string, PngSize>;

@@ -153,6 +153,10 @@ describe('validateSavedProject', () => {
           },
           roomMaterials: { floorColor: '#111111', wallColor: '#222222' },
           cameraPreset: 'top',
+          lightingPreset: 'warmInterior',
+          qualityPreset: 'high',
+          exposure: 1.4,
+          toneMapping: 'reinhard',
         },
         objects: [createTableSceneObject('t1', { material: { metalness: 0.8, roughness: 0.3 } })],
       },
@@ -166,6 +170,10 @@ describe('validateSavedProject', () => {
     expect(restored.scene.settings.lights.keyIntensity).toBe(3);
     expect(restored.scene.settings.roomMaterials.floorColor).toBe('#111111');
     expect(restored.scene.settings.cameraPreset).toBe('top');
+    expect(restored.scene.settings.lightingPreset).toBe('warmInterior');
+    expect(restored.scene.settings.qualityPreset).toBe('high');
+    expect(restored.scene.settings.exposure).toBeCloseTo(1.4, 5);
+    expect(restored.scene.settings.toneMapping).toBe('reinhard');
     expect(restored.scene.objects[0].material).toEqual({ metalness: 0.8, roughness: 0.3 });
   });
 

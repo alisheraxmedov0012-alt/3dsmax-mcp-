@@ -282,6 +282,68 @@ describe('sceneReducer', () => {
     expect(bad.data.settings.cameraPreset).toBe('front');
   });
 
+  it('applies a lighting preset as concrete light values', () => {
+    const applied = sceneReducer(initialState(), {
+      type: 'APPLY_LIGHTING_PRESET',
+      preset: 'highContrast',
+    });
+    const settings = applied.data.settings;
+    expect(settings.lightingPreset).toBe('highContrast');
+    expect(settings.lights.keyIntensity).toBe(3.2);
+    expect(settings.lights.ambientIntensity).toBe(0.35);
+    expect(settings.lights.keyColor).toBe('#ffffff');
+  });
+
+  it('marks lighting as custom after a manual light edit', () => {
+    const applied = sceneReducer(initialState(), {
+      type: 'APPLY_LIGHTING_PRESET',
+      preset: 'coolDaylight',
+    });
+    expect(applied.data.settings.lightingPreset).toBe('coolDaylight');
+    const edited = sceneReducer(applied, {
+      type: 'UPDATE_LIGHTS',
+      lights: { keyIntensity: 1 },
+    });
+    expect(edited.data.settings.lightingPreset).toBe('custom');
+  });
+
+  it('sets a valid render quality and ignores an invalid one', () => {
+    const good = sceneReducer(initialState(), { type: 'SET_RENDER_QUALITY', quality: 'high' });
+    expect(good.data.settings.qualityPreset).toBe('high');
+    const bad = sceneReducer(good, { type: 'SET_RENDER_QUALITY', quality: 'ultra' as never });
+    expect(bad.data.settings.qualityPreset).toBe('high');
+  });
+
+  it('sets and clamps the exposure, and sets a valid tone mapping', () => {
+    const set = sceneReducer(initialState(), { type: 'SET_EXPOSURE', exposure: 2.2 });
+    expect(set.data.settings.exposure).toBeCloseTo(2.2, 5);
+
+    const clamped = sceneReducer(set, { type: 'SET_EXPOSURE', exposure: 99 });
+    expect(clamped.data.settings.exposure).toBe(4);
+
+    const nonFinite = sceneReducer(clamped, { type: 'SET_EXPOSURE', exposure: Number.NaN });
+    expect(nonFinite.data.settings.exposure).toBe(4);
+
+    const tone = sceneReducer(nonFinite, { type: 'SET_TONE_MAPPING', toneMapping: 'aces' });
+    expect(tone.data.settings.toneMapping).toBe('aces');
+    const badTone = sceneReducer(tone, { type: 'SET_TONE_MAPPING', toneMapping: 'filmic' as never });
+    expect(badTone.data.settings.toneMapping).toBe('aces');
+  });
+
+  it('render settings changes never mutate scene geometry or objects', () => {
+    const before = initialState();
+    const objectsBefore = JSON.stringify(before.data.objects);
+
+    let state = sceneReducer(before, { type: 'SET_RENDER_QUALITY', quality: 'high' });
+    state = sceneReducer(state, { type: 'SET_EXPOSURE', exposure: 2 });
+    state = sceneReducer(state, { type: 'SET_TONE_MAPPING', toneMapping: 'aces' });
+    state = sceneReducer(state, { type: 'APPLY_LIGHTING_PRESET', preset: 'coolDaylight' });
+    state = sceneReducer(state, { type: 'SET_CAMERA_PRESET', preset: 'top' });
+
+    expect(JSON.stringify(state.data.objects)).toBe(objectsBefore);
+    expect(state.data.room).toEqual(before.data.room);
+  });
+
   it('loads and resets scenes', () => {
     const state0 = initialState();
     const loaded = sceneReducer(state0, {
