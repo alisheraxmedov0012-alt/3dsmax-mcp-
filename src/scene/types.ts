@@ -33,6 +33,34 @@ export interface Vec3 {
   z: number;
 }
 
+export type RoomWall = 'north' | 'south' | 'east' | 'west';
+
+export const ROOM_WALLS: readonly RoomWall[] = ['north', 'east', 'south', 'west'];
+
+export type OpeningKind = 'door' | 'window';
+
+/** A door/window *model* entry on a wall (see the room builder for rendering). */
+export interface RoomOpening {
+  id: string;
+  kind: OpeningKind;
+  wall: RoomWall;
+  /** Centre offset along the wall from the room centre (cm). */
+  offsetCm: number;
+  widthCm: number;
+  heightCm: number;
+  /** Distance of the opening's bottom edge from the floor (cm); 0 for doors. */
+  sillCm: number;
+}
+
+export const OPENING_LIMITS = {
+  offsetCm: { min: -2000, max: 2000, step: 5 },
+  widthCm: { min: 40, max: 400, step: 5 },
+  heightCm: { min: 40, max: 400, step: 5 },
+  sillCm: { min: 0, max: 300, step: 5 },
+} satisfies Record<'offsetCm' | 'widthCm' | 'heightCm' | 'sillCm', NumericRange>;
+
+export const MAX_OPENINGS_PER_ROOM = 12;
+
 export interface RoomConfig {
   /** Room extent along X (cm). */
   widthCm: number;
@@ -40,6 +68,14 @@ export interface RoomConfig {
   lengthCm: number;
   /** Wall height along Y (cm). */
   heightCm: number;
+  /** W6: draw a ceiling slab. */
+  showCeiling?: boolean;
+  /**
+   * W6: extensible door/window model. Purely descriptive here — the room builder
+   * draws thin markers on the wall to show the positions; they are NOT real
+   * holes cut out of the wall geometry (documented, deferred).
+   */
+  openings?: RoomOpening[];
 }
 
 export interface SceneObject {
