@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import {
   TABLE_COLORS,
   TABLE_LIMITS,
@@ -11,6 +12,7 @@ interface ControlsPanelProps {
   errors: TableErrors;
   onChange: (field: keyof TableFieldValues, value: string) => void;
   onReset: () => void;
+  children?: ReactNode;
 }
 
 const DIMENSION_FIELDS: ReadonlyArray<{ key: TableDimensionField; label: string }> = [
@@ -27,14 +29,14 @@ function sliderValue(raw: string, min: number, max: number): number {
   return Math.min(Math.max(numeric, min), max);
 }
 
-export function ControlsPanel({ values, errors, onChange, onReset }: ControlsPanelProps) {
+export function ControlsPanel({ values, errors, onChange, onReset, children }: ControlsPanelProps) {
   const colorIsValid = /^#[0-9a-fA-F]{6}$/.test(values.color);
 
   return (
     <aside className="panel">
       <header className="panel__header">
         <h1 className="panel__title">3D Studio AI</h1>
-        <p className="panel__subtitle">1-bosqich MVP — parametrik stol</p>
+        <p className="panel__subtitle">2-bosqich — o'zaro ta'sir va eksport</p>
       </header>
 
       {DIMENSION_FIELDS.map(({ key, label }) => {
@@ -113,6 +115,8 @@ export function ControlsPanel({ values, errors, onChange, onReset }: ControlsPan
       <p className="panel__hint">
         Model sichqoncha yoki sensorli ekran orqali aylantiriladi va kattalashtiriladi.
       </p>
+
+      {children}
     </aside>
   );
 }

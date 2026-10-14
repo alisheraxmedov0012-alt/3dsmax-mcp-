@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { buildTable, type BuiltTable } from '../geometry/buildTable';
 import type { TableParams } from '../geometry/tableParams';
+import { computeTableFraming } from './cameraFraming';
 
 /**
  * Viewer layer: owns the WebGL renderer, scene, camera, lights and camera
@@ -16,6 +17,7 @@ export class TableViewer {
   private readonly controls: OrbitControls;
   private readonly resizeObserver: ResizeObserver;
   private table: BuiltTable | null = null;
+  private lastParams: TableParams | null = null;
   private frameId: number | null = null;
   private hasFramedOnce = false;
 
@@ -33,6 +35,9 @@ export class TableViewer {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.domElement.setAttribute('data-testid', 'viewer-canvas');
+    // Prevent the browser's own touch gestures (scroll, pinch-page-zoom) so the
+    // viewer receives them on Android and other touch devices.
+    this.renderer.domElement.style.touchAction = 'none';
     container.appendChild(this.renderer.domElement);
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -41,6 +46,7 @@ export class TableViewer {
     this.controls.minDistance = 60;
     this.controls.maxDistance = 900;
     this.controls.maxPolarAngle = Math.PI / 2 - 0.02;
+    this.controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
     this.controls.target.set(0, 40, 0);
 
     const hemisphere = new THREE.HemisphereLight(0xffffff, 0x30363d, 1.0);
@@ -84,21 +90,33 @@ export class TableViewer {
 
     this.table = buildTable(params);
     this.scene.add(this.table.group);
+    this.lastParams = params;
 
     this.controls.target.set(0, params.heightCm / 2, 0);
 
     if (!this.hasFramedOnce) {
-      this.frameCamera(params);
+      this.applyFraming(params);
       this.hasFramedOnce = true;
     }
     this.controls.update();
   }
 
-  private frameCamera(params: TableParams): void {
-    const maxDim = Math.max(params.widthCm, params.heightCm, params.depthCm);
-    const distance = maxDim * 2.2;
-    this.camera.position.set(distance * 0.8, params.heightCm + maxDim * 0.8, distance);
+  /**
+   * Restores the default camera position and orbit target for the current
+   * model. Used by the "reset view" control.
+   */
+  resetView(): void {
+    if (!this.lastParams) {
+      return;
+    }
+    this.applyFraming(this.lastParams);
     this.controls.update();
+  }
+
+  private applyFraming(params: TableParams): void {
+    const framing = computeTableFraming(params);
+    this.camera.position.set(framing.position.x, framing.position.y, framing.position.z);
+    this.controls.target.set(framing.target.x, framing.target.y, framing.target.z);
   }
 
   private resize(): void {
