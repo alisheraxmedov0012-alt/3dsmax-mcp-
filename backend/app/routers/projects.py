@@ -17,13 +17,14 @@ from sqlalchemy.orm import Session as OrmSession
 
 from ..database import get_db
 from ..deps import get_current_user, require_csrf
+from ..guards import user_rate_limit
 from ..models import Project, User
 from ..schemas import (
     AdminUserResponse,
     LocalProjectImportRequest,
     LocalProjectImportResult,
+    UserResponse,  # noqa: F401  (re-exported for routers)
 )
-from ..schemas import UserResponse  # noqa: F401  (re-exported for routers)
 from ..services.limits import METRIC_PROJECTS, enforce_limit
 
 router = APIRouter(prefix="/api", tags=["projects"])
@@ -33,6 +34,7 @@ router = APIRouter(prefix="/api", tags=["projects"])
 def import_local_projects(
     payload: LocalProjectImportRequest,
     _: None = Depends(require_csrf),
+    __: None = Depends(user_rate_limit("import")),
     user: User = Depends(get_current_user),
     db: OrmSession = Depends(get_db),
 ) -> LocalProjectImportResult:
@@ -84,4 +86,4 @@ def list_projects(
     ]
 
 
-__all__ = ["router", "AdminUserResponse"]
+__all__ = ["AdminUserResponse", "router"]

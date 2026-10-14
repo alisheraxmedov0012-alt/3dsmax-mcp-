@@ -3,10 +3,9 @@ from __future__ import annotations
 
 import json
 
-import pytest
 from sqlalchemy import select
 
-from app.models import Invoice, PaymentAttempt, Subscription
+from app.models import Invoice, PaymentAttempt
 from tests.conftest import auth_headers, register
 
 WEBHOOK_SECRET = "test-webhook-secret"

@@ -1,0 +1,76 @@
+name: CD
+
+# Continuous deployment pipeline. This workflow is PROVIDED but must not be run
+# until the release policy in README is satisfied (hosting, TLS, managed
+# PostgreSQL, secret manager, monitoring, backup plan, closed Critical/High
+# audit findings) and the owner gives explicit written approval.
+#
+#   * Staging: deploys automatically from the integration branch once the
+#     required repository secrets are configured.
+#   * Production: manual only (workflow_dispatch + GitHub Environment
+#     "production" requiring reviewer approval). No automatic production runs.
+#
+# It performs no action while the deployment secrets are absent: the guard step
+# reports that hosting is not configured and the job stops.
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        type: choice
+        options: [staging, production]
+        default: staging
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - id: check
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          if [ -z "${DEPLOY_HOST}" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Deployment is not configured (DEPLOY_HOST secret is absent). No deploy performed."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  staging:
+    needs: guard
+    if: needs.guard.outputs.configured == 'true' && (github.ref == 'refs/heads/main' || inputs.environment == 'staging')
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to staging
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+        run: |
+          echo "Deploying commit ${GITHUB_SHA} to staging on ${DEPLOY_HOST}"
+          # Placeholder: replace with the chosen platform's deploy command.
+          # Credentials come only from repository/environment secrets.
+
+  production:
+    needs: guard
+    if: needs.guard.outputs.configured == 'true' && github.event_name == 'workflow_dispatch' && inputs.environment == 'production'
+    runs-on: ubuntu-latest
+    environment: production   # requires reviewer approval
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to production (manual approval required)
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+        run: |
+          echo "Deploying commit ${GITHUB_SHA} to production on ${DEPLOY_HOST}"
+          # Placeholder: replace with the chosen platform's deploy command.

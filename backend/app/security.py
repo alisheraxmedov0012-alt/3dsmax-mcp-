@@ -13,7 +13,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from passlib.context import CryptContext
 
@@ -51,13 +51,13 @@ def constant_time_equals(a: str, b: str) -> bool:
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def ensure_aware(value: datetime) -> datetime:
     """SQLite drops tzinfo; treat naive values as UTC for comparisons."""
     if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
+        return value.replace(tzinfo=UTC)
     return value
 
 

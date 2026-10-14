@@ -43,9 +43,19 @@ class Settings(BaseSettings):
     # CORS: comma-separated list of allowed frontend origins.
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
-    # Rate limiting (simple in-process limiter; documented limitation).
+    # Rate limiting
+    # A shared store (Redis) makes limits global across workers. If no Redis URL
+    # is configured, the app falls back to an in-process limiter and reports the
+    # limitation clearly (see README); it never claims global enforcement.
     rate_limit_attempts: int = 10
     rate_limit_window_seconds: int = 60
+    rate_limit_backend: str = "memory"  # memory | redis
+    redis_url: str | None = None
+
+    # Logging / observability
+    log_format: str = "json"  # json | text
+    error_tracking_dsn: str | None = None  # e.g. a Sentry DSN (never committed)
+    error_tracking_sample_rate: float = 0.0
 
     # Email verification / password reset
     token_ttl_seconds: int = 60 * 60 * 24  # 24h
@@ -75,7 +85,39 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.environment.lower() == "production"
 
+    def production_problems(self) -> list[str]:
+        """Unsafe production configuration that must block startup.
+
+        Returns a list of human-readable problems. Empty means the configuration
+        is acceptable for production.
+        """
+        problems: list[str] = []
+        if not self.is_production:
+            return problems
+
+        if not self.secret_key or self.secret_key == "dev-insecure-change-me":
+            problems.append("APP_SECRET_KEY production uchun o'rnatilmagan (default qiymat).")
+        if len(self.secret_key) < 32:
+            problems.append("APP_SECRET_KEY kamida 32 belgidan iborat bo'lishi kerak.")
+        if not self.cookie_secure:
+            problems.append("Productionda APP_COOKIE_SECURE=true bo'lishi shart.")
+        if self.expose_dev_tokens:
+            problems.append("Productionda APP_EXPOSE_DEV_TOKENS=false bo'lishi shart.")
+        if self.debug:
+            problems.append("Productionda APP_DEBUG=false bo'lishi shart.")
+        origins = self.cors_origin_list
+        if not origins:
+            problems.append("Productionda APP_CORS_ORIGINS aniq ko'rsatilishi kerak.")
+        if "*" in origins:
+            problems.append("Productionda CORS uchun '*' ishlatilmasin (credentials bilan xavfli).")
+        if self.database_url.startswith("sqlite"):
+            problems.append("Productionda SQLite emas, PostgreSQL ishlatilishi kerak.")
+        if self.rate_limit_backend == "redis" and not self.redis_url:
+            problems.append("APP_RATE_LIMIT_BACKEND=redis uchun APP_REDIS_URL kerak.")
+        return problems
+
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+

@@ -40,4 +40,4 @@ def provider_is_configured() -> bool:
         return False
 
 
-__all__ = ["get_payment_provider", "provider_is_configured", "ProviderNotConfigured"]
+__all__ = ["ProviderNotConfigured", "get_payment_provider", "provider_is_configured"]

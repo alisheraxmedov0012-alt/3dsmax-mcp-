@@ -1,0 +1,34 @@
+# Build context: repository root (run with `docker build -f backend/Dockerfile .`).
+# Keep the image small and, crucially, never ship secrets or dev files.
+
+# VCS / CI
+.git
+.gitignore
+.github
+
+# Secrets and local env
+.env
+.env.*
+!backend/.env.example
+**/.env
+**/.env.*
+
+# Python caches / venvs / local DBs
+**/__pycache__
+**/*.py[cod]
+**/.venv
+**/venv
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/*.db
+**/*.sqlite3
+
+# Frontend build artifacts are not needed for the backend image.
+node_modules
+dist
+coverage
+
+# Docs / tests are not needed at runtime.
+**/tests
+*.md
