@@ -12,7 +12,7 @@ from .error_tracking import init_error_tracking
 from .errors import install_error_handlers
 from .logging_config import configure_logging
 from .middleware import ObservabilityMiddleware
-from .routers import admin, auth, billing, health, plans, projects
+from .routers import admin, ai, auth, billing, health, plans, projects
 from .services.plans import seed_plans
 
 settings = get_settings()
@@ -64,6 +64,7 @@ app.include_router(auth.router)
 app.include_router(plans.router)
 app.include_router(billing.router)
 app.include_router(projects.router)
+app.include_router(ai.router)
 app.include_router(admin.router)
 
 
