@@ -184,6 +184,24 @@ describe('exportSceneToGlb', () => {
     expect(match).toBe(true);
   });
 
+  it('exports a transparent (glass) material as alphaMode BLEND', async () => {
+    const buffer = await exportSceneToGlb(
+      makeScene({
+        objects: [
+          createTableSceneObject('t1', {
+            material: { metalness: 0, roughness: 0.05, materialId: 'glass-clear', opacity: 0.3 },
+          }),
+        ],
+      }),
+    );
+    const { json } = parseGlb(buffer);
+
+    const blend = (json.materials ?? []).some(
+      (material) => (material as { alphaMode?: string }).alphaMode === 'BLEND',
+    );
+    expect(blend).toBe(true);
+  });
+
   it('still exports a valid GLB when visualization settings are customized', async () => {
     const scene = makeScene();
     scene.settings.background = '#000000';

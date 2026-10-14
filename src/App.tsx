@@ -160,6 +160,12 @@ export default function App() {
     }
   };
 
+  const handleApplyMaterialPreset = (presetId: string) => {
+    if (selectedTable) {
+      dispatch({ type: 'APPLY_MATERIAL_PRESET', id: selectedTable.id, presetId });
+    }
+  };
+
   const handleToggleVisibility = (id: string) => dispatch({ type: 'TOGGLE_VISIBILITY', id });
 
   const handleDeleteObject = (id: string) => {
@@ -360,6 +366,7 @@ export default function App() {
         <MaterialPanel
           object={selectedTable}
           onMaterial={handleMaterial}
+          onApplyPreset={handleApplyMaterialPreset}
           onReset={handleResetMaterial}
         />
         <AiPromptPanel onApply={applyProposal} />

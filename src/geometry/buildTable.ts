@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { buildPbrMaterial } from '../materials/buildMaterial';
+import type { MaterialSettingsInput } from '../materials/types';
 import type { TableParams } from './tableParams';
 
 export const TABLE_TOP_THICKNESS_CM = 4;
@@ -9,18 +11,17 @@ export interface BuiltTable {
   dispose: () => void;
 }
 
-export interface TableMaterial {
-  metalness?: number;
-  roughness?: number;
-}
+/** Material override applied to the whole table (W4 PBR channels). */
+export type TableMaterial = MaterialSettingsInput;
 
 /**
  * Builds a procedural table from parameters: one top slab and four legs.
  * The result is plain Three.js geometry/meshes (no WebGL renderer), so the
  * function stays in the geometry layer and can be tested without a browser.
  *
- * `material` optionally overrides the PBR metalness/roughness (Stage 6);
- * defaults preserve the Stage 1–5 appearance.
+ * `material` optionally overrides the PBR channels (Stage 6 metalness/roughness,
+ * extended in W4 with material type, opacity, texture scale and normal
+ * strength); defaults preserve the Stage 1–5 appearance.
  */
 export function buildTable(params: TableParams, material: TableMaterial = {}): BuiltTable {
   const { widthCm, heightCm, depthCm, color } = params;
@@ -28,11 +29,9 @@ export function buildTable(params: TableParams, material: TableMaterial = {}): B
   const group = new THREE.Group();
   group.name = 'table';
 
-  const pbr = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(color),
-    roughness: material.roughness ?? 0.6,
-    metalness: material.metalness ?? 0.05,
-  });
+  const built = buildPbrMaterial(color, material);
+  const pbr = built.material;
+  pbr.name = 'table-material';
   const geometries: THREE.BufferGeometry[] = [];
 
   const topGeometry = new THREE.BoxGeometry(widthCm, TABLE_TOP_THICKNESS_CM, depthCm);
@@ -74,7 +73,7 @@ export function buildTable(params: TableParams, material: TableMaterial = {}): B
     group,
     dispose: () => {
       geometries.forEach((geometry) => geometry.dispose());
-      pbr.dispose();
+      built.dispose();
     },
   };
 }
