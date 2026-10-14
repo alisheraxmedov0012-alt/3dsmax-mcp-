@@ -212,6 +212,33 @@ describe('sceneReducer', () => {
     expect(state.data.objects).toHaveLength(2);
   });
 
+  it('applies validated explicit params (image-derived) when adding furniture', () => {
+    const state = sceneReducer(initialState(), {
+      type: 'ADD_FURNITURE',
+      furnitureType: 'table',
+      id: 'img1',
+      params: { widthCm: 160, heightCm: 74, depthCm: 55, color: '#8b5a2b' },
+    });
+    const added = findSceneObject(state, 'img1');
+    expect(added?.params.widthCm).toBe(160);
+    expect(added?.params.depthCm).toBe(55);
+    expect(added?.params.color).toBe('#8b5a2b');
+  });
+
+  it('falls back to defaults when explicit params are invalid for the type', () => {
+    const state = sceneReducer(initialState(), {
+      type: 'ADD_FURNITURE',
+      furnitureType: 'chair',
+      id: 'bad',
+      params: { widthCm: 99999, heightCm: 90, depthCm: 45, color: 'nope' },
+    });
+    const added = findSceneObject(state, 'bad');
+    // Rejected params -> defaults retained, but the object is still added.
+    expect(added).not.toBeNull();
+    expect(added?.type).toBe('chair');
+    expect(added?.params.color).not.toBe('nope');
+  });
+
   it('applies transform/visibility/delete to any furniture type', () => {
     let state = sceneReducer(initialState(), {
       type: 'ADD_FURNITURE',
