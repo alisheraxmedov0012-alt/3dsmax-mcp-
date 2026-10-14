@@ -202,6 +202,41 @@ def test_empty_text_is_rejected(client, monkeypatch):
     assert response.status_code == 422
 
 
+def test_partial_dimensions_do_not_cause_server_error(client, monkeypatch):
+    """HIGH-1: a partial size (e.g. only "eni") must not raise an unhandled
+    validation error (HTTP 500). It is reported and defaults are used."""
+    _use_provider(monkeypatch, LocalHeuristicProvider())
+    _authenticated(client)
+
+    response = client.post("/api/ai/design", json={"text": "eni 180 sm stol"})
+    assert response.status_code == 200, response.text
+    spec = response.json()["spec"]
+    assert spec["furniture"] == "table"
+    assert spec["supported"] is True
+    assert spec["dimensions"] is None
+    assert any("to'liq emas" in warning for warning in spec["warnings"])
+
+
+def test_unconfigured_openai_provider_returns_503_without_consuming_limit(client, monkeypatch):
+    """MEDIUM-1: an unconfigured real provider answers 503 ai_unconfigured and
+    does not spend an ai_requests unit."""
+    monkeypatch.setenv("APP_AI_PROVIDER", "openai_compatible")
+    monkeypatch.delenv("APP_AI_API_KEY", raising=False)
+    monkeypatch.delenv("APP_AI_MODEL", raising=False)
+    get_settings.cache_clear()
+    try:
+        _authenticated(client)
+        before = _ai_usage()
+
+        response = client.post("/api/ai/design", json={"text": "stol"})
+
+        assert response.status_code == 503, response.text
+        assert response.json()["error"]["code"] == "ai_unconfigured"
+        assert _ai_usage() == before
+    finally:
+        get_settings.cache_clear()
+
+
 def test_ai_request_limit_is_enforced(client, monkeypatch):
     _use_provider(monkeypatch, LocalHeuristicProvider())
     _authenticated(client)
@@ -221,11 +256,20 @@ def test_ai_request_limit_is_enforced(client, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("provider_name", "expected_type"),
-    [("local", LocalHeuristicProvider), ("openai_compatible", OpenAiCompatibleProvider)],
+    ("provider_name", "extra_env", "expected_type"),
+    [
+        ("local", {}, LocalHeuristicProvider),
+        (
+            "openai_compatible",
+            {"APP_AI_API_KEY": "test-key-not-real", "APP_AI_MODEL": "test-model"},
+            OpenAiCompatibleProvider,
+        ),
+    ],
 )
-def test_registry_selects_configured_provider(monkeypatch, provider_name, expected_type):
+def test_registry_selects_configured_provider(monkeypatch, provider_name, extra_env, expected_type):
     monkeypatch.setenv("APP_AI_PROVIDER", provider_name)
+    for key, value in extra_env.items():
+        monkeypatch.setenv(key, value)
     get_settings.cache_clear()
     try:
         assert isinstance(get_ai_provider(), expected_type)
@@ -243,15 +287,26 @@ def test_registry_reports_none_as_unconfigured(monkeypatch):
         get_settings.cache_clear()
 
 
-def test_openai_provider_without_key_is_not_configured(monkeypatch):
+def test_openai_adapter_without_key_is_not_configured():
+    # The adapter itself reports unconfigured and refuses to call out.
+    provider = OpenAiCompatibleProvider(
+        api_key=None, base_url="https://ai.example.invalid/v1", model=None
+    )
+    assert provider.is_configured is False
+    with pytest.raises(ProviderNotConfigured):
+        provider.generate_design(DesignRequest(text="stol"))
+
+
+def test_registry_reports_openai_without_key_as_unconfigured(monkeypatch):
+    """MEDIUM-1: a real provider missing its credentials must be reported as
+    unconfigured by the registry (so the API returns 503 and spends no unit)."""
     monkeypatch.setenv("APP_AI_PROVIDER", "openai_compatible")
     monkeypatch.delenv("APP_AI_API_KEY", raising=False)
+    monkeypatch.delenv("APP_AI_MODEL", raising=False)
     get_settings.cache_clear()
     try:
-        provider = get_ai_provider()
-        assert provider.is_configured is False
         with pytest.raises(ProviderNotConfigured):
-            provider.generate_design(DesignRequest(text="stol"))
+            get_ai_provider()
     finally:
         get_settings.cache_clear()
 

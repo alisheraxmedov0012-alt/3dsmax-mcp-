@@ -31,13 +31,21 @@ def get_ai_provider() -> AiProvider:
         return LocalHeuristicProvider()
 
     if name in _OPENAI_NAMES:
-        return OpenAiCompatibleProvider(
+        provider = OpenAiCompatibleProvider(
             api_key=settings.ai_api_key,
             base_url=settings.ai_base_url,
             model=settings.ai_model,
             timeout=settings.ai_timeout_seconds,
             max_retries=settings.ai_max_retries,
         )
+        # Report an unconfigured real provider here so the API answers
+        # "ai_unconfigured" (503) without consuming a usage unit, instead of
+        # failing later with a mislabelled provider error.
+        if not provider.is_configured:
+            raise ProviderNotConfigured(
+                "AI provayderi sozlanmagan (APP_AI_API_KEY/APP_AI_MODEL kerak)."
+            )
+        return provider
 
     raise ProviderNotConfigured(f"'{name}' AI provayderi hali qo'llab-quvvatlanmaydi.")
 

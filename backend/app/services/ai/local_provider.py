@@ -130,6 +130,18 @@ class LocalHeuristicProvider:
         warnings: list[str] = []
         if fallback_note:
             warnings.append(fallback_note)
+
+        if dimensions and len(dimensions) < 3:
+            # A partial size (e.g. only "eni 180 sm") cannot form a complete spec;
+            # report it and keep the defaults rather than sending invalid data
+            # (which would otherwise fail schema validation).
+            found = ", ".join(f"{key}={value} sm" for key, value in sorted(dimensions.items()))
+            warnings.append(
+                f"O'lchamlarning bir qismi aniqlandi ({found}), lekin to'liq emas; "
+                "standart o'lchamlar ishlatiladi."
+            )
+            dimensions = {}
+
         if dimensions:
             notes.append(
                 "O'lchamlar: "
