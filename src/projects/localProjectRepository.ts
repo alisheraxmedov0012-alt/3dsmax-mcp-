@@ -69,7 +69,7 @@ export function createLocalProjectRepository(
       const project: SavedProject = {
         id: generateId(),
         name: normalizeName(input.name),
-        params: input.params,
+        scene: input.scene,
         createdAt: timestamp,
         updatedAt: timestamp,
         schemaVersion: PROJECTS_SCHEMA_VERSION,
@@ -89,7 +89,7 @@ export function createLocalProjectRepository(
       const updated: SavedProject = {
         ...projects[index],
         name: normalizeName(input.name),
-        params: input.params,
+        scene: input.scene,
         updatedAt: now(),
       };
 

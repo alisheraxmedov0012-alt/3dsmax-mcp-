@@ -432,6 +432,194 @@ input[type='color'] {
   color: #7f8b98;
 }
 
+/* ---------------- Scene panels (Stage 5) ---------------- */
+
+.table-params,
+.room,
+.hierarchy,
+.object {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid #2a2f36;
+}
+
+.table-params__title,
+.room__title,
+.hierarchy__title,
+.object__title {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.object__id {
+  margin: 0;
+  font-size: 0.74rem;
+  color: #8b96a2;
+}
+
+.object__empty {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #8b96a2;
+}
+
+.room--selected {
+  border-top-color: #4f9dff;
+}
+
+.room__actions,
+.object__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.room__select,
+.room__reset,
+.object__visibility,
+.object__delete,
+.hierarchy__add {
+  flex: 1 1 120px;
+  min-width: 0;
+  padding: 9px 12px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid #333b44;
+  background: #262c33;
+  color: #e8edf2;
+}
+
+.room__select:hover,
+.room__reset:hover,
+.object__visibility:hover,
+.hierarchy__add:hover {
+  background: #2e353d;
+}
+
+.object__delete {
+  color: #ffd7d7;
+  background: #3a2224;
+  border-color: #6b3236;
+}
+
+.hierarchy__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.node {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 8px;
+  background: #12161a;
+  border: 1px solid #2f353c;
+  border-radius: 8px;
+}
+
+.node--selected {
+  border-color: #4f9dff;
+}
+
+.node__select {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  text-align: left;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.node__name {
+  font-size: 0.84rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.node__meta {
+  font-size: 0.7rem;
+  color: #8b96a2;
+}
+
+.node__actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.node__visibility,
+.node__delete {
+  padding: 5px 8px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid #333b44;
+  background: #262c33;
+  color: #e8edf2;
+}
+
+.node__delete {
+  color: #ffd7d7;
+  background: #3a2224;
+  border-color: #6b3236;
+}
+
+.hierarchy__empty {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #8b96a2;
+}
+
+.object__group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.axis {
+  display: grid;
+  grid-template-columns: 18px 1fr 74px;
+  align-items: center;
+  gap: 6px;
+}
+
+.axis__label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #8b96a2;
+}
+
+.axis input[type='number'] {
+  padding: 6px 8px;
+  font-size: 0.8rem;
+}
+
+.readout {
+  max-width: calc(100% - 24px);
+  white-space: normal;
+  text-align: center;
+}
+
 /* ---------------- Export ---------------- */
 
 .export {

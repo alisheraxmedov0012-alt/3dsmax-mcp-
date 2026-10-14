@@ -1,23 +1,42 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { AiPromptPanel } from './components/AiPromptPanel';
 import { ControlsPanel } from './components/ControlsPanel';
 import { ExportControls, type ExportStatus } from './components/ExportControls';
+import { ObjectPanel } from './components/ObjectPanel';
 import { ProjectsPanel, type ProjectsStatus } from './components/ProjectsPanel';
+import { RoomPanel } from './components/RoomPanel';
+import { SceneHierarchyPanel } from './components/SceneHierarchyPanel';
 import { ViewerCanvas } from './components/ViewerCanvas';
 import { downloadArrayBuffer } from './export/downloadFile';
-import { exportTableToGlb, TABLE_EXPORT_FILENAME } from './export/tableExport';
+import { exportSceneToGlb, SCENE_EXPORT_FILENAME } from './export/sceneExport';
 import {
   DEFAULT_FIELD_VALUES,
   paramsToFieldValues,
   parseTableValues,
+  TABLE_DEFAULTS,
   type TableFieldValues,
   type TableParams,
 } from './geometry/tableParams';
 import { createLocalProjectRepository } from './projects/localProjectRepository';
 import type { ProjectRepository, SavedProject } from './projects/types';
+import { findSceneObject, sceneReducer } from './scene/sceneReducer';
+import { createSceneObjectId } from './scene/sceneIds';
+import {
+  ROOM_DEFAULTS,
+  ROOM_OBJECT_ID,
+  createDefaultSceneState,
+  type RoomConfig,
+  type Vec3,
+} from './scene/types';
 import './App.css';
 
 export default function App() {
+  const [scene, dispatch] = useReducer(
+    sceneReducer,
+    undefined,
+    () => createDefaultSceneState(createSceneObjectId),
+  );
+
   const [values, setValues] = useState<TableFieldValues>(DEFAULT_FIELD_VALUES);
   const [resetToken, setResetToken] = useState(0);
   const [exportStatus, setExportStatus] = useState<ExportStatus>('idle');
@@ -38,7 +57,18 @@ export default function App() {
     return repositoryRef.current;
   };
 
+  const selectedObject = findSceneObject(scene, scene.selectedId);
+  const selectedTable = selectedObject && selectedObject.type === 'table' ? selectedObject : null;
   const parsed = useMemo(() => parseTableValues(values), [values]);
+
+  // Keep the table parameter controls in sync with the selected table.
+  useEffect(() => {
+    const table = findSceneObject(scene, scene.selectedId);
+    if (table && table.type === 'table') {
+      setValues(paramsToFieldValues(table.params));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene.selectedId]);
 
   const refreshProjects = async () => {
     try {
@@ -55,35 +85,71 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleChange = (field: keyof TableFieldValues, value: string) => {
-    setValues((prev) => ({ ...prev, [field]: value }));
+  const handleTableChange = (field: keyof TableFieldValues, value: string) => {
+    const next = { ...values, [field]: value };
+    setValues(next);
+    const result = parseTableValues(next);
+    if (result.params && selectedTable) {
+      dispatch({ type: 'UPDATE_PARAMS', id: selectedTable.id, params: result.params });
+    }
   };
 
-  const handleReset = () => {
+  const handleTableReset = () => {
     setValues(DEFAULT_FIELD_VALUES);
+    if (selectedTable) {
+      dispatch({ type: 'UPDATE_PARAMS', id: selectedTable.id, params: { ...TABLE_DEFAULTS } });
+    }
   };
 
-  const handleResetView = () => {
-    setResetToken((token) => token + 1);
-  };
-
-  const handleApplyProposal = (params: TableParams) => {
+  const applyProposal = (params: TableParams) => {
     setValues(paramsToFieldValues(params));
+    if (selectedTable) {
+      dispatch({ type: 'UPDATE_PARAMS', id: selectedTable.id, params });
+    }
+  };
+
+  const handleResetView = () => setResetToken((token) => token + 1);
+
+  const handleSetRoom = (room: Partial<RoomConfig>) => dispatch({ type: 'SET_ROOM', room });
+  const handleResetRoom = () => dispatch({ type: 'SET_ROOM', room: { ...ROOM_DEFAULTS } });
+  const handleSelectRoom = () => dispatch({ type: 'SELECT', id: ROOM_OBJECT_ID });
+  const handleAddTable = () => dispatch({ type: 'ADD_TABLE', id: createSceneObjectId() });
+  const handleSelect = (id: string | null) => dispatch({ type: 'SELECT', id });
+
+  const handleTransform = (patch: {
+    position?: Partial<Vec3>;
+    rotation?: Partial<Vec3>;
+    scale?: Partial<Vec3>;
+  }) => {
+    if (selectedTable) {
+      dispatch({ type: 'UPDATE_TRANSFORM', id: selectedTable.id, ...patch });
+    }
+  };
+
+  const handleRename = (name: string) => {
+    if (selectedTable) {
+      dispatch({ type: 'RENAME_OBJECT', id: selectedTable.id, name });
+    }
+  };
+
+  const handleToggleVisibility = (id: string) => dispatch({ type: 'TOGGLE_VISIBILITY', id });
+
+  const handleDeleteObject = (id: string) => {
+    const object = scene.data.objects.find((item) => item.id === id);
+    const label = object?.name ?? 'Obyekt';
+    if (!window.confirm(`"${label}" o'chirilsinmi?`)) {
+      return;
+    }
+    dispatch({ type: 'DELETE_OBJECT', id });
   };
 
   const handleSaveProject = async () => {
-    if (!parsed.params) {
-      setProjectsStatus('error');
-      setProjectsMessage("Saqlashdan oldin noto'g'ri qiymatlarni tuzating.");
-      return;
-    }
-
     try {
       const repository = getRepository();
       if (activeProjectId) {
         const updated = await repository.update(activeProjectId, {
           name: projectName,
-          params: parsed.params,
+          scene: scene.data,
         });
         if (!updated) {
           setProjectsStatus('error');
@@ -93,10 +159,7 @@ export default function App() {
           setProjectsMessage('Loyiha yangilandi.');
         }
       } else {
-        const created = await repository.create({
-          name: projectName,
-          params: parsed.params,
-        });
+        const created = await repository.create({ name: projectName, scene: scene.data });
         setActiveProjectId(created.id);
         setProjectName(created.name);
         setProjectsStatus('ok');
@@ -111,21 +174,18 @@ export default function App() {
   };
 
   const handleNewProject = () => {
+    dispatch({ type: 'NEW_SCENE', id: createSceneObjectId() });
+    setValues(DEFAULT_FIELD_VALUES);
     setActiveProjectId(null);
     setProjectName('');
     setProjectsStatus('idle');
-    setProjectsMessage('Yangi loyiha. Parametrlarni sozlab, saqlang.');
+    setProjectsMessage('Yangi loyiha. Xona va obyektlarni sozlab, saqlang.');
   };
 
   const handleOpenProject = (project: SavedProject) => {
-    const validated = parseTableValues(paramsToFieldValues(project.params));
-    if (!validated.params) {
-      setProjectsStatus('error');
-      setProjectsMessage("Loyiha ma'lumotlari yaroqsiz — ochib bo'lmadi.");
-      return;
-    }
-
-    setValues(paramsToFieldValues(validated.params));
+    dispatch({ type: 'LOAD_SCENE', scene: project.scene });
+    const firstTable = project.scene.objects.find((object) => object.type === 'table');
+    setValues(firstTable ? paramsToFieldValues(firstTable.params) : DEFAULT_FIELD_VALUES);
     setActiveProjectId(project.id);
     setProjectName(project.name);
     setProjectsStatus('ok');
@@ -133,8 +193,7 @@ export default function App() {
   };
 
   const handleDeleteProject = async (project: SavedProject) => {
-    const confirmed = window.confirm(`"${project.name}" loyihasi o'chirilsinmi?`);
-    if (!confirmed) {
+    if (!window.confirm(`"${project.name}" loyihasi o'chirilsinmi?`)) {
       return;
     }
 
@@ -160,7 +219,7 @@ export default function App() {
   };
 
   const handleExport = async () => {
-    if (!parsed.params || exportStatus === 'exporting') {
+    if (exportStatus === 'exporting') {
       return;
     }
 
@@ -168,10 +227,10 @@ export default function App() {
     setExportMessage('Eksport qilinmoqda…');
 
     try {
-      const data = await exportTableToGlb(parsed.params);
-      downloadArrayBuffer(data, TABLE_EXPORT_FILENAME);
+      const data = await exportSceneToGlb(scene.data);
+      downloadArrayBuffer(data, SCENE_EXPORT_FILENAME);
       setExportStatus('success');
-      setExportMessage('Model .glb fayl sifatida yuklab olindi.');
+      setExportMessage('Sahna .glb fayl sifatida yuklab olindi.');
     } catch (error) {
       setExportStatus('error');
       setExportMessage("Eksport amalga oshmadi. Iltimos, qaytadan urinib ko'ring.");
@@ -184,10 +243,34 @@ export default function App() {
       <ControlsPanel
         values={values}
         errors={parsed.errors}
-        onChange={handleChange}
-        onReset={handleReset}
+        onChange={handleTableChange}
+        onReset={handleTableReset}
+        tableSelected={selectedTable !== null}
       >
-        <AiPromptPanel onApply={handleApplyProposal} />
+        <RoomPanel
+          room={scene.data.room}
+          isRoomSelected={scene.selectedId === ROOM_OBJECT_ID}
+          onApply={handleSetRoom}
+          onResetRoom={handleResetRoom}
+          onSelectRoom={handleSelectRoom}
+        />
+        <SceneHierarchyPanel
+          room={scene.data.room}
+          objects={scene.data.objects}
+          selectedId={scene.selectedId}
+          onSelect={handleSelect}
+          onToggleVisibility={handleToggleVisibility}
+          onDelete={handleDeleteObject}
+          onAddTable={handleAddTable}
+        />
+        <ObjectPanel
+          object={selectedTable}
+          onTransform={handleTransform}
+          onRename={handleRename}
+          onToggleVisibility={() => selectedTable && handleToggleVisibility(selectedTable.id)}
+          onDelete={() => selectedTable && handleDeleteObject(selectedTable.id)}
+        />
+        <AiPromptPanel onApply={applyProposal} />
         <ProjectsPanel
           projects={projects}
           activeId={activeProjectId}
@@ -209,7 +292,12 @@ export default function App() {
       </ControlsPanel>
 
       <main className="stage">
-        <ViewerCanvas params={parsed.params} resetToken={resetToken} />
+        <ViewerCanvas
+          scene={scene.data}
+          selectedId={scene.selectedId}
+          resetToken={resetToken}
+          onSelect={handleSelect}
+        />
 
         <div className="stage__toolbar">
           <button type="button" className="stage__button" onClick={handleResetView}>
@@ -217,13 +305,14 @@ export default function App() {
           </button>
         </div>
 
-        {parsed.valid && parsed.params ? (
-          <div className="readout">
-            {parsed.params.widthCm} × {parsed.params.depthCm} × {parsed.params.heightCm} sm
-          </div>
-        ) : (
+        <div className="readout">
+          Xona: {scene.data.room.widthCm} × {scene.data.room.lengthCm} ×{' '}
+          {scene.data.room.heightCm} sm · {scene.data.objects.length} obyekt
+        </div>
+
+        {!parsed.valid && (
           <div className="banner" role="alert">
-            Ba'zi qiymatlar noto'g'ri — model oxirgi to'g'ri holatda ko'rsatilmoqda.
+            Stol qiymatlari noto'g'ri — model oxirgi to'g'ri holatda ko'rsatilmoqda.
           </div>
         )}
       </main>

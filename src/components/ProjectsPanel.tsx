@@ -78,7 +78,8 @@ export function ProjectsPanel({
               <div className="project__info">
                 <span className="project__name">{project.name}</span>
                 <span className="project__meta">
-                  {project.params.widthCm} × {project.params.depthCm} × {project.params.heightCm} sm
+                  {project.scene.room.widthCm} × {project.scene.room.lengthCm} sm ·{' '}
+                  {project.scene.objects.length} obyekt
                 </span>
               </div>
               <div className="project__actions">
