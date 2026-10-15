@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
 from ..database import get_db
-from ..deps import require_admin
+from ..deps import require_admin, require_csrf
 from ..models import User
 from ..schemas import AdminUserResponse, DiagnosticsResponse
 from ..services import jobs as jobs_service
@@ -33,13 +33,16 @@ def diagnostics(
 
 @router.post("/jobs/recover-stale")
 def recover_stale_jobs(
-    _: User = Depends(require_admin), db: OrmSession = Depends(get_db)
+    _: None = Depends(require_csrf),
+    __: User = Depends(require_admin),
+    db: OrmSession = Depends(get_db),
 ) -> dict:
     """Recover jobs left ``running`` by a crashed process (admin/ops action).
 
     Exposed so an operator (or the worker on startup) can safely clear stuck
     jobs without a CLI; it only ever moves timed-out ``running`` jobs to
-    ``failed`` with a retryable marker.
+    ``failed`` with a retryable marker. CSRF is required, like every other
+    authenticated state-changing endpoint.
     """
     recovered = jobs_service.recover_stale_jobs(db)
     return {"recovered": recovered}

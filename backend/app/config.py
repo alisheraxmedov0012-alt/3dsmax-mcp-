@@ -10,6 +10,10 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+#: Payment provider names that are sandbox/test substitutes and must never be
+#: active in production (they would let subscriptions activate without payment).
+SANDBOX_PAYMENT_PROVIDERS = frozenset({"fake", "fake-sandbox", "sandbox"})
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -163,6 +167,20 @@ class Settings(BaseSettings):
         if self.storage_backend == "memory":
             problems.append(
                 "Productionda APP_STORAGE_BACKEND=memory ishlatilmasin (fayllar saqlanmaydi)."
+            )
+        # W12: test/sandbox adapters must never be silently active in production.
+        # A sandbox payment provider would activate a subscription without a real
+        # payment; the console email adapter would silently drop verification and
+        # password-reset messages.
+        if (self.payment_provider or "").lower() in SANDBOX_PAYMENT_PROVIDERS:
+            problems.append(
+                "Productionda APP_PAYMENT_PROVIDER sandbox ('fake') bo'lmasin — haqiqiy "
+                "provayder sozlanmagan; sandbox obunani to'lovsiz faollashtiradi."
+            )
+        if (self.email_backend or "").lower() == "console":
+            problems.append(
+                "Productionda APP_EMAIL_BACKEND=smtp bo'lishi shart (console adapter xat "
+                "yubormaydi; tasdiqlash/tiklash ishlamaydi)."
             )
         return problems
 

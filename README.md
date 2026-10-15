@@ -598,8 +598,34 @@ Bu bosqich **production chiqarilmagan**; merge qilinmagan va deploy qilinmagan.
 - Saqlanmagan o'zgarishlardan himoya (sahifadan chiqishda ogohlantirish).
 - Takroriy bosishdan himoya (single-flight); mobil ekranlar uchun moslashtirilgan.
 
+## W12 — production tayyorgarligi, xavfsizlik auditi va release gate
+
+Bu bosqich **production deploy qilinmagan**; faqat tayyorgarlik va tekshiruv.
+
+- **PostgreSQL real serverda tekshirildi:** migratsiyalar (`upgrade → downgrade →
+  upgrade`) va PostgreSQL-only integratsion testlar (unikal cheklovlar, foreign key
+  cascade, `timestamptz`, JSON, stale-job recovery, versioning) o‘tdi. CI’ga
+  PostgreSQL job qo‘shildi.
+- **SQLite FK muammosi tuzatildi:** SQLite endi `PRAGMA foreign_keys=ON` bilan
+  ishlaydi, shuning uchun lokal testlar production (PostgreSQL) kabi FK buzilishini
+  ushlaydi.
+- **Xavfsizlik:** 2 Medium + 1 Low topilma tuzatildi (sandbox to‘lov va console
+  email production’da bloklanadi; admin POST’ga CSRF qo‘shildi). Mustaqil pentest
+  o‘tkazilmagan.
+- **Hujjatlar:** [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) (12 bo‘lim),
+  [`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md),
+  [`docs/RELEASE_GATE.md`](docs/RELEASE_GATE.md),
+  [`docs/W12_TEST_REPORT.md`](docs/W12_TEST_REPORT.md).
+- **Release gate natijasi:** **NOT READY FOR PRODUCTION** — tashqi integratsiyalar
+  (haqiqiy AI, to‘lov, monitoring, SMTP), infratuzilma (managed PostgreSQL, hosting,
+  backup/restore mashqi) va qo‘lda brauzer/telefon sinovi hali yo‘q.
+
 ## Hujjatlar
 
 - [`PROJECT_PLAN.md`](PROJECT_PLAN.md) — maqsad, modullar, arxitektura, xavfsizlik,
   testlash, deploy va bosqichma-bosqich roadmap.
 - [`AGENTS.md`](AGENTS.md) — kod sifati, testlar va Git xavfsizligi qoidalari.
+- [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — deployment qo‘llanmasi va rollback rejasi.
+- [`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md) — W12 xavfsizlik auditi.
+- [`docs/RELEASE_GATE.md`](docs/RELEASE_GATE.md) — release mezonlari va bloklovchilar.
+- [`docs/W12_TEST_REPORT.md`](docs/W12_TEST_REPORT.md) — test va migratsiya natijalari.

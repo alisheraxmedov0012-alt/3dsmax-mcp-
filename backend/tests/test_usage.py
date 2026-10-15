@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from app.database import SessionLocal
 from app.models import UsageRecord, User
 from app.security import utcnow
+from app.services import jobs as jobs_service
 from app.services import usage as usage_service
 from tests.conftest import auth_headers, register
 
@@ -111,10 +112,18 @@ def test_database_unique_constraint_blocks_parallel_duplicate():
 def test_provider_tokens_are_stored_only_when_reported():
     user = _user("tokens@example.com")
     with SessionLocal() as db:
+        # A real job row is required: usage_records.job_id is a foreign key.
+        job_a, _ = jobs_service.enqueue_job(
+            db, user, kind="noop", idempotency_key="tok-job-a"
+        )
+        job_b, _ = jobs_service.enqueue_job(
+            db, user, kind="noop", idempotency_key="tok-job-b"
+        )
+
         with_tokens, _ = usage_service.record_from_job(
             db,
             user,
-            job_id="job-1",
+            job_id=job_a.id,
             operation="ai.generate",
             duration_ms=120,
             result={"usage": {"prompt_tokens": 10, "completion_tokens": 5}},
@@ -126,7 +135,7 @@ def test_provider_tokens_are_stored_only_when_reported():
         without_tokens, _ = usage_service.record_from_job(
             db,
             user,
-            job_id="job-2",
+            job_id=job_b.id,
             operation="ai.generate",
             duration_ms=80,
             result={},
