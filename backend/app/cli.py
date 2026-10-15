@@ -56,15 +56,31 @@ def create_admin(email: str) -> int:
     return 0
 
 
+def recover_stale_jobs_command() -> int:
+    """Mark jobs left ``running`` by a crashed process as failed (safe, idempotent)."""
+    from .services import jobs as jobs_service
+
+    with SessionLocal() as db:
+        recovered = jobs_service.recover_stale_jobs(db)
+    print(f"Tiklandi: {recovered} ta 'running' vazifa 'failed' holatiga o'tkazildi.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="3D Studio AI backend CLI")
     sub = parser.add_subparsers(dest="command", required=True)
     create = sub.add_parser("create-admin", help="Create the first admin user")
     create.add_argument("--email", required=True)
+    sub.add_parser(
+        "recover-stale-jobs",
+        help="Fail jobs stuck in 'running' past their timeout (crash recovery)",
+    )
     args = parser.parse_args(argv)
 
     if args.command == "create-admin":
         return create_admin(args.email)
+    if args.command == "recover-stale-jobs":
+        return recover_stale_jobs_command()
     return 1
 
 

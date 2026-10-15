@@ -45,14 +45,17 @@ def test_unknown_kind_is_rejected(client):
 
 
 def test_unknown_kind_fails_with_a_safe_message_in_inline_mode(client):
-    # A known kind the inline runner cannot execute must fail with a generic
-    # message, never a stack trace.
+    # A known kind the inline runner cannot execute must fail with an honest,
+    # safe message, never a stack trace or a fake success.
     response = _enqueue(client, kind="ai_generate", key="ai-1")
     assert response.status_code == 202
     body = response.json()
     assert body["status"] == "failed"
-    assert body["error"] == "Vazifa bajarilmadi."
+    assert body["error"]
     assert "Traceback" not in (body["error"] or "")
+    # W11: the failure is classified as permanent (no provider is wired), so the
+    # client is not told to blindly retry.
+    assert body["retryable"] is False
 
 
 def test_retry_after_failure(client):

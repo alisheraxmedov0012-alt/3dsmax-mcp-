@@ -18,6 +18,7 @@ from contextvars import ContextVar
 from .config import get_settings
 
 _request_id: ContextVar[str] = ContextVar("request_id", default="-")
+_job_id: ContextVar[str] = ContextVar("job_id", default="-")
 
 # Keys whose values must never appear in logs.
 _SENSITIVE_KEYS = (
@@ -74,9 +75,22 @@ class JsonFormatter(logging.Formatter):
             "message": redact(record.getMessage()),
             "request_id": _request_id.get(),
         }
+        job_id = getattr(record, "job_id", None) or _job_id.get()
+        if job_id and job_id != "-":
+            payload["job_id"] = job_id
         if record.exc_info:
             payload["exc"] = redact(self.formatException(record.exc_info))
-        for key in ("path", "method", "status_code", "duration_ms", "metric"):
+        for key in (
+            "path",
+            "method",
+            "status_code",
+            "duration_ms",
+            "metric",
+            "retry_count",
+            "attempts",
+            "operation",
+            "worker_id",
+        ):
             value = getattr(record, key, None)
             if value is not None:
                 payload[key] = value
@@ -89,6 +103,15 @@ def set_request_id(value: str) -> None:
 
 def get_request_id() -> str:
     return _request_id.get()
+
+
+def set_job_id(value: str) -> None:
+    """Attach a job id to subsequent log lines in this context (diagnostics)."""
+    _job_id.set(value)
+
+
+def get_job_id() -> str:
+    return _job_id.get()
 
 
 def configure_logging() -> None:

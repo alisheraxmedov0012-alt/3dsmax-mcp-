@@ -220,6 +220,8 @@ class JobResponse(BaseModel):
     max_attempts: int
     result: dict[str, Any] | None = None
     error: str | None = None
+    # W11: whether the last failure can be retried (None before first failure).
+    retryable: bool | None = None
     created_at: datetime | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
@@ -245,3 +247,62 @@ class StorageStatusResponse(BaseModel):
     available: bool
     persistent: bool
     message: str
+
+
+# ---------------------------------------------------------------------------
+# W11 — usage/cost metering
+# ---------------------------------------------------------------------------
+
+
+class UsageRecordResponse(BaseModel):
+    id: str
+    operation: str
+    quantity: int
+    unit: str
+    duration_ms: int | None = None
+    cost_kind: str
+    cost_micros: int | None = None
+    currency: str | None = None
+    provider: str | None = None
+    model: str | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+    project_id: str | None = None
+    job_id: str | None = None
+    meta: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime | None = None
+
+
+class UsageSummaryRow(BaseModel):
+    operation: str
+    records: int
+    quantity: int
+    duration_ms: int
+    total_tokens: int
+    # Counts split by cost trust level so actual and estimated never conflate.
+    actual: int
+    estimated: int
+    unknown: int
+
+
+# ---------------------------------------------------------------------------
+# W11 — production diagnostics
+# ---------------------------------------------------------------------------
+
+
+class DiagnosticsCheck(BaseModel):
+    key: str
+    ok: bool
+    required: bool
+    detail: str
+
+
+class DiagnosticsResponse(BaseModel):
+    environment: str
+    production: bool
+    ready: bool
+    checks: list[DiagnosticsCheck]
+    blocking: list[str]
+    config_problems: list[str]
+    payments_real: bool

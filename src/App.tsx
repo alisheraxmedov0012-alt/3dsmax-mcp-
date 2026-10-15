@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { AccountPanel } from './components/AccountPanel';
 import { ServerPanel } from './components/ServerPanel';
+import { JobsPanel } from './components/JobsPanel';
 import { AiPromptPanel } from './components/AiPromptPanel';
 import { ImageReferencePanel } from './components/ImageReferencePanel';
 import { FurniturePanel } from './components/FurniturePanel';
@@ -30,6 +31,11 @@ import {
 } from './geometry/furniture';
 import { createLocalProjectRepository } from './projects/localProjectRepository';
 import type { ProjectRepository, SavedProject } from './projects/types';
+import {
+  hasUnsavedChanges,
+  sceneSignature,
+  shouldProtectUnload,
+} from './projects/unsavedChanges';
 import { findSceneObject, sceneReducer } from './scene/sceneReducer';
 import { createSceneObjectId } from './scene/sceneIds';
 import {
@@ -85,6 +91,11 @@ export default function App() {
   const [projectName, setProjectName] = useState('');
   const [projectsStatus, setProjectsStatus] = useState<ProjectsStatus>('idle');
   const [projectsMessage, setProjectsMessage] = useState('');
+  // W11: unsaved-changes protection. ``savedSignature`` tracks the last scene
+  // state that was persisted or loaded; anything different is unsaved work.
+  const [savedSignature, setSavedSignature] = useState<string | null>(null);
+  const [savingProject, setSavingProject] = useState(false);
+  const initialisedSignature = useRef(false);
 
   const repositoryRef = useRef<ProjectRepository | null>(null);
   const viewerRef = useRef<SceneViewer | null>(null);
@@ -109,6 +120,38 @@ export default function App() {
   );
   const outsideCount = placementIssues.filter((issue) => issue.kind === 'outside').length;
   const collisionCount = placementIssues.filter((issue) => issue.kind === 'collision').length;
+
+  const currentSignature = useMemo(
+    () => sceneSignature(projectName, scene.data),
+    [projectName, scene.data],
+  );
+  const hasUnsavedWork =
+    savedSignature !== null && hasUnsavedChanges(currentSignature, savedSignature);
+
+  // Seed the baseline once so a fresh page is not reported as unsaved work.
+  useEffect(() => {
+    if (!initialisedSignature.current) {
+      initialisedSignature.current = true;
+      setSavedSignature(currentSignature);
+    }
+  }, [currentSignature]);
+
+  // Warn before the tab closes when there is unsaved work.
+  useEffect(() => {
+    if (!shouldProtectUnload(hasUnsavedWork, savingProject)) {
+      return undefined;
+    }
+    const handler = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [hasUnsavedWork, savingProject]);
+
+  const confirmDiscard = (): boolean =>
+    !hasUnsavedWork ||
+    window.confirm("Saqlanmagan o'zgarishlar bor. Davom etilsa, ular yo'qoladi. Davom etilsinmi?");
 
   // Keep the parameter controls in sync with the selected object.
   useEffect(() => {
@@ -289,6 +332,10 @@ export default function App() {
     dispatch({ type: 'SET_RENDER_QUALITY', quality });
 
   const handleSaveProject = async () => {
+    if (savingProject) {
+      return; // guard against a double click
+    }
+    setSavingProject(true);
     try {
       const repository = getRepository();
       if (activeProjectId) {
@@ -302,6 +349,7 @@ export default function App() {
         } else {
           setProjectsStatus('ok');
           setProjectsMessage('Loyiha yangilandi.');
+          setSavedSignature(sceneSignature(projectName, scene.data));
         }
       } else {
         const created = await repository.create({ name: projectName, scene: scene.data });
@@ -309,25 +357,36 @@ export default function App() {
         setProjectName(created.name);
         setProjectsStatus('ok');
         setProjectsMessage('Loyiha saqlandi.');
+        setSavedSignature(sceneSignature(created.name, scene.data));
       }
       await refreshProjects();
     } catch (error) {
       setProjectsStatus('error');
       setProjectsMessage("Loyihani saqlab bo'lmadi.");
       console.error('Loyihani saqlash xatosi:', error);
+    } finally {
+      setSavingProject(false);
     }
   };
 
   const handleNewProject = () => {
+    if (!confirmDiscard()) {
+      return;
+    }
+    const fresh = createDefaultSceneState(createSceneObjectId);
     dispatch({ type: 'NEW_SCENE', id: createSceneObjectId() });
     setValues(furnitureParamsToFieldValues('table', createFurnitureParams('table')));
     setActiveProjectId(null);
     setProjectName('');
+    setSavedSignature(sceneSignature('', fresh.data));
     setProjectsStatus('idle');
     setProjectsMessage('Yangi loyiha. Xona, yorug\u2019lik va obyektlarni sozlab, saqlang.');
   };
 
   const handleOpenProject = (project: SavedProject) => {
+    if (!confirmDiscard()) {
+      return;
+    }
     dispatch({ type: 'LOAD_SCENE', scene: project.scene });
     const first = project.scene.objects[0];
     setValues(
@@ -337,6 +396,7 @@ export default function App() {
     );
     setActiveProjectId(project.id);
     setProjectName(project.name);
+    setSavedSignature(sceneSignature(project.name, project.scene));
     setProjectsStatus('ok');
     setProjectsMessage(`"${project.name}" loyihasi ochildi.`);
   };
@@ -401,6 +461,9 @@ export default function App() {
     if (exportStatus === 'exporting') {
       return;
     }
+    if (!confirmDiscard()) {
+      return;
+    }
     setExportStatus('exporting');
     setExportMessage('JSON tekshirilmoqda…');
 
@@ -424,6 +487,7 @@ export default function App() {
       dispatch({ type: 'LOAD_SCENE', scene: result.scene });
       setActiveProjectId(null);
       setProjectName(result.name);
+      setSavedSignature(sceneSignature(result.name, result.scene));
       setExportStatus('success');
       setExportMessage(
         result.droppedObjects > 0
@@ -537,12 +601,15 @@ export default function App() {
         <ManufacturingPanel object={selectedObject} projectName={projectName} />
         <AccountPanel />
         <ServerPanel />
+        <JobsPanel />
         <ProjectsPanel
           projects={projects}
           activeId={activeProjectId}
           name={projectName}
           status={projectsStatus}
           message={projectsMessage}
+          saving={savingProject}
+          unsaved={hasUnsavedWork}
           onNameChange={setProjectName}
           onSave={handleSaveProject}
           onNew={handleNewProject}

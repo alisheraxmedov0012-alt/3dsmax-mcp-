@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session as OrmSession
 
 from ..errors import ApiError
 from ..models import Project, User
+from . import usage as usage_service
 from .limits import METRIC_PROJECTS, enforce_limit
 from .scene_payload import (
     DEFAULT_SCENE_SCHEMA_VERSION,
@@ -83,6 +84,15 @@ def create_project(db: OrmSession, user: User, *, name: str, payload: dict) -> P
     db.add(project)
     db.commit()
     db.refresh(project)
+    # Ledger entry: idempotent on the project id so a retried create counts once.
+    usage_service.record_usage(
+        db,
+        user,
+        operation=usage_service.OPERATION_PROJECT_CREATE,
+        idempotency_key=f"project-create:{project.id}",
+        quantity=1,
+        project_id=project.id,
+    )
     return project
 
 
@@ -120,6 +130,15 @@ def update_project(
 
     db.commit()
     db.refresh(project)
+    # Ledger entry keyed on the new version so each distinct update counts once.
+    usage_service.record_usage(
+        db,
+        user,
+        operation=usage_service.OPERATION_PROJECT_UPDATE,
+        idempotency_key=f"project-update:{project.id}:{project.version}",
+        quantity=1,
+        project_id=project.id,
+    )
     return project
 
 

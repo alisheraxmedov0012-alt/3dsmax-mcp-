@@ -51,6 +51,19 @@ class Settings(BaseSettings):
     rate_limit_window_seconds: int = 60
     rate_limit_backend: str = "memory"  # memory | redis
     redis_url: str | None = None
+    # W11: per-scope overrides, e.g. "login=5,ai=3,files=30". A scope not listed
+    # keeps its built-in default (see app/rate_limit.py); an unset value falls
+    # back to ``rate_limit_attempts``.
+    rate_limit_scopes: str = ""
+    # W11: reverse-proxy handling. When true, the client IP is read from
+    # ``X-Forwarded-For`` counting ``trusted_proxy_count`` hops from the right
+    # (the address the trusted proxy appended last). Only enable this behind a
+    # proxy you control; otherwise a client can spoof the header.
+    trust_forwarded_for: bool = False
+    trusted_proxy_count: int = 1
+    # W11: maximum request body size for non-multipart requests (bytes). File
+    # uploads are bounded separately by ``storage_max_bytes``.
+    max_request_bytes: int = 1024 * 1024
 
     # Logging / observability
     log_format: str = "json"  # json | text
@@ -86,6 +99,10 @@ class Settings(BaseSettings):
     job_max_attempts: int = 3
     job_timeout_seconds: int = 300
     job_max_payload_bytes: int = 64 * 1024
+    # W11: cap on jobs a single user may have running at once.
+    job_max_parallel_per_user: int = 3
+    # W11: how long a worker heartbeat stays fresh for readiness purposes.
+    worker_heartbeat_ttl_seconds: int = 60
 
     # W10 — file storage.
     # ``memory`` keeps bytes in-process (test/development); ``local`` writes to

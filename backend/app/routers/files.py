@@ -19,6 +19,7 @@ from ..guards import user_rate_limit
 from ..models import StoredFile, User
 from ..schemas import StorageStatusResponse, StoredFileResponse
 from ..services import projects as projects_service
+from ..services import usage as usage_service
 from ..services.storage import (
     generate_storage_key,
     get_storage_adapter,
@@ -75,6 +76,17 @@ async def upload_file(
     db.add(record)
     db.commit()
     db.refresh(record)
+    # Ledger entry: real byte count recorded, idempotent on the file id.
+    usage_service.record_usage(
+        db,
+        user,
+        operation=usage_service.OPERATION_FILE_UPLOAD,
+        idempotency_key=f"file-upload:{record.id}",
+        quantity=record.size_bytes,
+        unit="bytes",
+        project_id=project_id,
+        meta={"format": fmt, "content_type": declared_type},
+    )
     return StoredFileResponse(**_file_to_dict(record))
 
 
