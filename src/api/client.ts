@@ -323,6 +323,44 @@ export interface DiagnosticsResponse {
   payments_real: boolean;
 }
 
+/**
+ * Wire contract for AI design generation (W1). Mirrors the backend
+ * ``DesignSpec``; ``furniture`` is the shared W1/W2 vocabulary and ``supported``
+ * says whether the current build can turn the spec into geometry.
+ */
+export type AiFurnitureType =
+  | 'table'
+  | 'chair'
+  | 'armchair'
+  | 'sofa'
+  | 'bed'
+  | 'wardrobe'
+  | 'shelf'
+  | 'dresser';
+
+export interface AiDesignDimensions {
+  width_cm: number;
+  height_cm: number;
+  depth_cm: number;
+}
+
+export interface AiDesignSpec {
+  furniture: AiFurnitureType;
+  dimensions: AiDesignDimensions | null;
+  color: string | null;
+  material_kind: string | null;
+  style: string | null;
+  confidence: 'high' | 'medium' | 'low';
+  notes: string[];
+  warnings: string[];
+  supported: boolean;
+}
+
+export interface AiDesignResponse {
+  provider: string;
+  spec: AiDesignSpec;
+}
+
 export const api = {
   health: () => request<{ status: string }>('/api/health'),
 
@@ -433,4 +471,12 @@ export const api = {
   usageRecords: (limit = 50) => request<UsageRecordRow[]>(`/api/usage/records?limit=${limit}`),
 
   diagnostics: () => request<DiagnosticsResponse>('/api/admin/diagnostics'),
+
+  // AI design generation (W1). Authenticated compute endpoint; requires a session
+  // cookie but no CSRF token (it does not mutate user-visible state).
+  aiDesign: (text: string, imageFileName?: string) =>
+    request<AiDesignResponse>('/api/ai/design', {
+      method: 'POST',
+      body: { text, image_filename: imageFileName ?? null },
+    }),
 };

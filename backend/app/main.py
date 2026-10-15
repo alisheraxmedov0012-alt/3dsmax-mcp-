@@ -14,6 +14,7 @@ from .logging_config import configure_logging
 from .middleware import ObservabilityMiddleware
 from .routers import (
     admin,
+    ai,
     auth,
     billing,
     files,
@@ -78,6 +79,7 @@ app.include_router(projects.router)
 app.include_router(jobs.router)
 app.include_router(files.router)
 app.include_router(usage.router)
+app.include_router(ai.router)
 app.include_router(admin.router)
 
 
