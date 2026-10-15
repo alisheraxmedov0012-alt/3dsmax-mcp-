@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .config import get_settings
@@ -19,10 +19,22 @@ class Base(DeclarativeBase):
 
 def _make_engine(url: str):
     connect_args = {}
-    if url.startswith("sqlite"):
+    is_sqlite = url.startswith("sqlite")
+    if is_sqlite:
         # Allow the SQLite connection to be shared across the test client threads.
         connect_args = {"check_same_thread": False}
-    return create_engine(url, connect_args=connect_args, pool_pre_ping=True, future=True)
+    engine = create_engine(url, connect_args=connect_args, pool_pre_ping=True, future=True)
+    if is_sqlite:
+        # SQLite does NOT enforce foreign keys unless explicitly asked, so a local
+        # or test run would silently accept orphaned rows that PostgreSQL
+        # (production) rejects. Enabling the pragma keeps local behaviour aligned
+        # with production and lets tests catch FK violations early.
+        @event.listens_for(engine, "connect")
+        def _sqlite_enable_foreign_keys(dbapi_connection, _record):  # pragma: no cover
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+    return engine
 
 
 _settings = get_settings()

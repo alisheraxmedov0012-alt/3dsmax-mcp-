@@ -136,6 +136,9 @@ def _prod_settings(**overrides) -> Settings:
         # W10: production must run a real worker and persistent storage.
         job_backend="worker",
         storage_backend="local",
+        # W12: sandbox payment and console email adapters are not production-safe.
+        payment_provider="none",
+        email_backend="smtp",
     )
     base.update(overrides)
     return Settings(**base)
@@ -143,6 +146,16 @@ def _prod_settings(**overrides) -> Settings:
 
 def test_secure_production_config_has_no_problems():
     assert _prod_settings().production_problems() == []
+
+
+def test_sandbox_payment_provider_blocks_production():
+    problems = _prod_settings(payment_provider="fake").production_problems()
+    assert any("PAYMENT_PROVIDER" in p for p in problems)
+
+
+def test_console_email_backend_blocks_production():
+    problems = _prod_settings(email_backend="console").production_problems()
+    assert any("EMAIL_BACKEND" in p for p in problems)
 
 
 def test_default_secret_blocks_production():
