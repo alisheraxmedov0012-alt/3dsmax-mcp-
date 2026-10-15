@@ -6,9 +6,12 @@
  * the corresponding Three.js exporter, so no format is claimed that is not really
  * implemented.
  *
- * OBJ and STL export **geometry only**: Three.js' OBJExporter emits no `.mtl`
- * (it states so itself) and STLExporter carries no colour/material. That
- * limitation is surfaced in the UI via `exportFormats`.
+ * OBJ and STL export **geometry only**. Three.js' OBJExporter emits material
+ * references (`usemtl`) when a mesh's material has a name — which the W4 material
+ * model now does — so those references are stripped here to keep the documented
+ * contract: the file never points at a `.mtl` that is not produced. STLExporter
+ * carries no colour/material. The limitation is surfaced in the UI via
+ * `exportFormats`.
  */
 import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js';
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
@@ -22,6 +25,18 @@ import { ExportError, type ExportArtifact, type ExportMetadata } from './exportT
 
 /** File formats produced by `exportSceneToFormat` (PNG is a render, not a file format here). */
 export const DATA_EXPORT_FORMATS: readonly ExportFormatId[] = ['glb', 'json', 'obj', 'stl'];
+
+/**
+ * Remove OBJ material references so the export stays geometry-only by contract.
+ * `usemtl <name>` lines are dropped; `mtllib` lines would point at an `.mtl` the
+ * app never writes, so they are dropped too.
+ */
+function stripObjMaterialReferences(obj: string): string {
+  return obj
+    .split('\n')
+    .filter((line) => !line.startsWith('usemtl ') && !line.startsWith('mtllib '))
+    .join('\n');
+}
 
 function toBlob(data: string | ArrayBuffer | DataView, mimeType: string): Blob {
   if (typeof data === 'string') {
@@ -61,7 +76,7 @@ export async function exportSceneToFormat(
       const { scene, dispose } = buildExportScene(data, options);
       try {
         assertFiniteGeometry(scene);
-        const obj = new OBJExporter().parse(scene);
+        const obj = stripObjMaterialReferences(new OBJExporter().parse(scene));
         return { blob: toBlob(obj, spec.mimeType), filename, mimeType: spec.mimeType };
       } finally {
         dispose();

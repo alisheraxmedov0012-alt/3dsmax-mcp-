@@ -10,6 +10,8 @@ import {
   validateFurnitureParams,
 } from '../geometry/furniture';
 import { validateSceneSettings } from './sceneSettings';
+import { MATERIAL_PRESET_IDS } from '../materials/presets';
+import { PBR_LIMITS } from '../materials/types';
 import {
   MATERIAL_DEFAULTS,
   MATERIAL_LIMITS,
@@ -79,10 +81,31 @@ function normalizeMaterial(value: unknown): ObjectMaterial {
     }
     return Math.min(Math.max(raw, MATERIAL_LIMITS.metalness.min), MATERIAL_LIMITS.metalness.max);
   };
-  return {
+  const material: ObjectMaterial = {
     metalness: clampUnit(record.metalness, MATERIAL_DEFAULTS.metalness),
     roughness: clampUnit(record.roughness, MATERIAL_DEFAULTS.roughness),
   };
+
+  // W4 channels: kept only when present and usable. A non-finite or unknown
+  // value is dropped so the renderer resolves it to its default.
+  const optionalNumber = (raw: unknown, range: NumericRange): number | undefined => {
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+      return undefined;
+    }
+    return Math.min(Math.max(raw, range.min), range.max);
+  };
+
+  if (typeof record.materialId === 'string' && MATERIAL_PRESET_IDS.has(record.materialId)) {
+    material.materialId = record.materialId;
+  }
+  const opacity = optionalNumber(record.opacity, PBR_LIMITS.opacity);
+  if (opacity !== undefined) material.opacity = opacity;
+  const textureScale = optionalNumber(record.textureScale, PBR_LIMITS.textureScale);
+  if (textureScale !== undefined) material.textureScale = textureScale;
+  const normalStrength = optionalNumber(record.normalStrength, PBR_LIMITS.normalStrength);
+  if (normalStrength !== undefined) material.normalStrength = normalStrength;
+
+  return material;
 }
 
 /** Validates a single stored door/window entry, or null when unusable. */

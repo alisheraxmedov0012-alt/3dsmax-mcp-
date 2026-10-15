@@ -737,6 +737,12 @@ input[type='color'] {
   color: #7f8b98;
 }
 
+.material__active {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #aeb9c4;
+}
+
 .preset-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

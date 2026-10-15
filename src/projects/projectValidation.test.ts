@@ -177,6 +177,39 @@ describe('validateSavedProject', () => {
     expect(restored.scene.objects[0].material).toEqual({ metalness: 0.8, roughness: 0.3 });
   });
 
+  it('round-trips W4 material channels through save/load', () => {
+    const project: SavedProject = {
+      ...validProject,
+      scene: {
+        ...validProject.scene,
+        objects: [
+          createTableSceneObject('t1', {
+            material: {
+              metalness: 0.1,
+              roughness: 0.5,
+              materialId: 'leather-brown',
+              opacity: 0.9,
+              textureScale: 1.5,
+              normalStrength: 0.4,
+            },
+          }),
+        ],
+      },
+    };
+
+    const raw = serializeProjects([project]);
+    const [restored] = deserializeProjects(raw).projects;
+
+    expect(restored.scene.objects[0].material).toEqual({
+      metalness: 0.1,
+      roughness: 0.5,
+      materialId: 'leather-brown',
+      opacity: 0.9,
+      textureScale: 1.5,
+      normalStrength: 0.4,
+    });
+  });
+
   it('round-trips a scene mixing several W2 furniture types', () => {
     const project: SavedProject = {
       ...validProject,

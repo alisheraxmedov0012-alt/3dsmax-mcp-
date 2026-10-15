@@ -5,6 +5,7 @@ import {
   type FurnitureParams,
   type FurnitureType,
 } from '../geometry/furniture/types';
+import type { MaterialPresetId } from '../materials/types';
 import { createDefaultSettings, type SceneSettings } from './sceneSettings';
 
 /**
@@ -95,6 +96,15 @@ export interface SceneObject {
 export interface ObjectMaterial {
   metalness: number;
   roughness: number;
+  /**
+   * W4 PBR channels. All optional so Stage 6 projects (which only stored
+   * metalness/roughness) stay valid; the renderer resolves any missing value to
+   * its default. Base colour / albedo is the object's `params.color`.
+   */
+  materialId?: MaterialPresetId;
+  opacity?: number;
+  textureScale?: number;
+  normalStrength?: number;
 }
 
 export const MATERIAL_DEFAULTS: ObjectMaterial = { metalness: 0.05, roughness: 0.6 };

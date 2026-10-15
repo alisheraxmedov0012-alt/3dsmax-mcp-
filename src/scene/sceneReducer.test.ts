@@ -271,6 +271,51 @@ describe('sceneReducer', () => {
     expect(findSceneObject(next, id)?.params.widthCm).toBe(120);
   });
 
+  it('applies a material preset to the selected object only', () => {
+    let state = initialState();
+    state = sceneReducer(state, { type: 'ADD_TABLE', id: 'table-2' });
+    const [a, b] = state.data.objects;
+    const beforeB = b.material;
+
+    state = sceneReducer(state, { type: 'APPLY_MATERIAL_PRESET', id: a.id, presetId: 'wood-oak' });
+
+    const applied = findSceneObject(state, a.id);
+    expect(applied?.material.materialId).toBe('wood-oak');
+    expect(applied?.material.roughness).toBeCloseTo(0.65, 5);
+    // The wood preset also applies its suggested base colour through params.
+    expect(applied?.params.color).toBe('#a9744f');
+    // The other object is untouched.
+    expect(findSceneObject(state, b.id)?.material).toEqual(beforeB);
+  });
+
+  it('falls back to the default preset for an unknown preset id', () => {
+    const state0 = initialState();
+    const id = state0.data.objects[0].id;
+    const applied = sceneReducer(state0, { type: 'APPLY_MATERIAL_PRESET', id, presetId: 'nope' });
+    expect(findSceneObject(applied, id)?.material.materialId).toBe('default');
+  });
+
+  it('clamps W4 material channels and ignores non-finite values', () => {
+    const state0 = initialState();
+    const id = state0.data.objects[0].id;
+    const clamped = sceneReducer(state0, {
+      type: 'UPDATE_MATERIAL',
+      id,
+      material: { opacity: 5, textureScale: -1, normalStrength: 99 },
+    });
+    expect(findSceneObject(clamped, id)?.material.opacity).toBe(1);
+    expect(findSceneObject(clamped, id)?.material.textureScale).toBe(0.25);
+    expect(findSceneObject(clamped, id)?.material.normalStrength).toBe(2);
+
+    const nan = sceneReducer(state0, {
+      type: 'UPDATE_MATERIAL',
+      id,
+      material: { opacity: Number.NaN },
+    });
+    // Not previously present -> not carried over as NaN.
+    expect(findSceneObject(nan, id)?.material.opacity).toBeUndefined();
+  });
+
   it('sets the scene background', () => {
     const state = sceneReducer(initialState(), { type: 'SET_BACKGROUND', color: '#ff0000' });
     expect(state.data.settings.background).toBe('#ff0000');
