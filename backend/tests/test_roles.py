@@ -62,3 +62,20 @@ def test_users_only_see_their_own_projects(client):
     intruder_view = client.get("/api/projects", headers=intruder_headers)
     assert intruder_view.status_code == 200
     assert intruder_view.json() == []
+
+
+def test_admin_recover_stale_requires_csrf(client):
+    """W12: the admin POST must reject a state-changing request without CSRF."""
+    create_admin_user("admin-csrf@example.com")
+    login(client, "admin-csrf@example.com", "AdminSecret123!")
+
+    # Authenticated as admin but with no CSRF token -> 403.
+    blocked = client.post("/api/admin/jobs/recover-stale")
+    assert blocked.status_code == 403
+    assert blocked.json()["error"]["code"] == "csrf_failed"
+
+    # With the CSRF token it succeeds.
+    headers = auth_headers(client, "admin-csrf@example.com", "AdminSecret123!")
+    allowed = client.post("/api/admin/jobs/recover-stale", headers=headers)
+    assert allowed.status_code == 200
+    assert "recovered" in allowed.json()

@@ -10,6 +10,17 @@ Two backends:
 Failure behaviour: if the Redis store is unreachable, the limiter **fails
 closed** (refuses the request) rather than silently allowing unlimited attempts.
 This is deliberate and documented.
+
+W11 additions:
+
+* **Per-scope limits.** Different endpoints need different budgets (a login
+  attempt is far more sensitive than a project list). ``scope_limit`` resolves a
+  limit for a named scope, defaulting to the global ``rate_limit_attempts`` but
+  allowing tighter built-in defaults and ``APP_RATE_LIMIT_SCOPES`` overrides.
+* **Retry-After.** Every 429/503 carries a ``Retry-After`` header so a client can
+  back off correctly instead of hammering the endpoint.
+* **Multi-process.** The memory backend is per-process; the limitation is
+  reported by :func:`describe_backend` and in diagnostics.
 """
 from __future__ import annotations
 
@@ -23,9 +34,49 @@ from .errors import ApiError
 
 logger = logging.getLogger("app.rate_limit")
 
+# Tighter-than-default budgets for sensitive/expensive scopes. A scope missing
+# here falls back to ``rate_limit_attempts``. These are conservative defaults,
+# not business decisions: they bound abuse, they do not sell a plan.
+DEFAULT_SCOPE_LIMITS: dict[str, int] = {
+    "login": 10,
+    "register": 5,
+    "forgot": 5,
+    "reset": 5,
+    "webhook": 60,
+}
+
+
+def _window_seconds() -> int:
+    return max(get_settings().rate_limit_window_seconds, 1)
+
+
+def scope_limit(scope: str) -> int:
+    """Resolve the max events allowed for ``scope`` within one window."""
+    settings = get_settings()
+    overrides = _parse_scope_overrides(settings.rate_limit_scopes)
+    if scope in overrides:
+        return overrides[scope]
+    if scope in DEFAULT_SCOPE_LIMITS:
+        return DEFAULT_SCOPE_LIMITS[scope]
+    return max(settings.rate_limit_attempts, 1)
+
+
+def _parse_scope_overrides(raw: str) -> dict[str, int]:
+    overrides: dict[str, int] = {}
+    for chunk in (raw or "").split(","):
+        part = chunk.strip()
+        if not part or "=" not in part:
+            continue
+        name, _, value = part.partition("=")
+        name = name.strip()
+        value = value.strip()
+        if name and value.isdigit() and int(value) > 0:
+            overrides[name] = int(value)
+    return overrides
+
 
 class RateLimiter:
-    def check(self, key: str) -> None:  # pragma: no cover - interface
+    def check(self, key: str, *, max_events: int | None = None) -> None:  # pragma: no cover
         raise NotImplementedError
 
     def reset(self) -> None:  # pragma: no cover - interface
@@ -39,17 +90,20 @@ class MemoryRateLimiter(RateLimiter):
         self._events: dict[str, deque[float]] = defaultdict(deque)
         self._lock = Lock()
 
-    def check(self, key: str) -> None:
+    def check(self, key: str, *, max_events: int | None = None) -> None:
+        limit = max_events if max_events is not None else self.max_events
         now = time.monotonic()
+        window = self.window_seconds
         with self._lock:
             bucket = self._events[key]
-            while bucket and now - bucket[0] > self.window_seconds:
+            while bucket and now - bucket[0] > window:
                 bucket.popleft()
-            if len(bucket) >= self.max_events:
+            if len(bucket) >= limit:
                 raise ApiError(
                     "rate_limited",
                     "Juda ko'p urinish. Keyinroq qayta urinib ko'ring.",
                     status_code=429,
+                    headers={"Retry-After": str(window)},
                 )
             bucket.append(now)
 
@@ -64,13 +118,15 @@ class RedisRateLimiter(RateLimiter):
         self.max_events = max_events
         self.window_seconds = window_seconds
 
-    def check(self, key: str) -> None:
-        bucket = int(time.time() // self.window_seconds)
+    def check(self, key: str, *, max_events: int | None = None) -> None:
+        limit = max_events if max_events is not None else self.max_events
+        window = self.window_seconds
+        bucket = int(time.time() // window)
         redis_key = f"rl:{key}:{bucket}"
         try:
             count = int(self.client.incr(redis_key))
             if count == 1:
-                self.client.expire(redis_key, self.window_seconds + 1)
+                self.client.expire(redis_key, window + 1)
         except Exception as exc:  # store unavailable
             logger.error("Rate limit store unavailable: %s", type(exc).__name__)
             # Fail closed: refuse rather than allow unlimited attempts.
@@ -78,13 +134,15 @@ class RedisRateLimiter(RateLimiter):
                 "rate_limit_unavailable",
                 "Xizmat vaqtincha mavjud emas. Keyinroq qayta urinib ko'ring.",
                 status_code=503,
+                headers={"Retry-After": str(window)},
             ) from exc
 
-        if count > self.max_events:
+        if count > limit:
             raise ApiError(
                 "rate_limited",
                 "Juda ko'p urinish. Keyinroq qayta urinib ko'ring.",
                 status_code=429,
+                headers={"Retry-After": str(window)},
             )
 
     def reset(self) -> None:  # pragma: no cover - not used in tests

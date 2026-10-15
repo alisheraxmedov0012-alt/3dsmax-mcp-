@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { AccountPanel } from './components/AccountPanel';
+import { ServerPanel } from './components/ServerPanel';
+import { JobsPanel } from './components/JobsPanel';
 import { AiPromptPanel } from './components/AiPromptPanel';
-import { ControlsPanel } from './components/ControlsPanel';
+import { ImageReferencePanel } from './components/ImageReferencePanel';
+import { FurniturePanel } from './components/FurniturePanel';
 import { ExportControls, type ExportStatus } from './components/ExportControls';
 import { LightingPanel } from './components/LightingPanel';
 import { MaterialPanel } from './components/MaterialPanel';
+import { ManufacturingPanel } from './components/ManufacturingPanel';
 import { ObjectPanel } from './components/ObjectPanel';
 import { ProjectsPanel, type ProjectsStatus } from './components/ProjectsPanel';
 import { RenderExportPanel, type RenderStatus } from './components/RenderExportPanel';
@@ -12,31 +16,52 @@ import { RoomPanel } from './components/RoomPanel';
 import { SceneHierarchyPanel } from './components/SceneHierarchyPanel';
 import { SceneSettingsPanel } from './components/SceneSettingsPanel';
 import { ViewerCanvas } from './components/ViewerCanvas';
-import { downloadArrayBuffer, downloadBlob } from './export/downloadFile';
-import { exportSceneToGlb, SCENE_EXPORT_FILENAME } from './export/sceneExport';
+import { downloadBlob } from './export/downloadFile';
+import { exportSceneToFormat } from './export/sceneFileExport';
+import { parseSceneJson } from './export/sceneJson';
+import { ExportError } from './export/exportTypes';
+import type { ExportFormatId } from './export/exportFormats';
 import { exportScenePng, type PngPreset } from './export/sceneImage';
+import type { TableParams } from './geometry/tableParams';
 import {
-  DEFAULT_FIELD_VALUES,
-  paramsToFieldValues,
-  parseTableValues,
-  TABLE_DEFAULTS,
-  type TableFieldValues,
-  type TableParams,
-} from './geometry/tableParams';
+  createFurnitureParams,
+  furnitureParamsToFieldValues,
+  parseFurnitureValues,
+  type FurnitureType,
+} from './geometry/furniture';
 import { createLocalProjectRepository } from './projects/localProjectRepository';
 import type { ProjectRepository, SavedProject } from './projects/types';
+import {
+  hasUnsavedChanges,
+  sceneSignature,
+  shouldProtectUnload,
+} from './projects/unsavedChanges';
 import { findSceneObject, sceneReducer } from './scene/sceneReducer';
 import { createSceneObjectId } from './scene/sceneIds';
+import {
+  createLayoutObjects,
+  isLayoutPresetId,
+  type LayoutPresetId,
+} from './scene/layoutPresets';
+import { findPlacementIssues, type WallId } from './scene/placement';
+import { specToFurnitureParams } from './image/referenceInference';
+import type { DesignSpec } from './image/designSpec';
 import type { CameraPreset, LightSettings, RoomMaterialSettings } from './scene/sceneSettings';
 import {
   ROOM_DEFAULTS,
   ROOM_OBJECT_ID,
   createDefaultSceneState,
   type ObjectMaterial,
+  type OpeningKind,
   type RoomConfig,
   type Vec3,
 } from './scene/types';
 import type { SceneViewer } from './viewer/SceneViewer';
+import type {
+  LightingPresetChoice,
+  QualityPresetId,
+  ToneMappingMode,
+} from './render/renderPresets';
 import './App.css';
 
 export default function App() {
@@ -46,21 +71,31 @@ export default function App() {
     () => createDefaultSceneState(createSceneObjectId),
   );
 
-  const [values, setValues] = useState<TableFieldValues>(DEFAULT_FIELD_VALUES);
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    furnitureParamsToFieldValues('table', createFurnitureParams('table')),
+  );
   const [resetToken, setResetToken] = useState(0);
   const [cameraPresetToken, setCameraPresetToken] = useState(0);
 
   const [exportStatus, setExportStatus] = useState<ExportStatus>('idle');
+  const [exportFormat, setExportFormat] = useState<ExportFormatId>('glb');
+  const [includeRoom, setIncludeRoom] = useState(true);
   const [exportMessage, setExportMessage] = useState('');
   const [pngPreset, setPngPreset] = useState<PngPreset>('standard');
   const [renderStatus, setRenderStatus] = useState<RenderStatus>('idle');
   const [renderMessage, setRenderMessage] = useState('');
+  const [layoutPreset, setLayoutPreset] = useState<LayoutPresetId>('empty');
 
   const [projects, setProjects] = useState<SavedProject[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [projectName, setProjectName] = useState('');
   const [projectsStatus, setProjectsStatus] = useState<ProjectsStatus>('idle');
   const [projectsMessage, setProjectsMessage] = useState('');
+  // W11: unsaved-changes protection. ``savedSignature`` tracks the last scene
+  // state that was persisted or loaded; anything different is unsaved work.
+  const [savedSignature, setSavedSignature] = useState<string | null>(null);
+  const [savingProject, setSavingProject] = useState(false);
+  const initialisedSignature = useRef(false);
 
   const repositoryRef = useRef<ProjectRepository | null>(null);
   const viewerRef = useRef<SceneViewer | null>(null);
@@ -73,15 +108,56 @@ export default function App() {
   };
 
   const selectedObject = findSceneObject(scene, scene.selectedId);
-  const selectedTable = selectedObject && selectedObject.type === 'table' ? selectedObject : null;
-  const parsed = useMemo(() => parseTableValues(values), [values]);
+  const parsed = useMemo(
+    () => (selectedObject ? parseFurnitureValues(selectedObject.type, values) : null),
+    [selectedObject, values],
+  );
+  const paramsValid = parsed ? parsed.valid : true;
   const settings = scene.data.settings;
+  const placementIssues = useMemo(
+    () => findPlacementIssues(scene.data.objects, scene.data.room),
+    [scene.data.objects, scene.data.room],
+  );
+  const outsideCount = placementIssues.filter((issue) => issue.kind === 'outside').length;
+  const collisionCount = placementIssues.filter((issue) => issue.kind === 'collision').length;
 
-  // Keep the table parameter controls in sync with the selected table.
+  const currentSignature = useMemo(
+    () => sceneSignature(projectName, scene.data),
+    [projectName, scene.data],
+  );
+  const hasUnsavedWork =
+    savedSignature !== null && hasUnsavedChanges(currentSignature, savedSignature);
+
+  // Seed the baseline once so a fresh page is not reported as unsaved work.
   useEffect(() => {
-    const table = findSceneObject(scene, scene.selectedId);
-    if (table && table.type === 'table') {
-      setValues(paramsToFieldValues(table.params));
+    if (!initialisedSignature.current) {
+      initialisedSignature.current = true;
+      setSavedSignature(currentSignature);
+    }
+  }, [currentSignature]);
+
+  // Warn before the tab closes when there is unsaved work.
+  useEffect(() => {
+    if (!shouldProtectUnload(hasUnsavedWork, savingProject)) {
+      return undefined;
+    }
+    const handler = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [hasUnsavedWork, savingProject]);
+
+  const confirmDiscard = (): boolean =>
+    !hasUnsavedWork ||
+    window.confirm("Saqlanmagan o'zgarishlar bor. Davom etilsa, ular yo'qoladi. Davom etilsinmi?");
+
+  // Keep the parameter controls in sync with the selected object.
+  useEffect(() => {
+    const object = findSceneObject(scene, scene.selectedId);
+    if (object) {
+      setValues(furnitureParamsToFieldValues(object.type, object.params));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene.selectedId]);
@@ -101,26 +177,42 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleTableChange = (field: keyof TableFieldValues, value: string) => {
+  const handleParamsChange = (field: string, value: string) => {
+    if (!selectedObject) {
+      return;
+    }
     const next = { ...values, [field]: value };
     setValues(next);
-    const result = parseTableValues(next);
-    if (result.params && selectedTable) {
-      dispatch({ type: 'UPDATE_PARAMS', id: selectedTable.id, params: result.params });
+    const result = parseFurnitureValues(selectedObject.type, next);
+    if (result.valid && result.params) {
+      dispatch({ type: 'UPDATE_PARAMS', id: selectedObject.id, params: result.params });
     }
   };
 
-  const handleTableReset = () => {
-    setValues(DEFAULT_FIELD_VALUES);
-    if (selectedTable) {
-      dispatch({ type: 'UPDATE_PARAMS', id: selectedTable.id, params: { ...TABLE_DEFAULTS } });
+  const handleParamsReset = () => {
+    if (!selectedObject) {
+      return;
     }
+    const defaults = createFurnitureParams(selectedObject.type);
+    setValues(furnitureParamsToFieldValues(selectedObject.type, defaults));
+    dispatch({ type: 'UPDATE_PARAMS', id: selectedObject.id, params: defaults });
+  };
+
+  const handleAddFurniture = (type: FurnitureType) => {
+    dispatch({ type: 'ADD_FURNITURE', furnitureType: type, id: createSceneObjectId() });
+  };
+
+  const handleImageReferenceConfirm = (type: FurnitureType, spec: DesignSpec) => {
+    // Confirmed image-derived parameters are turned into builder parameters and
+    // added exactly like a hand-created object (validated in the reducer).
+    const params = specToFurnitureParams(type, spec.dimensions);
+    dispatch({ type: 'ADD_FURNITURE', furnitureType: type, id: createSceneObjectId(), params });
   };
 
   const applyProposal = (params: TableParams) => {
-    setValues(paramsToFieldValues(params));
-    if (selectedTable) {
-      dispatch({ type: 'UPDATE_PARAMS', id: selectedTable.id, params });
+    setValues(furnitureParamsToFieldValues('table', params));
+    if (selectedObject) {
+      dispatch({ type: 'UPDATE_PARAMS', id: selectedObject.id, params });
     }
   };
 
@@ -129,6 +221,47 @@ export default function App() {
   const handleSetRoom = (room: Partial<RoomConfig>) => dispatch({ type: 'SET_ROOM', room });
   const handleResetRoom = () => dispatch({ type: 'SET_ROOM', room: { ...ROOM_DEFAULTS } });
   const handleSelectRoom = () => dispatch({ type: 'SELECT', id: ROOM_OBJECT_ID });
+
+  const handleToggleCeiling = (showCeiling: boolean) =>
+    dispatch({ type: 'SET_ROOM_CEILING', showCeiling });
+
+  const handleLayoutPresetChange = (preset: LayoutPresetId) => {
+    if (isLayoutPresetId(preset)) {
+      setLayoutPreset(preset);
+    }
+  };
+
+  const handleApplyLayout = () => {
+    const preset = isLayoutPresetId(layoutPreset) ? layoutPreset : 'empty';
+    const objects =
+      preset === 'empty'
+        ? []
+        : createLayoutObjects(preset, scene.data.room, createSceneObjectId);
+    dispatch({ type: 'SET_LAYOUT', room: scene.data.room, objects });
+  };
+
+  const handleAddOpening = (kind: OpeningKind, wall: WallId) => {
+    dispatch({
+      type: 'ADD_ROOM_OPENING',
+      opening: {
+        id: createSceneObjectId(),
+        kind,
+        wall,
+        offsetCm: 0,
+        widthCm: kind === 'window' ? 120 : 90,
+        heightCm: kind === 'window' ? 120 : 200,
+        sillCm: kind === 'window' ? 90 : 0,
+      },
+    });
+  };
+
+  const handleRemoveOpening = (id: string) => dispatch({ type: 'REMOVE_ROOM_OPENING', id });
+
+  const handlePlaceAgainstWall = () => {
+    if (selectedObject) {
+      dispatch({ type: 'PLACE_AGAINST_WALL', id: selectedObject.id });
+    }
+  };
   const handleAddTable = () => dispatch({ type: 'ADD_TABLE', id: createSceneObjectId() });
   const handleSelect = (id: string | null) => dispatch({ type: 'SELECT', id });
 
@@ -137,26 +270,26 @@ export default function App() {
     rotation?: Partial<Vec3>;
     scale?: Partial<Vec3>;
   }) => {
-    if (selectedTable) {
-      dispatch({ type: 'UPDATE_TRANSFORM', id: selectedTable.id, ...patch });
+    if (selectedObject) {
+      dispatch({ type: 'UPDATE_TRANSFORM', id: selectedObject.id, ...patch });
     }
   };
 
   const handleRename = (name: string) => {
-    if (selectedTable) {
-      dispatch({ type: 'RENAME_OBJECT', id: selectedTable.id, name });
+    if (selectedObject) {
+      dispatch({ type: 'RENAME_OBJECT', id: selectedObject.id, name });
     }
   };
 
   const handleMaterial = (patch: Partial<ObjectMaterial>) => {
-    if (selectedTable) {
-      dispatch({ type: 'UPDATE_MATERIAL', id: selectedTable.id, material: patch });
+    if (selectedObject) {
+      dispatch({ type: 'UPDATE_MATERIAL', id: selectedObject.id, material: patch });
     }
   };
 
   const handleResetMaterial = () => {
-    if (selectedTable) {
-      dispatch({ type: 'RESET_MATERIAL', id: selectedTable.id });
+    if (selectedObject) {
+      dispatch({ type: 'RESET_MATERIAL', id: selectedObject.id });
     }
   };
 
@@ -186,7 +319,23 @@ export default function App() {
     setCameraPresetToken((token) => token + 1);
   };
 
+  const handleLightingPreset = (preset: LightingPresetChoice) => {
+    if (preset === 'custom') {
+      return;
+    }
+    dispatch({ type: 'APPLY_LIGHTING_PRESET', preset });
+  };
+  const handleExposure = (exposure: number) => dispatch({ type: 'SET_EXPOSURE', exposure });
+  const handleToneMapping = (toneMapping: ToneMappingMode) =>
+    dispatch({ type: 'SET_TONE_MAPPING', toneMapping });
+  const handleQuality = (quality: QualityPresetId) =>
+    dispatch({ type: 'SET_RENDER_QUALITY', quality });
+
   const handleSaveProject = async () => {
+    if (savingProject) {
+      return; // guard against a double click
+    }
+    setSavingProject(true);
     try {
       const repository = getRepository();
       if (activeProjectId) {
@@ -200,6 +349,7 @@ export default function App() {
         } else {
           setProjectsStatus('ok');
           setProjectsMessage('Loyiha yangilandi.');
+          setSavedSignature(sceneSignature(projectName, scene.data));
         }
       } else {
         const created = await repository.create({ name: projectName, scene: scene.data });
@@ -207,30 +357,46 @@ export default function App() {
         setProjectName(created.name);
         setProjectsStatus('ok');
         setProjectsMessage('Loyiha saqlandi.');
+        setSavedSignature(sceneSignature(created.name, scene.data));
       }
       await refreshProjects();
     } catch (error) {
       setProjectsStatus('error');
       setProjectsMessage("Loyihani saqlab bo'lmadi.");
       console.error('Loyihani saqlash xatosi:', error);
+    } finally {
+      setSavingProject(false);
     }
   };
 
   const handleNewProject = () => {
+    if (!confirmDiscard()) {
+      return;
+    }
+    const fresh = createDefaultSceneState(createSceneObjectId);
     dispatch({ type: 'NEW_SCENE', id: createSceneObjectId() });
-    setValues(DEFAULT_FIELD_VALUES);
+    setValues(furnitureParamsToFieldValues('table', createFurnitureParams('table')));
     setActiveProjectId(null);
     setProjectName('');
+    setSavedSignature(sceneSignature('', fresh.data));
     setProjectsStatus('idle');
     setProjectsMessage('Yangi loyiha. Xona, yorug\u2019lik va obyektlarni sozlab, saqlang.');
   };
 
   const handleOpenProject = (project: SavedProject) => {
+    if (!confirmDiscard()) {
+      return;
+    }
     dispatch({ type: 'LOAD_SCENE', scene: project.scene });
-    const firstTable = project.scene.objects.find((object) => object.type === 'table');
-    setValues(firstTable ? paramsToFieldValues(firstTable.params) : DEFAULT_FIELD_VALUES);
+    const first = project.scene.objects[0];
+    setValues(
+      first
+        ? furnitureParamsToFieldValues(first.type, first.params)
+        : furnitureParamsToFieldValues('table', createFurnitureParams('table')),
+    );
     setActiveProjectId(project.id);
     setProjectName(project.name);
+    setSavedSignature(sceneSignature(project.name, project.scene));
     setProjectsStatus('ok');
     setProjectsMessage(`"${project.name}" loyihasi ochildi.`);
   };
@@ -261,7 +427,7 @@ export default function App() {
     }
   };
 
-  const handleExportGlb = async () => {
+  const handleExportFile = async () => {
     if (exportStatus === 'exporting') {
       return;
     }
@@ -269,15 +435,69 @@ export default function App() {
     setExportStatus('exporting');
     setExportMessage('Eksport qilinmoqda…');
 
+    const metadata = {
+      name: projectName.trim() !== '' ? projectName : '3d-studio-ai',
+      furnitureType: selectedObject?.type ?? scene.data.objects[0]?.type ?? null,
+      units: 'cm' as const,
+    };
+
     try {
-      const data = await exportSceneToGlb(scene.data);
-      downloadArrayBuffer(data, SCENE_EXPORT_FILENAME);
+      const artifact = await exportSceneToFormat(exportFormat, scene.data, metadata, {
+        includeRoom,
+      });
+      downloadBlob(artifact.blob, artifact.filename);
       setExportStatus('success');
-      setExportMessage('Sahna .glb fayl sifatida yuklab olindi.');
+      setExportMessage(`Sahna "${artifact.filename}" sifatida yuklab olindi.`);
     } catch (error) {
       setExportStatus('error');
-      setExportMessage("Eksport amalga oshmadi. Iltimos, qaytadan urinib ko'ring.");
-      console.error('GLB eksport xatosi:', error);
+      setExportMessage(
+        error instanceof ExportError ? error.message : "Eksport amalga oshmadi.",
+      );
+      console.error('Eksport xatosi:', error);
+    }
+  };
+
+  const handleImportJson = async (file: File) => {
+    if (exportStatus === 'exporting') {
+      return;
+    }
+    if (!confirmDiscard()) {
+      return;
+    }
+    setExportStatus('exporting');
+    setExportMessage('JSON tekshirilmoqda…');
+
+    try {
+      const text = await file.text();
+      const result = parseSceneJson(text);
+      if (!result.ok) {
+        // Import failure leaves the current scene untouched.
+        setExportStatus('error');
+        setExportMessage(result.message);
+        return;
+      }
+
+      const label = `${result.name} (${result.scene.objects.length} obyekt)`;
+      if (!window.confirm(`"${label}" joriy sahna ustidan yuklansinmi?`)) {
+        setExportStatus('idle');
+        setExportMessage('');
+        return;
+      }
+
+      dispatch({ type: 'LOAD_SCENE', scene: result.scene });
+      setActiveProjectId(null);
+      setProjectName(result.name);
+      setSavedSignature(sceneSignature(result.name, result.scene));
+      setExportStatus('success');
+      setExportMessage(
+        result.droppedObjects > 0
+          ? `Import qilindi; ${result.droppedObjects} yaroqsiz obyekt o'tkazib yuborildi.`
+          : 'JSON loyiha import qilindi.',
+      );
+    } catch (error) {
+      setExportStatus('error');
+      setExportMessage("Faylni o'qib bo'lmadi.");
+      console.error('JSON import xatosi:', error);
     }
   };
 
@@ -314,27 +534,40 @@ export default function App() {
 
   return (
     <div className="app">
-      <ControlsPanel
+      <FurniturePanel
+        object={selectedObject}
         values={values}
-        errors={parsed.errors}
-        onChange={handleTableChange}
-        onReset={handleTableReset}
-        tableSelected={selectedTable !== null}
+        errors={parsed?.errors ?? {}}
+        onChange={handleParamsChange}
+        onReset={handleParamsReset}
+        onAdd={handleAddFurniture}
       >
         <RoomPanel
           room={scene.data.room}
           isRoomSelected={scene.selectedId === ROOM_OBJECT_ID}
+          layoutPreset={layoutPreset}
           onApply={handleSetRoom}
           onResetRoom={handleResetRoom}
           onSelectRoom={handleSelectRoom}
+          onToggleCeiling={handleToggleCeiling}
+          onLayoutPresetChange={handleLayoutPresetChange}
+          onApplyLayout={handleApplyLayout}
+          onAddOpening={handleAddOpening}
+          onRemoveOpening={handleRemoveOpening}
         />
         <SceneSettingsPanel
           background={settings.background}
           cameraPreset={settings.cameraPreset}
           roomMaterials={settings.roomMaterials}
+          lightingPreset={settings.lightingPreset}
+          exposure={settings.exposure}
+          toneMapping={settings.toneMapping}
           onBackground={handleBackground}
           onCameraPreset={handleCameraPreset}
           onRoomMaterials={handleRoomMaterials}
+          onLightingPreset={handleLightingPreset}
+          onExposure={handleExposure}
+          onToneMapping={handleToneMapping}
         />
         <LightingPanel
           lights={settings.lights}
@@ -351,25 +584,32 @@ export default function App() {
           onAddTable={handleAddTable}
         />
         <ObjectPanel
-          object={selectedTable}
+          object={selectedObject}
           onTransform={handleTransform}
           onRename={handleRename}
-          onToggleVisibility={() => selectedTable && handleToggleVisibility(selectedTable.id)}
-          onDelete={() => selectedTable && handleDeleteObject(selectedTable.id)}
+          onToggleVisibility={() => selectedObject && handleToggleVisibility(selectedObject.id)}
+          onDelete={() => selectedObject && handleDeleteObject(selectedObject.id)}
+          onPlaceAgainstWall={handlePlaceAgainstWall}
         />
         <MaterialPanel
-          object={selectedTable}
+          object={selectedObject}
           onMaterial={handleMaterial}
           onReset={handleResetMaterial}
         />
         <AiPromptPanel onApply={applyProposal} />
+        <ImageReferencePanel onConfirm={handleImageReferenceConfirm} />
+        <ManufacturingPanel object={selectedObject} projectName={projectName} />
         <AccountPanel />
+        <ServerPanel />
+        <JobsPanel />
         <ProjectsPanel
           projects={projects}
           activeId={activeProjectId}
           name={projectName}
           status={projectsStatus}
           message={projectsMessage}
+          saving={savingProject}
+          unsaved={hasUnsavedWork}
           onNameChange={setProjectName}
           onSave={handleSaveProject}
           onNew={handleNewProject}
@@ -377,20 +617,27 @@ export default function App() {
           onDelete={handleDeleteProject}
         />
         <ExportControls
+          format={exportFormat}
+          includeRoom={includeRoom}
           status={exportStatus}
           message={exportMessage}
-          disabled={!parsed.valid}
-          onExport={handleExportGlb}
+          disabled={!paramsValid}
+          onFormatChange={setExportFormat}
+          onIncludeRoomChange={setIncludeRoom}
+          onExport={handleExportFile}
+          onImportFile={handleImportJson}
         />
         <RenderExportPanel
           preset={pngPreset}
+          quality={settings.qualityPreset}
           status={renderStatus}
           message={renderMessage}
           disabled={false}
           onPresetChange={setPngPreset}
+          onQualityChange={handleQuality}
           onExport={handleExportPng}
         />
-      </ControlsPanel>
+      </FurniturePanel>
 
       <main className="stage">
         <ViewerCanvas
@@ -416,9 +663,19 @@ export default function App() {
           {scene.data.room.heightCm} sm · {scene.data.objects.length} obyekt
         </div>
 
-        {!parsed.valid && (
+        {!paramsValid && (
           <div className="banner" role="alert">
-            Stol qiymatlari noto'g'ri — model oxirgi to'g'ri holatda ko'rsatilmoqda.
+            Mebel qiymatlari noto&apos;g&apos;ri — model oxirgi to&apos;g&apos;ri holatda ko&apos;rsatilmoqda.
+          </div>
+        )}
+
+        {(outsideCount > 0 || collisionCount > 0) && (
+          <div className="banner" role="status" aria-live="polite">
+            Joylashuv ogohlantirishi:
+            {outsideCount > 0 && ` ${outsideCount} obyekt xona tashqarisida`}
+            {outsideCount > 0 && collisionCount > 0 && ' ·'}
+            {collisionCount > 0 && ` ${collisionCount} to'qnashuv`}
+            . Obyektni tanlab, «Devorga joylash» yoki joylashuvni qo&apos;lda to&apos;g&apos;rilang.
           </div>
         )}
       </main>

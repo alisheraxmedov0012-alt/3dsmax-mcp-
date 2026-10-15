@@ -5,6 +5,29 @@ import { applyObjectTransform, buildSceneObject } from '../scene/buildSceneObjec
 import { ROOM_OBJECT_ID, type SceneData } from '../scene/types';
 import type { CameraPreset, SceneSettings } from '../scene/sceneSettings';
 import { computePresetFraming, computeRoomFraming } from './cameraFraming';
+import { computeObjectFraming, isValidBounds, type BoundsBox } from '../render/framing';
+import {
+  LIGHTING_PRESET_POSITIONS,
+  isLightingPresetId,
+  resolveRendererConfig,
+  type ResolvedRendererConfig,
+  type ShadowMapKind,
+  type ToneMappingMode,
+} from '../render/renderPresets';
+
+const TONE_MAPPING: Record<ToneMappingMode, THREE.ToneMapping> = {
+  none: THREE.NoToneMapping,
+  linear: THREE.LinearToneMapping,
+  reinhard: THREE.ReinhardToneMapping,
+  cineon: THREE.CineonToneMapping,
+  aces: THREE.ACESFilmicToneMapping,
+};
+
+const SHADOW_MAP_KIND: Record<ShadowMapKind, THREE.ShadowMapType> = {
+  basic: THREE.BasicShadowMap,
+  pcf: THREE.PCFShadowMap,
+  pcfSoft: THREE.PCFSoftShadowMap,
+};
 
 export interface SceneViewerOptions {
   onSelect?: (id: string | null) => void;
@@ -50,6 +73,7 @@ export class SceneViewer {
   private frameId: number | null = null;
   private hasFramedOnce = false;
   private shadowsEnabled = true;
+  private renderConfig: ResolvedRendererConfig | null = null;
 
   private pointerDown: { x: number; y: number } | null = null;
   private readonly handlePointerDown: (event: PointerEvent) => void;
@@ -125,8 +149,13 @@ export class SceneViewer {
       data.room.widthCm,
       data.room.lengthCm,
       data.room.heightCm,
+      data.room.showCeiling === true,
       data.settings.roomMaterials.floorColor,
       data.settings.roomMaterials.wallColor,
+      data.settings.roomMaterials.ceilingColor,
+      // Openings only affect markers; fold them into the key so toggling them
+      // rebuilds the room without a separate code path.
+      JSON.stringify(data.room.openings ?? []),
     ].join(':');
 
     if (!this.room || this.room.key !== roomKey) {
@@ -178,7 +207,7 @@ export class SceneViewer {
     this.controls.update();
   }
 
-  /** Applies background, lighting and shadow settings without rebuilding geometry. */
+  /** Applies background, lighting, render quality, tone mapping and shadows. */
   private applySettings(settings: SceneSettings): void {
     this.background.set(settings.background);
 
@@ -194,6 +223,14 @@ export class SceneViewer {
     this.fillLight.intensity = settings.lights.fillIntensity;
     this.fillLight.color.set(settings.lights.fillColor);
 
+    // Light directions come from the active lighting preset (a render concern,
+    // so they live in the viewer rather than the persisted light settings).
+    if (isLightingPresetId(settings.lightingPreset)) {
+      const positions = LIGHTING_PRESET_POSITIONS[settings.lightingPreset];
+      this.keyLight.position.set(positions.key[0], positions.key[1], positions.key[2]);
+      this.fillLight.position.set(positions.fill[0], positions.fill[1], positions.fill[2]);
+    }
+
     if (this.shadowsEnabled !== settings.lights.shadowsEnabled) {
       this.shadowsEnabled = settings.lights.shadowsEnabled;
       this.renderer.shadowMap.enabled = settings.lights.shadowsEnabled;
@@ -207,14 +244,88 @@ export class SceneViewer {
         }
       });
     }
+
+    this.applyRenderSettings(settings);
   }
 
-  /** Restores the default (isometric) camera framing for the current room. */
+  /**
+   * Applies the render-quality preset and the tone-mapping/exposure settings to
+   * the WebGL renderer. These are real renderer parameters (pixel ratio, shadow
+   * map filter/size, tone mapping, exposure); nothing here is cosmetic.
+   */
+  private applyRenderSettings(settings: SceneSettings): void {
+    const devicePixelRatio =
+      typeof window !== 'undefined' && Number.isFinite(window.devicePixelRatio)
+        ? window.devicePixelRatio
+        : 1;
+    const config = resolveRendererConfig(settings.qualityPreset, { devicePixelRatio });
+    this.renderConfig = config;
+
+    this.renderer.setPixelRatio(config.pixelRatio);
+
+    if (this.renderer.shadowMap.type !== SHADOW_MAP_KIND[config.shadowMapKind]) {
+      this.renderer.shadowMap.type = SHADOW_MAP_KIND[config.shadowMapKind];
+    }
+    if (this.keyLight.shadow.mapSize.x !== config.shadowMapSize) {
+      this.keyLight.shadow.mapSize.set(config.shadowMapSize, config.shadowMapSize);
+      // Force the shadow map to be recreated at the new size.
+      this.keyLight.shadow.map?.dispose();
+      this.keyLight.shadow.map = null;
+    }
+
+    this.renderer.toneMapping = TONE_MAPPING[settings.toneMapping];
+    this.renderer.toneMappingExposure = settings.exposure;
+  }
+
+  /**
+   * Bounding box (world space) of the currently selected object, or null when
+   * the room / nothing is selected or the box is empty/invalid. Used so camera
+   * presets frame the selected furniture piece, not just the room.
+   */
+  private selectedObjectBounds(): BoundsBox | null {
+    if (!this.selectedId || this.selectedId === ROOM_OBJECT_ID) {
+      return null;
+    }
+    const entry = this.objects.get(this.selectedId);
+    if (!entry) {
+      return null;
+    }
+    const box = new THREE.Box3().setFromObject(entry.group);
+    if (box.isEmpty()) {
+      return null;
+    }
+    return {
+      min: { x: box.min.x, y: box.min.y, z: box.min.z },
+      max: { x: box.max.x, y: box.max.y, z: box.max.z },
+    };
+  }
+
+  /** Moves the camera to frame the selection (or the room) for a preset. */
+  private frameTo(preset: CameraPreset): void {
+    if (!this.data) {
+      return;
+    }
+    const bounds = this.selectedObjectBounds();
+    const framing =
+      bounds && isValidBounds(bounds)
+        ? computeObjectFraming(bounds, preset, this.camera.aspect)
+        : computePresetFraming(this.data.room, preset);
+    this.camera.position.set(framing.position.x, framing.position.y, framing.position.z);
+    this.controls.target.set(framing.target.x, framing.target.y, framing.target.z);
+    this.controls.update();
+  }
+
+  /** Restores the default framing (the selection when present, else the room). */
   resetView(): void {
     if (!this.data) {
       return;
     }
     const framing = computeRoomFraming(this.data.room);
+    const bounds = this.selectedObjectBounds();
+    if (bounds && isValidBounds(bounds)) {
+      this.frameTo('product');
+      return;
+    }
     this.camera.position.set(framing.position.x, framing.position.y, framing.position.z);
     this.controls.target.set(framing.target.x, framing.target.y, framing.target.z);
     this.controls.update();
@@ -222,13 +333,7 @@ export class SceneViewer {
 
   /** Moves the camera to a named preset. Object coordinates are never changed. */
   applyCameraPreset(preset: CameraPreset): void {
-    if (!this.data) {
-      return;
-    }
-    const framing = computePresetFraming(this.data.room, preset);
-    this.camera.position.set(framing.position.x, framing.position.y, framing.position.z);
-    this.controls.target.set(framing.target.x, framing.target.y, framing.target.z);
-    this.controls.update();
+    this.frameTo(preset);
   }
 
   /**
@@ -245,6 +350,8 @@ export class SceneViewer {
     const target = new THREE.WebGLRenderTarget(width, height, {
       depthBuffer: true,
       stencilBuffer: false,
+      // Multisample the offscreen target when the quality preset enables AA.
+      samples: this.renderConfig?.antialias ? 4 : 0,
     });
     target.texture.colorSpace = THREE.SRGBColorSpace;
 

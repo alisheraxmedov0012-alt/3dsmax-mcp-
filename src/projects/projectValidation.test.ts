@@ -10,7 +10,12 @@ import {
   PROJECTS_SCHEMA_VERSION,
   type SavedProject,
 } from './types';
-import { createTableSceneObject, SCENE_SCHEMA_VERSION, type SceneData } from '../scene/types';
+import {
+  createFurnitureSceneObject,
+  createTableSceneObject,
+  SCENE_SCHEMA_VERSION,
+  type SceneData,
+} from '../scene/types';
 import { createDefaultSettings } from '../scene/sceneSettings';
 
 function makeScene(): SceneData {
@@ -146,8 +151,12 @@ describe('validateSavedProject', () => {
             fillColor: '#ffffff',
             shadowsEnabled: false,
           },
-          roomMaterials: { floorColor: '#111111', wallColor: '#222222' },
+          roomMaterials: { floorColor: '#111111', wallColor: '#222222', ceilingColor: '#333333' },
           cameraPreset: 'top',
+          lightingPreset: 'warmInterior',
+          qualityPreset: 'high',
+          exposure: 1.4,
+          toneMapping: 'reinhard',
         },
         objects: [createTableSceneObject('t1', { material: { metalness: 0.8, roughness: 0.3 } })],
       },
@@ -161,7 +170,81 @@ describe('validateSavedProject', () => {
     expect(restored.scene.settings.lights.keyIntensity).toBe(3);
     expect(restored.scene.settings.roomMaterials.floorColor).toBe('#111111');
     expect(restored.scene.settings.cameraPreset).toBe('top');
+    expect(restored.scene.settings.lightingPreset).toBe('warmInterior');
+    expect(restored.scene.settings.qualityPreset).toBe('high');
+    expect(restored.scene.settings.exposure).toBeCloseTo(1.4, 5);
+    expect(restored.scene.settings.toneMapping).toBe('reinhard');
     expect(restored.scene.objects[0].material).toEqual({ metalness: 0.8, roughness: 0.3 });
+  });
+
+  it('round-trips a scene mixing several W2 furniture types', () => {
+    const project: SavedProject = {
+      ...validProject,
+      scene: {
+        ...validProject.scene,
+        objects: [
+          createTableSceneObject('t1'),
+          createFurnitureSceneObject('sofa', 's1', { position: { x: 50, y: 0, z: -30 } }),
+          createFurnitureSceneObject('wardrobe', 'w1'),
+          createFurnitureSceneObject('bed', 'b1'),
+        ],
+      },
+    };
+
+    const raw = serializeProjects([project]);
+    const [restored] = deserializeProjects(raw).projects;
+
+    expect(restored.scene.objects.map((object) => object.type)).toEqual([
+      'table',
+      'sofa',
+      'wardrobe',
+      'bed',
+    ]);
+    // Type-specific channels survive the round-trip.
+    expect(restored.scene.objects[1].params).toEqual(project.scene.objects[1].params);
+    expect(restored.scene.objects[2].params).toEqual(project.scene.objects[2].params);
+  });
+
+  it('round-trips W6 room ceiling, openings and furniture placement', () => {
+    const project: SavedProject = {
+      ...validProject,
+      scene: {
+        ...validProject.scene,
+        room: {
+          widthCm: 520,
+          lengthCm: 640,
+          heightCm: 290,
+          showCeiling: true,
+          openings: [
+            { id: 'd1', kind: 'door', wall: 'south', offsetCm: 0, widthCm: 90, heightCm: 205, sillCm: 0 },
+            { id: 'w1', kind: 'window', wall: 'east', offsetCm: -80, widthCm: 130, heightCm: 120, sillCm: 95 },
+          ],
+        },
+        objects: [
+          createFurnitureSceneObject('sofa', 's1', {
+            position: { x: -200, y: 0, z: -280 },
+            rotation: { x: 0, y: 0, z: 0 },
+          }),
+          createFurnitureSceneObject('bed', 'b1', { rotation: { x: 0, y: 180, z: 0 } }),
+        ],
+      },
+    };
+
+    const raw = serializeProjects([project]);
+    const [restored] = deserializeProjects(raw).projects;
+
+    expect(restored.scene.room.showCeiling).toBe(true);
+    expect(restored.scene.room.openings?.map((entry) => entry.id)).toEqual(['d1', 'w1']);
+    expect(restored.scene.objects[0].position).toEqual({ x: -200, y: 0, z: -280 });
+    expect(restored.scene.objects[1].rotation.y).toBe(180);
+  });
+
+  it('opens an old Stage 6 project without W6 fields', () => {
+    // An old project has no showCeiling/openings — it must open unchanged.
+    const [restored] = deserializeProjects(serializeProjects([validProject])).projects;
+    expect(restored.scene.room.showCeiling).toBeUndefined();
+    expect(restored.scene.room.openings).toBeUndefined();
+    expect(restored.scene.room.widthCm).toBe(validProject.scene.room.widthCm);
   });
 });
 

@@ -11,6 +11,7 @@ interface ObjectPanelProps {
   onRename: (name: string) => void;
   onToggleVisibility: () => void;
   onDelete: () => void;
+  onPlaceAgainstWall: () => void;
 }
 
 type Group = 'position' | 'rotation' | 'scale';
@@ -50,6 +51,7 @@ export function ObjectPanel({
   onRename,
   onToggleVisibility,
   onDelete,
+  onPlaceAgainstWall,
 }: ObjectPanelProps) {
   const [drafts, setDrafts] = useState<Record<Path, string> | null>(() =>
     object ? collectDrafts(object) : null,
@@ -169,6 +171,9 @@ export function ObjectPanel({
       ))}
 
       <div className="object__actions">
+        <button type="button" className="visual-reset" onClick={onPlaceAgainstWall}>
+          Devorga joylash
+        </button>
         <button type="button" className="object__visibility" onClick={onToggleVisibility}>
           {object.visible ? 'Yashirish' : "Ko'rsatish"}
         </button>

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { findSceneObject, sceneReducer } from './sceneReducer';
-import { createDefaultSceneState, ROOM_DEFAULTS, ROOM_LIMITS, ROOM_OBJECT_ID } from './types';
+import {
+  createDefaultSceneState,
+  createTableSceneObject,
+  ROOM_DEFAULTS,
+  ROOM_LIMITS,
+  ROOM_OBJECT_ID,
+} from './types';
+import { createLayoutObjects } from './layoutPresets';
 import { createDefaultSettings } from './sceneSettings';
 import { buildTable } from '../geometry/buildTable';
 
@@ -192,6 +199,78 @@ describe('sceneReducer', () => {
     expect(findSceneObject(reset, id)?.material.roughness).toBe(0.6);
   });
 
+  it('adds a furniture object of the chosen type and selects it', () => {
+    const state = sceneReducer(initialState(), {
+      type: 'ADD_FURNITURE',
+      furnitureType: 'wardrobe',
+      id: 'w1',
+    });
+    const added = findSceneObject(state, 'w1');
+    expect(added?.type).toBe('wardrobe');
+    expect(state.selectedId).toBe('w1');
+    expect(added?.params.widthCm).toBeGreaterThan(0);
+    expect(state.data.objects).toHaveLength(2);
+  });
+
+  it('applies validated explicit params (image-derived) when adding furniture', () => {
+    const state = sceneReducer(initialState(), {
+      type: 'ADD_FURNITURE',
+      furnitureType: 'table',
+      id: 'img1',
+      params: { widthCm: 160, heightCm: 74, depthCm: 55, color: '#8b5a2b' },
+    });
+    const added = findSceneObject(state, 'img1');
+    expect(added?.params.widthCm).toBe(160);
+    expect(added?.params.depthCm).toBe(55);
+    expect(added?.params.color).toBe('#8b5a2b');
+  });
+
+  it('falls back to defaults when explicit params are invalid for the type', () => {
+    const state = sceneReducer(initialState(), {
+      type: 'ADD_FURNITURE',
+      furnitureType: 'chair',
+      id: 'bad',
+      params: { widthCm: 99999, heightCm: 90, depthCm: 45, color: 'nope' },
+    });
+    const added = findSceneObject(state, 'bad');
+    // Rejected params -> defaults retained, but the object is still added.
+    expect(added).not.toBeNull();
+    expect(added?.type).toBe('chair');
+    expect(added?.params.color).not.toBe('nope');
+  });
+
+  it('applies transform/visibility/delete to any furniture type', () => {
+    let state = sceneReducer(initialState(), {
+      type: 'ADD_FURNITURE',
+      furnitureType: 'sofa',
+      id: 's1',
+    });
+    state = sceneReducer(state, {
+      type: 'UPDATE_TRANSFORM',
+      id: 's1',
+      position: { x: 100 },
+    });
+    expect(findSceneObject(state, 's1')?.position.x).toBe(100);
+
+    state = sceneReducer(state, { type: 'TOGGLE_VISIBILITY', id: 's1' });
+    expect(findSceneObject(state, 's1')?.visible).toBe(false);
+
+    state = sceneReducer(state, { type: 'DELETE_OBJECT', id: 's1' });
+    expect(findSceneObject(state, 's1')).toBeNull();
+  });
+
+  it('ignores UPDATE_PARAMS with values invalid for the object type', () => {
+    const state0 = initialState();
+    const id = state0.data.objects[0].id; // a table
+    const next = sceneReducer(state0, {
+      type: 'UPDATE_PARAMS',
+      id,
+      params: { widthCm: 9999, heightCm: 75, depthCm: 60, color: '#a9744f' },
+    });
+    // Out of range -> rejected, the object keeps its previous parameters.
+    expect(findSceneObject(next, id)?.params.widthCm).toBe(120);
+  });
+
   it('sets the scene background', () => {
     const state = sceneReducer(initialState(), { type: 'SET_BACKGROUND', color: '#ff0000' });
     expect(state.data.settings.background).toBe('#ff0000');
@@ -222,10 +301,12 @@ describe('sceneReducer', () => {
       type: 'UPDATE_ROOM_MATERIALS',
       floorColor: '#101010',
       wallColor: '#202020',
+      ceilingColor: '#303030',
     });
     expect(state.data.settings.roomMaterials).toEqual({
       floorColor: '#101010',
       wallColor: '#202020',
+      ceilingColor: '#303030',
     });
   });
 
@@ -235,6 +316,132 @@ describe('sceneReducer', () => {
 
     const bad = sceneReducer(good, { type: 'SET_CAMERA_PRESET', preset: 'diagonal' as never });
     expect(bad.data.settings.cameraPreset).toBe('front');
+  });
+
+  it('applies a lighting preset as concrete light values', () => {
+    const applied = sceneReducer(initialState(), {
+      type: 'APPLY_LIGHTING_PRESET',
+      preset: 'highContrast',
+    });
+    const settings = applied.data.settings;
+    expect(settings.lightingPreset).toBe('highContrast');
+    expect(settings.lights.keyIntensity).toBe(3.2);
+    expect(settings.lights.ambientIntensity).toBe(0.35);
+    expect(settings.lights.keyColor).toBe('#ffffff');
+  });
+
+  it('marks lighting as custom after a manual light edit', () => {
+    const applied = sceneReducer(initialState(), {
+      type: 'APPLY_LIGHTING_PRESET',
+      preset: 'coolDaylight',
+    });
+    expect(applied.data.settings.lightingPreset).toBe('coolDaylight');
+    const edited = sceneReducer(applied, {
+      type: 'UPDATE_LIGHTS',
+      lights: { keyIntensity: 1 },
+    });
+    expect(edited.data.settings.lightingPreset).toBe('custom');
+  });
+
+  it('sets a valid render quality and ignores an invalid one', () => {
+    const good = sceneReducer(initialState(), { type: 'SET_RENDER_QUALITY', quality: 'high' });
+    expect(good.data.settings.qualityPreset).toBe('high');
+    const bad = sceneReducer(good, { type: 'SET_RENDER_QUALITY', quality: 'ultra' as never });
+    expect(bad.data.settings.qualityPreset).toBe('high');
+  });
+
+  it('sets and clamps the exposure, and sets a valid tone mapping', () => {
+    const set = sceneReducer(initialState(), { type: 'SET_EXPOSURE', exposure: 2.2 });
+    expect(set.data.settings.exposure).toBeCloseTo(2.2, 5);
+
+    const clamped = sceneReducer(set, { type: 'SET_EXPOSURE', exposure: 99 });
+    expect(clamped.data.settings.exposure).toBe(4);
+
+    const nonFinite = sceneReducer(clamped, { type: 'SET_EXPOSURE', exposure: Number.NaN });
+    expect(nonFinite.data.settings.exposure).toBe(4);
+
+    const tone = sceneReducer(nonFinite, { type: 'SET_TONE_MAPPING', toneMapping: 'aces' });
+    expect(tone.data.settings.toneMapping).toBe('aces');
+    const badTone = sceneReducer(tone, { type: 'SET_TONE_MAPPING', toneMapping: 'filmic' as never });
+    expect(badTone.data.settings.toneMapping).toBe('aces');
+  });
+
+  it('render settings changes never mutate scene geometry or objects', () => {
+    const before = initialState();
+    const objectsBefore = JSON.stringify(before.data.objects);
+
+    let state = sceneReducer(before, { type: 'SET_RENDER_QUALITY', quality: 'high' });
+    state = sceneReducer(state, { type: 'SET_EXPOSURE', exposure: 2 });
+    state = sceneReducer(state, { type: 'SET_TONE_MAPPING', toneMapping: 'aces' });
+    state = sceneReducer(state, { type: 'APPLY_LIGHTING_PRESET', preset: 'coolDaylight' });
+    state = sceneReducer(state, { type: 'SET_CAMERA_PRESET', preset: 'top' });
+
+    expect(JSON.stringify(state.data.objects)).toBe(objectsBefore);
+    expect(state.data.room).toEqual(before.data.room);
+  });
+
+  it('applies a layout via SET_LAYOUT (validated, replaces objects)', () => {
+    const state0 = initialState();
+    let counter = 0;
+    const objects = createLayoutObjects('living', state0.data.room, () => `layout-${++counter}`);
+    const next = sceneReducer(state0, { type: 'SET_LAYOUT', room: state0.data.room, objects });
+    expect(next.data.objects.length).toBe(objects.length);
+    expect(next.selectedId).toBe(next.data.objects[0].id);
+  });
+
+  it('SET_LAYOUT drops invalid objects and never injects a bad one', () => {
+    const state0 = initialState();
+    const bad = { ...createTableSceneObject('bad'), params: { widthCm: 1, color: 'nope' } };
+    const next = sceneReducer(state0, {
+      type: 'SET_LAYOUT',
+      room: state0.data.room,
+      objects: [createTableSceneObject('ok'), bad as never],
+    });
+    expect(next.data.objects.map((o) => o.id)).toEqual(['ok']);
+  });
+
+  it('places the selected object against the nearest wall', () => {
+    const state0 = initialState();
+    const id = state0.data.objects[0].id;
+    const moved = sceneReducer(state0, {
+      type: 'UPDATE_TRANSFORM',
+      id,
+      position: { x: 0, y: 0, z: -240 },
+    });
+    const placed = sceneReducer(moved, { type: 'PLACE_AGAINST_WALL', id });
+    const object = findSceneObject(placed, id);
+    // North wall -> rotation 0 and the footprint pushed in from the wall.
+    expect(object?.rotation.y).toBe(0);
+    expect(object?.position.z).toBeGreaterThan(-state0.data.room.lengthCm / 2);
+  });
+
+  it('toggles the room ceiling and stores it only when enabled', () => {
+    const state0 = initialState();
+    const on = sceneReducer(state0, { type: 'SET_ROOM_CEILING', showCeiling: true });
+    expect(on.data.room.showCeiling).toBe(true);
+    const off = sceneReducer(on, { type: 'SET_ROOM_CEILING', showCeiling: false });
+    expect(off.data.room.showCeiling).toBeUndefined();
+  });
+
+  it('adds and removes door/window openings with validation', () => {
+    const state0 = initialState();
+    const added = sceneReducer(state0, {
+      type: 'ADD_ROOM_OPENING',
+      opening: {
+        id: 'd1',
+        kind: 'door',
+        wall: 'north',
+        offsetCm: 0,
+        widthCm: 90,
+        heightCm: 200,
+        sillCm: 0,
+      },
+    });
+    expect(added.data.room.openings).toHaveLength(1);
+    expect(added.data.room.openings?.[0].id).toBe('d1');
+
+    const removed = sceneReducer(added, { type: 'REMOVE_ROOM_OPENING', id: 'd1' });
+    expect(removed.data.room.openings).toBeUndefined();
   });
 
   it('loads and resets scenes', () => {

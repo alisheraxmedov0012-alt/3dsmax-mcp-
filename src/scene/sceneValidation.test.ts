@@ -9,8 +9,10 @@ import {
   ROOM_DEFAULTS,
   ROOM_LIMITS,
   SCENE_SCHEMA_VERSION,
+  createFurnitureSceneObject,
   createTableSceneObject,
 } from './types';
+import { FURNITURE_TYPES, FURNITURE_TYPE_LABELS } from '../geometry/furniture';
 
 describe('validateRoomConfig', () => {
   it('keeps valid dimensions', () => {
@@ -34,6 +36,38 @@ describe('validateRoomConfig', () => {
     expect(room.lengthCm).toBe(ROOM_LIMITS.lengthCm.min);
     expect(room.heightCm).toBe(ROOM_LIMITS.heightCm.max);
   });
+
+  it('preserves the Stage 6 shape when no W6 extras are set', () => {
+    expect(validateRoomConfig({ widthCm: 400, lengthCm: 500, heightCm: 280 })).toEqual({
+      widthCm: 400,
+      lengthCm: 500,
+      heightCm: 280,
+    });
+    expect('showCeiling' in validateRoomConfig({})).toBe(false);
+    expect('openings' in validateRoomConfig({})).toBe(false);
+  });
+
+  it('keeps showCeiling only when true', () => {
+    expect(validateRoomConfig({ showCeiling: true }).showCeiling).toBe(true);
+    expect(validateRoomConfig({ showCeiling: false }).showCeiling).toBeUndefined();
+    expect(validateRoomConfig({ showCeiling: 'yes' }).showCeiling).toBeUndefined();
+  });
+
+  it('validates and clamps door/window openings, dropping unusable ones', () => {
+    const room = validateRoomConfig({
+      openings: [
+        { id: 'd1', kind: 'door', wall: 'north', offsetCm: 0, widthCm: 90, heightCm: 200, sillCm: 0 },
+        { id: '', wall: 'north' },
+        { id: 'x', wall: 'ceiling' },
+        { id: 'w1', kind: 'window', wall: 'west', offsetCm: 99999, widthCm: Number.NaN, heightCm: 120, sillCm: 90 },
+      ],
+    });
+    expect(room.openings?.map((entry) => entry.id)).toEqual(['d1', 'w1']);
+    expect(room.openings?.[1].wall).toBe('west');
+    // Out-of-range offset is clamped; non-finite width falls back to a default.
+    expect(room.openings?.[1].offsetCm).toBeLessThanOrEqual(2000);
+    expect(Number.isFinite(room.openings?.[1].widthCm)).toBe(true);
+  });
 });
 
 describe('validateSceneObject', () => {
@@ -44,7 +78,7 @@ describe('validateSceneObject', () => {
 
   it('rejects objects without a usable id or with an unknown type', () => {
     expect(validateSceneObject({ ...createTableSceneObject('x'), id: '' })).toBeNull();
-    expect(validateSceneObject({ ...createTableSceneObject('x'), type: 'sofa' })).toBeNull();
+    expect(validateSceneObject({ ...createTableSceneObject('x'), type: 'spaceship' })).toBeNull();
     expect(validateSceneObject(null)).toBeNull();
   });
 
@@ -84,6 +118,27 @@ describe('validateSceneObject', () => {
     });
     expect(clamped?.material.metalness).toBe(1);
     expect(clamped?.material.roughness).toBe(0);
+  });
+  it('accepts a valid object of every W2 furniture type', () => {
+    for (const type of FURNITURE_TYPES) {
+      const object = createFurnitureSceneObject(type, `id-${type}`);
+      const validated = validateSceneObject(object);
+      expect(validated?.type).toBe(type);
+      expect(validated?.params).toEqual(object.params);
+      expect(validated?.name).toBe(FURNITURE_TYPE_LABELS[type]);
+    }
+  });
+
+  it('drops an unusable optional channel but keeps the object', () => {
+    const object = {
+      ...createFurnitureSceneObject('wardrobe', 'w'),
+      params: { widthCm: 180, heightCm: 200, depthCm: 60, color: '#a9744f', wallThicknessCm: 999 },
+    };
+    const validated = validateSceneObject(object);
+    expect(validated).not.toBeNull();
+    // The out-of-range optional channel is dropped, not stored.
+    expect(validated?.params.wallThicknessCm).toBeUndefined();
+    expect(validated?.params.widthCm).toBe(180);
   });
 });
 

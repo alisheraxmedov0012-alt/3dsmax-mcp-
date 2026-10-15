@@ -1,6 +1,25 @@
-import type { TableParams } from '../geometry/tableParams';
-import { validateRoomConfig } from './sceneValidation';
+import {
+  validateFurnitureParams,
+  type FurnitureParams,
+  type FurnitureType,
+} from '../geometry/furniture';
+import { validateRoomConfig, validateSceneObject } from './sceneValidation';
+import {
+  nearestWall,
+  placeAgainstWall,
+  type WallId,
+} from './placement';
 import { createDefaultSettings, validateColor, validateSceneSettings, CAMERA_PRESETS, type LightSettings, type CameraPreset, type SceneSettings } from './sceneSettings';
+import {
+  LIGHTING_PRESET_CONFIGS,
+  isLightingPresetId,
+  isQualityPresetId,
+  isToneMappingMode,
+  validateExposure,
+  type LightingPresetId,
+  type QualityPresetId,
+  type ToneMappingMode,
+} from '../render/renderPresets';
 import {
   MATERIAL_DEFAULTS,
   MATERIAL_LIMITS,
@@ -9,8 +28,10 @@ import {
   ROOM_OBJECT_ID,
   SCENE_SCHEMA_VERSION,
   createTableSceneObject,
+  createFurnitureSceneObject,
   type ObjectMaterial,
   type RoomConfig,
+  type RoomOpening,
   type SceneData,
   type SceneObject,
   type SceneState,
@@ -19,7 +40,13 @@ import {
 
 export type SceneAction =
   | { type: 'SET_ROOM'; room: Partial<RoomConfig> }
+  | { type: 'SET_LAYOUT'; room: RoomConfig; objects: SceneObject[] }
+  | { type: 'PLACE_AGAINST_WALL'; id: string; wall?: WallId }
+  | { type: 'SET_ROOM_CEILING'; showCeiling: boolean }
+  | { type: 'ADD_ROOM_OPENING'; opening: RoomOpening }
+  | { type: 'REMOVE_ROOM_OPENING'; id: string }
   | { type: 'ADD_TABLE'; id: string }
+  | { type: 'ADD_FURNITURE'; furnitureType: FurnitureType; id: string; params?: FurnitureParams }
   | { type: 'SELECT'; id: string | null }
   | {
       type: 'UPDATE_TRANSFORM';
@@ -29,7 +56,7 @@ export type SceneAction =
       scale?: Partial<Vec3>;
     }
   | { type: 'RENAME_OBJECT'; id: string; name: string }
-  | { type: 'UPDATE_PARAMS'; id: string; params: TableParams }
+  | { type: 'UPDATE_PARAMS'; id: string; params: FurnitureParams }
   | { type: 'UPDATE_MATERIAL'; id: string; material: Partial<ObjectMaterial> }
   | { type: 'RESET_MATERIAL'; id: string }
   | { type: 'TOGGLE_VISIBILITY'; id: string }
@@ -37,8 +64,12 @@ export type SceneAction =
   | { type: 'SET_BACKGROUND'; color: string }
   | { type: 'UPDATE_LIGHTS'; lights: Partial<LightSettings> }
   | { type: 'RESET_LIGHTS' }
-  | { type: 'UPDATE_ROOM_MATERIALS'; floorColor?: string; wallColor?: string }
+  | { type: 'APPLY_LIGHTING_PRESET'; preset: LightingPresetId }
+  | { type: 'UPDATE_ROOM_MATERIALS'; floorColor?: string; wallColor?: string; ceilingColor?: string }
   | { type: 'SET_CAMERA_PRESET'; preset: CameraPreset }
+  | { type: 'SET_RENDER_QUALITY'; quality: QualityPresetId }
+  | { type: 'SET_EXPOSURE'; exposure: number }
+  | { type: 'SET_TONE_MAPPING'; toneMapping: ToneMappingMode }
   | { type: 'LOAD_SCENE'; scene: SceneData }
   | { type: 'NEW_SCENE'; id: string };
 
@@ -109,8 +140,83 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
       };
     }
 
+    case 'SET_LAYOUT': {
+      // Replace the room and its objects with a generated layout. Objects are
+      // validated/deduplicated exactly like a loaded scene, so a bad preset can
+      // never inject an invalid object.
+      const room = validateRoomConfig(action.room);
+      const objects: SceneObject[] = [];
+      const seen = new Set<string>();
+      for (const candidate of action.objects) {
+        const object = validateSceneObject(candidate);
+        if (object && !seen.has(object.id)) {
+          seen.add(object.id);
+          objects.push(object);
+        }
+      }
+      return {
+        data: {
+          ...state.data,
+          schemaVersion: SCENE_SCHEMA_VERSION,
+          room,
+          objects,
+        },
+        selectedId: objects[0]?.id ?? ROOM_OBJECT_ID,
+      };
+    }
+
+    case 'PLACE_AGAINST_WALL':
+      return replaceObject(state, action.id, (object) => {
+        const wall = action.wall ?? nearestWall(object, state.data.room);
+        const placed = placeAgainstWall(object, state.data.room, wall);
+        return { ...object, position: placed.position, rotation: placed.rotation };
+      });
+
+    case 'SET_ROOM_CEILING': {
+      const room = validateRoomConfig({ ...state.data.room, showCeiling: action.showCeiling });
+      return { ...state, data: { ...state.data, room } };
+    }
+
+    case 'ADD_ROOM_OPENING': {
+      const opening = action.opening;
+      const current = state.data.room.openings ?? [];
+      const next = [...current.filter((entry) => entry.id !== opening.id), opening];
+      const room = validateRoomConfig({ ...state.data.room, openings: next });
+      return { ...state, data: { ...state.data, room } };
+    }
+
+    case 'REMOVE_ROOM_OPENING': {
+      const current = state.data.room.openings ?? [];
+      const next = current.filter((entry) => entry.id !== action.id);
+      const room = validateRoomConfig({ ...state.data.room, openings: next });
+      // `validateRoomConfig` omits an empty openings array; drop the key so a
+      // room with no openings matches the Stage 6 shape.
+      return { ...state, data: { ...state.data, room } };
+    }
+
     case 'ADD_TABLE': {
       const object = createTableSceneObject(action.id);
+      return {
+        data: {
+          ...state.data,
+          schemaVersion: SCENE_SCHEMA_VERSION,
+          objects: [...state.data.objects, object],
+          settings: state.data.settings,
+        },
+        selectedId: object.id,
+      };
+    }
+
+    case 'ADD_FURNITURE': {
+      const object = createFurnitureSceneObject(action.furnitureType, action.id);
+      // Optional explicit parameters (e.g. from the W7 image reference flow) are
+      // validated against the object's own type before they are applied.
+      if (action.params) {
+        const validated = validateFurnitureParams(action.furnitureType, action.params);
+        if (validated) {
+          object.params = validated;
+        }
+      }
       return {
         data: {
           ...state.data,
@@ -158,7 +264,12 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
       });
 
     case 'UPDATE_PARAMS':
-      return replaceObject(state, action.id, (object) => ({ ...object, params: action.params }));
+      return replaceObject(state, action.id, (object) => {
+        // Re-validate against the object's own type so a wrong-type or invalid
+        // parameter set can never replace a working model.
+        const validated = validateFurnitureParams(object.type, action.params);
+        return validated ? { ...object, params: validated } : object;
+      });
 
     case 'UPDATE_MATERIAL':
       return replaceObject(state, action.id, (object) => ({
@@ -216,7 +327,8 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
         ...state.data.settings,
         lights: { ...state.data.settings.lights, ...action.lights },
       }).lights;
-      return withSettings(state, { ...state.data.settings, lights });
+      // Editing a light by hand means the values no longer come from a preset.
+      return withSettings(state, { ...state.data.settings, lights, lightingPreset: 'custom' });
     }
 
     case 'RESET_LIGHTS':
@@ -224,6 +336,23 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
         ...state.data.settings,
         lights: createDefaultSettings().lights,
       });
+
+    case 'APPLY_LIGHTING_PRESET': {
+      const preset = isLightingPresetId(action.preset)
+        ? action.preset
+        : state.data.settings.lightingPreset;
+      if (preset === 'custom') {
+        return state;
+      }
+      const config = LIGHTING_PRESET_CONFIGS[preset];
+      // Write the preset's concrete light values so the manual controls reflect
+      // exactly what the renderer will use (single source of truth = settings.lights).
+      const lights = validateSceneSettings({
+        ...state.data.settings,
+        lights: { ...state.data.settings.lights, ...config },
+      }).lights;
+      return withSettings(state, { ...state.data.settings, lights, lightingPreset: preset });
+    }
 
     case 'UPDATE_ROOM_MATERIALS':
       return withSettings(state, {
@@ -233,6 +362,7 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
           roomMaterials: {
             floorColor: action.floorColor ?? state.data.settings.roomMaterials.floorColor,
             wallColor: action.wallColor ?? state.data.settings.roomMaterials.wallColor,
+            ceilingColor: action.ceilingColor ?? state.data.settings.roomMaterials.ceilingColor,
           },
         }).roomMaterials,
       });
@@ -242,6 +372,26 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
         ? action.preset
         : state.data.settings.cameraPreset;
       return withSettings(state, { ...state.data.settings, cameraPreset });
+    }
+
+    case 'SET_RENDER_QUALITY': {
+      const qualityPreset = isQualityPresetId(action.quality)
+        ? action.quality
+        : state.data.settings.qualityPreset;
+      return withSettings(state, { ...state.data.settings, qualityPreset });
+    }
+
+    case 'SET_EXPOSURE':
+      return withSettings(state, {
+        ...state.data.settings,
+        exposure: validateExposure(action.exposure, state.data.settings.exposure),
+      });
+
+    case 'SET_TONE_MAPPING': {
+      const toneMapping = isToneMappingMode(action.toneMapping)
+        ? action.toneMapping
+        : state.data.settings.toneMapping;
+      return withSettings(state, { ...state.data.settings, toneMapping });
     }
 
     default:

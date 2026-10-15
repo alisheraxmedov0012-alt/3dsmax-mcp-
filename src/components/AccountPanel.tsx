@@ -9,6 +9,7 @@ import {
   type Subscription,
 } from '../api/client';
 import { createLocalProjectRepository } from '../projects/localProjectRepository';
+import { setCsrfToken as setSharedCsrfToken } from '../api/csrfStore';
 
 type Status = 'idle' | 'working' | 'ok' | 'error';
 
@@ -86,6 +87,8 @@ export function AccountPanel() {
   const afterAuth = async (session: { user: ApiUser; csrf_token: string; dev_verification_token?: string | null }) => {
     setUser(session.user);
     setCsrfToken(session.csrf_token);
+    // Share the token so other panels can send state-changing requests.
+    setSharedCsrfToken(session.csrf_token);
     setDevToken(session.dev_verification_token ?? null);
     setStatus('ok');
     setMessage(`Tizimga kirdingiz: ${session.user.email}`);
@@ -118,6 +121,7 @@ export function AccountPanel() {
       await api.logout(csrfToken);
       setUser(null);
       setCsrfToken(null);
+      setSharedCsrfToken(null);
       setSubscription(null);
       setInvoices([]);
       setHistory([]);

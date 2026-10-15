@@ -9,6 +9,8 @@ interface ProjectsPanelProps {
   name: string;
   status: ProjectsStatus;
   message: string;
+  saving?: boolean;
+  unsaved?: boolean;
   onNameChange: (name: string) => void;
   onSave: () => void;
   onNew: () => void;
@@ -22,6 +24,8 @@ export function ProjectsPanel({
   name,
   status,
   message,
+  saving = false,
+  unsaved = false,
   onNameChange,
   onSave,
   onNew,
@@ -45,13 +49,25 @@ export function ProjectsPanel({
       />
 
       <div className="projects__actions">
-        <button type="button" className="projects__save" onClick={onSave}>
-          {hasActive ? 'Yangilash' : 'Saqlash'}
+        <button
+          type="button"
+          className="projects__save"
+          onClick={onSave}
+          disabled={saving}
+          aria-busy={saving}
+        >
+          {saving ? 'Saqlanmoqda…' : hasActive ? 'Yangilash' : 'Saqlash'}
         </button>
         <button type="button" className="projects__new" onClick={onNew} disabled={!hasActive}>
           Yangi loyiha
         </button>
       </div>
+
+      {unsaved && (
+        <p className="projects__dirty" role="status" aria-live="polite">
+          Saqlanmagan o‘zgarishlar bor.
+        </p>
+      )}
 
       {message &&
         (status === 'error' ? (

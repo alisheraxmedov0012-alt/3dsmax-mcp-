@@ -20,6 +20,14 @@ describe('scene settings defaults', () => {
     expect(DEFAULT_SETTINGS.lights.shadowsEnabled).toBe(true);
     expect(DEFAULT_SETTINGS.cameraPreset).toBe('iso');
     expect(CAMERA_PRESETS).toContain('front');
+    expect(CAMERA_PRESETS).toContain('product');
+  });
+
+  it('exposes the documented render-pipeline defaults (W5)', () => {
+    expect(DEFAULT_SETTINGS.lightingPreset).toBe('custom');
+    expect(DEFAULT_SETTINGS.qualityPreset).toBe('standard');
+    expect(DEFAULT_SETTINGS.exposure).toBe(1);
+    expect(DEFAULT_SETTINGS.toneMapping).toBe('none');
   });
 
   it('returns an independent copy from createDefaultSettings', () => {
@@ -88,5 +96,34 @@ describe('validateSceneSettings', () => {
 
   it('rejects an unknown camera preset', () => {
     expect(validateSceneSettings({ cameraPreset: 'diagonal' }).cameraPreset).toBe('iso');
+  });
+
+  it('normalizes the W5 render fields and rejects unknown values', () => {
+    const settings = validateSceneSettings({
+      lightingPreset: 'warmInterior',
+      qualityPreset: 'high',
+      exposure: 2.5,
+      toneMapping: 'aces',
+    });
+    expect(settings.lightingPreset).toBe('warmInterior');
+    expect(settings.qualityPreset).toBe('high');
+    expect(settings.exposure).toBe(2.5);
+    expect(settings.toneMapping).toBe('aces');
+
+    const bad = validateSceneSettings({
+      lightingPreset: 'nonsense',
+      qualityPreset: 'ultra',
+      exposure: Number.NaN,
+      toneMapping: 'filmic',
+    });
+    expect(bad.lightingPreset).toBe(DEFAULT_SETTINGS.lightingPreset);
+    expect(bad.qualityPreset).toBe(DEFAULT_SETTINGS.qualityPreset);
+    expect(bad.exposure).toBe(DEFAULT_SETTINGS.exposure);
+    expect(bad.toneMapping).toBe(DEFAULT_SETTINGS.toneMapping);
+  });
+
+  it('clamps an out-of-range exposure', () => {
+    expect(validateSceneSettings({ exposure: 999 }).exposure).toBe(4);
+    expect(validateSceneSettings({ exposure: -5 }).exposure).toBe(0.25);
   });
 });
