@@ -29,7 +29,12 @@ def _inline_handler(job: jobs_service.Job) -> dict | None:
     """The only job kind the inline backend can actually execute."""
     if job.kind == "noop":
         return {"ok": True}
-    raise RuntimeError("worker_required")
+    # A permanent failure: retrying inline cannot help, because no provider is
+    # wired. The message is honest rather than a fake success.
+    raise jobs_service.JobError(
+        "Bu turdagi vazifa uchun worker (APP_JOB_BACKEND=worker) zarur.",
+        retryable=False,
+    )
 
 
 @router.post("/jobs", response_model=JobResponse, status_code=202)

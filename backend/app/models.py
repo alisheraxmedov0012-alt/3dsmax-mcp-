@@ -194,6 +194,8 @@ class Job(Base, TimestampMixin):
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # Safe, human-readable failure reason (never a stack trace or secret).
     error: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    # W11: whether the last failure is worth retrying (None until it failed).
+    retryable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     max_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     timeout_seconds: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
@@ -231,6 +233,77 @@ class UsageCounter(Base, TimestampMixin):
     count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
 
+class UsageRecord(Base):
+    """W11 append-only usage/cost ledger, one row per metered operation.
+
+    This is deliberately **not** a second limit system: :class:`UsageCounter`
+    still owns plan-limit enforcement. A record here is the per-operation audit
+    trail behind those counters (who did what, on which project/job, with which
+    real resource metrics).
+
+    Idempotency: ``(user_id, idempotency_key)`` is unique, so a retried or
+    concurrently delivered request records its usage exactly once.
+
+    Honesty rules:
+    * ``cost_kind`` is ``actual`` only when a real cost/price was known,
+      ``estimated`` when derived from an approved estimate, and ``unknown``
+      otherwise. Unknown cost is never invented — the cost columns stay null.
+    * Token counts are only stored when a provider actually reported them.
+    """
+
+    __tablename__ = "usage_records"
+    __table_args__ = (UniqueConstraint("user_id", "idempotency_key", name="uq_user_usage_key"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    job_id: Mapped[str | None] = mapped_column(
+        ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # Operation identifier, e.g. "ai.generate", "export.glb", "project.create".
+    operation: Mapped[str] = mapped_column(String(60), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(160), nullable=False)
+
+    # Reliable resource metric: request count, or seconds for compute-bound work.
+    quantity: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    unit: Mapped[str] = mapped_column(String(20), default="request", nullable=False)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # "actual" | "estimated" | "unknown" — how trustworthy the cost columns are.
+    cost_kind: Mapped[str] = mapped_column(String(12), default="unknown", nullable=False)
+    cost_micros: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    currency: Mapped[str | None] = mapped_column(String(8), nullable=True)
+
+    # Provider-reported usage when a real provider was involved; null otherwise.
+    provider: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Non-secret structured context (never tokens, passwords or provider keys).
+    meta: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
+
+
+class WorkerHeartbeat(Base):
+    """Liveness marker written by a background worker.
+
+    Readiness uses the most recent heartbeat to decide whether a ``worker``
+    deployment actually has a running worker. No external monitoring service is
+    implied — this is the minimum needed to avoid claiming a queue is served
+    when nothing is consuming it.
+    """
+
+    __tablename__ = "worker_heartbeats"
+
+    worker_id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    meta: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+
+
 __all__ = [
     "BillingEvent",
     "Invoice",
@@ -243,5 +316,7 @@ __all__ = [
     "StoredFile",
     "Subscription",
     "UsageCounter",
+    "UsageRecord",
     "User",
+    "WorkerHeartbeat",
 ]

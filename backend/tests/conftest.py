@@ -21,6 +21,11 @@ os.environ["APP_SECRET_KEY"] = "test-secret"
 os.environ["APP_PAYMENT_PROVIDER"] = "fake"
 os.environ["APP_PAYMENT_WEBHOOK_SECRET"] = "test-webhook-secret"
 os.environ["APP_RATE_LIMIT_ATTEMPTS"] = "1000"
+# W11: tests exercise many requests from a single client, so the tighter
+# built-in per-scope defaults (login/register/…) are raised here explicitly. The
+# per-scope behaviour itself is covered by dedicated tests with their own
+# overrides, so this does not weaken that coverage.
+os.environ["APP_RATE_LIMIT_SCOPES"] = "login=1000,register=1000,forgot=1000,reset=1000,webhook=1000"
 
 from fastapi.testclient import TestClient  # noqa: E402
 

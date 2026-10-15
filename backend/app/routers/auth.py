@@ -11,10 +11,10 @@ from ..config import get_settings
 from ..database import get_db
 from ..deps import get_current_user, require_csrf
 from ..errors import ApiError
-from ..guards import ip_rate_limit
+from ..guards import client_ip, ip_rate_limit
 from ..models import OneTimeToken, User
 from ..models import Session as SessionModel
-from ..rate_limit import get_rate_limiter
+from ..rate_limit import get_rate_limiter, scope_limit
 from ..schemas import (
     ForgotPasswordRequest,
     LoginRequest,
@@ -101,7 +101,7 @@ def register(
     response: Response,
     db: OrmSession = Depends(get_db),
 ) -> SessionResponse:
-    limiter.check(f"register:{request.client.host if request.client else 'unknown'}")
+    limiter.check(f"register:ip:{client_ip(request)}", max_events=scope_limit("register"))
 
     normalized = payload.email.strip().lower()
     existing = db.execute(select(User).where(User.email == normalized)).scalar_one_or_none()
@@ -140,7 +140,7 @@ def login(
     response: Response,
     db: OrmSession = Depends(get_db),
 ) -> SessionResponse:
-    limiter.check(f"login:{request.client.host if request.client else 'unknown'}")
+    limiter.check(f"login:ip:{client_ip(request)}", max_events=scope_limit("login"))
 
     normalized = payload.email.strip().lower()
     user = db.execute(select(User).where(User.email == normalized)).scalar_one_or_none()
@@ -217,7 +217,7 @@ def forgot_password(
     request: Request,
     db: OrmSession = Depends(get_db),
 ) -> MessageResponse:
-    limiter.check(f"forgot:{request.client.host if request.client else 'unknown'}")
+    limiter.check(f"forgot:ip:{client_ip(request)}", max_events=scope_limit("forgot"))
 
     normalized = payload.email.strip().lower()
     user = db.execute(select(User).where(User.email == normalized)).scalar_one_or_none()

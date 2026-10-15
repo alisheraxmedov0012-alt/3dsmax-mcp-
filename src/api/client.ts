@@ -21,13 +21,48 @@ export interface ApiErrorShape {
 export class ApiRequestError extends Error {
   readonly code: string;
   readonly status: number;
+  /** Seconds the server asked the client to wait (429/503), when provided. */
+  readonly retryAfter: number | null;
+  /** True when a retry (possibly after waiting) could plausibly succeed. */
+  readonly retryable: boolean;
 
-  constructor(code: string, message: string, status: number) {
+  constructor(code: string, message: string, status: number, retryAfter: number | null = null) {
     super(message);
     this.name = 'ApiRequestError';
     this.code = code;
     this.status = status;
+    this.retryAfter = retryAfter;
+    // A transport error (status 0), a rate limit, a temporary outage or a 5xx
+    // are worth retrying; a 4xx validation/auth failure is not.
+    this.retryable =
+      status === 0 || status === 429 || status === 503 || (status >= 500 && status < 600);
   }
+}
+
+/** Session/authentication problems the UI must react to by asking to sign in. */
+export function isAuthError(error: unknown): boolean {
+  return (
+    error instanceof ApiRequestError &&
+    (error.status === 401 || error.code === 'not_authenticated')
+  );
+}
+
+/** The plan limit was reached (402) — surface an upgrade hint, not a retry. */
+export function isLimitError(error: unknown): boolean {
+  return error instanceof ApiRequestError && error.code === 'limit_reached';
+}
+
+/** Too many parallel jobs / rate limited (429). */
+export function isBusyError(error: unknown): boolean {
+  return (
+    error instanceof ApiRequestError &&
+    (error.status === 429 || error.code === 'too_many_parallel_jobs')
+  );
+}
+
+/** A dependency (worker, storage, DB) is temporarily unavailable (503). */
+export function isServiceDownError(error: unknown): boolean {
+  return error instanceof ApiRequestError && (error.status === 503 || error.code === 'service_unavailable');
 }
 
 /** A user-facing Uzbek message for a failed request. */
@@ -36,6 +71,15 @@ export function describeError(error: unknown): string {
     return error.message;
   }
   return "Serverga ulanib bo'lmadi. Iltimos, keyinroq qayta urinib ko'ring.";
+}
+
+function parseRetryAfter(response: Response): number | null {
+  const raw = response.headers.get('Retry-After');
+  if (!raw) {
+    return null;
+  }
+  const seconds = Number.parseInt(raw, 10);
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
 }
 
 interface RequestOptions {
@@ -84,6 +128,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       errorShape?.code ?? 'request_failed',
       errorShape?.message ?? "So'rov amalga oshmadi.",
       response.status,
+      parseRetryAfter(response),
     );
   }
 
@@ -202,6 +247,7 @@ export interface ServerJob {
   max_attempts: number;
   result: Record<string, unknown> | null;
   error: string | null;
+  retryable: boolean | null;
   created_at: string | null;
   started_at: string | null;
   finished_at: string | null;
@@ -212,6 +258,69 @@ export interface StorageStatus {
   available: boolean;
   persistent: boolean;
   message: string;
+}
+
+export interface ReadinessResponse {
+  status: 'ready' | 'not_ready';
+  checks: {
+    database: boolean;
+    storage: boolean;
+    worker: boolean;
+  };
+  environment: string;
+  database_backend: string;
+  storage_backend: string | null;
+  worker: { mode: string; required: boolean; running: boolean; note: string };
+  rate_limit_backend: string;
+  error_tracking: boolean;
+}
+
+export interface UsageSummaryRow {
+  operation: string;
+  records: number;
+  quantity: number;
+  duration_ms: number;
+  total_tokens: number;
+  actual: number;
+  estimated: number;
+  unknown: number;
+}
+
+export interface UsageRecordRow {
+  id: string;
+  operation: string;
+  quantity: number;
+  unit: string;
+  duration_ms: number | null;
+  cost_kind: string;
+  cost_micros: number | null;
+  currency: string | null;
+  provider: string | null;
+  model: string | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  total_tokens: number | null;
+  project_id: string | null;
+  job_id: string | null;
+  meta: Record<string, unknown>;
+  created_at: string | null;
+}
+
+export interface DiagnosticsCheck {
+  key: string;
+  ok: boolean;
+  required: boolean;
+  detail: string;
+}
+
+export interface DiagnosticsResponse {
+  environment: string;
+  production: boolean;
+  ready: boolean;
+  checks: DiagnosticsCheck[];
+  blocking: string[];
+  config_problems: string[];
+  payments_real: boolean;
 }
 
 export const api = {
@@ -309,6 +418,19 @@ export const api = {
   cancelJob: (id: string, csrfToken: string | null) =>
     request<ServerJob>(`/api/jobs/${id}/cancel`, { method: 'POST', csrfToken }),
 
+  retryJob: (id: string, csrfToken: string | null) =>
+    request<ServerJob>(`/api/jobs/${id}/retry`, { method: 'POST', csrfToken }),
+
   // Public: reports the storage backend honestly (no auth required).
   storageStatus: () => request<StorageStatus>('/api/files/status'),
+
+  // --- W11: readiness, usage and diagnostics ---
+
+  readiness: () => request<ReadinessResponse>('/api/health/ready'),
+
+  usageSummary: () => request<UsageSummaryRow[]>('/api/usage/summary'),
+
+  usageRecords: (limit = 50) => request<UsageRecordRow[]>(`/api/usage/records?limit=${limit}`),
+
+  diagnostics: () => request<DiagnosticsResponse>('/api/admin/diagnostics'),
 };
