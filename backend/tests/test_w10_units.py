@@ -60,6 +60,52 @@ def test_extract_scene_rejects_non_dict_and_too_many_objects():
     assert exc.value.code == "scene_too_large"
 
 
+def test_extract_scene_accepts_assemblies_up_to_the_limit():
+    """W14: the server stores assembly parameters and agrees with the frontend cap."""
+    scene = {
+        "objects": [],
+        "assemblies": [
+            {"id": f"a{i}", "kind": "wall-cabinet", "params": {"widthCm": 80}}
+            for i in range(scene_payload.MAX_ASSEMBLIES_PER_SCENE)
+        ],
+    }
+    stored = scene_payload.extract_scene(scene)
+    assert len(stored["assemblies"]) == scene_payload.MAX_ASSEMBLIES_PER_SCENE
+
+
+def test_extract_scene_rejects_too_many_assemblies():
+    with pytest.raises(ApiError) as exc:
+        scene_payload.extract_scene(
+            {"assemblies": [{}] * (scene_payload.MAX_ASSEMBLIES_PER_SCENE + 1)}
+        )
+    assert exc.value.code == "scene_too_large"
+
+
+def test_extract_scene_rejects_non_list_assemblies():
+    with pytest.raises(ApiError) as exc:
+        scene_payload.extract_scene({"assemblies": {"id": "a1"}})
+    assert exc.value.code == "scene_invalid"
+
+
+def test_extract_scene_without_assemblies_is_unchanged():
+    """Backward compatibility: an old scene has no ``assemblies`` key at all."""
+    stored = scene_payload.extract_scene({"objects": []})
+    assert "assemblies" not in stored
+
+
+def test_frontend_and_backend_assembly_limit_agree():
+    """The frontend constant and the backend constant must not drift apart."""
+    import re
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[2] / "src" / "scene" / "types.ts"
+    ).read_text(encoding="utf-8")
+    match = re.search(r"MAX_ASSEMBLIES_PER_SCENE\s*=\s*(\d+)", source)
+    assert match is not None, "MAX_ASSEMBLIES_PER_SCENE not found in src/scene/types.ts"
+    assert int(match.group(1)) == scene_payload.MAX_ASSEMBLIES_PER_SCENE
+
+
 # ---------------------------------------------------------------------------
 # storage helpers
 # ---------------------------------------------------------------------------

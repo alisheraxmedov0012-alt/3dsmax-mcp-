@@ -28,6 +28,9 @@ MAX_SCENE_BYTES = 2 * 1024 * 1024
 MAX_SCENE_DEPTH = 32
 MAX_OBJECTS = 500
 MAX_ARRAY_LENGTH = 5000
+#: W14: assemblies stored per scene. Must match
+#: ``MAX_ASSEMBLIES_PER_SCENE`` in ``src/scene/types.ts``.
+MAX_ASSEMBLIES_PER_SCENE = 20
 
 #: Scene schema version this server writes for records it creates.
 DEFAULT_SCENE_SCHEMA_VERSION = 3
@@ -91,6 +94,18 @@ def extract_scene(payload: Any) -> dict:
     if isinstance(objects, list) and len(objects) > MAX_OBJECTS:
         raise _reject("scene_too_large", f"Sahnada {MAX_OBJECTS} dan ortiq obyekt bo'lmasligi kerak.")
 
+    # W14: assemblies are stored as parameters only (members are derived), so the
+    # list is short. The cap matches the frontend constant; both sides reject
+    # rather than silently truncate, so an oversized scene is never half-saved.
+    assemblies = scene.get("assemblies")
+    if assemblies is not None and not isinstance(assemblies, list):
+        raise _reject("scene_invalid", "Sahnadagi assembly'lar ro'yxati noto'g'ri.")
+    if isinstance(assemblies, list) and len(assemblies) > MAX_ASSEMBLIES_PER_SCENE:
+        raise _reject(
+            "scene_too_large",
+            f"Sahnada {MAX_ASSEMBLIES_PER_SCENE} dan ortiq assembly bo'lmasligi kerak.",
+        )
+
     room = scene.get("room")
     if room is not None and not isinstance(room, dict):
         raise _reject("scene_invalid", "Xona ma'lumotlari noto'g'ri.")
@@ -107,6 +122,7 @@ def scene_size_bytes(scene: dict) -> int:
 
 __all__ = [
     "DEFAULT_SCENE_SCHEMA_VERSION",
+    "MAX_ASSEMBLIES_PER_SCENE",
     "MAX_SCENE_BYTES",
     "SCENE_JSON_FORMAT",
     "SUPPORTED_SCENE_JSON_VERSIONS",

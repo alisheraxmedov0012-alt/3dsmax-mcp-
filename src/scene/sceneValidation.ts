@@ -15,6 +15,7 @@ import { PBR_LIMITS } from '../materials/types';
 import {
   MATERIAL_DEFAULTS,
   MATERIAL_LIMITS,
+  MAX_ASSEMBLIES_PER_SCENE,
   MAX_OPENINGS_PER_ROOM,
   OBJECT_LIMITS,
   OBJECT_NAME_MAX_LENGTH,
@@ -24,12 +25,14 @@ import {
   ROOM_WALLS,
   SCENE_SCHEMA_VERSION,
   createTableSceneObject,
+  isAssemblyKind,
   type NumericRange,
   type ObjectMaterial,
   type OpeningKind,
   type RoomConfig,
   type RoomOpening,
   type RoomWall,
+  type SceneAssembly,
   type SceneData,
   type SceneObject,
   type Vec3,
@@ -39,6 +42,8 @@ export interface SceneValidationResult {
   scene: SceneData | null;
   /** Number of stored objects that were invalid and therefore dropped. */
   droppedObjects: number;
+  /** W14: number of stored assemblies that were invalid and therefore dropped. */
+  droppedAssemblies?: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -230,7 +235,7 @@ export function validateSceneObject(value: unknown): SceneObject | null {
  */
 export function validateSceneData(value: unknown): SceneValidationResult {
   if (!isRecord(value)) {
-    return { scene: null, droppedObjects: 0 };
+    return { scene: null, droppedObjects: 0, droppedAssemblies: 0 };
   }
 
   const room = validateRoomConfig(value.room);
@@ -250,15 +255,74 @@ export function validateSceneData(value: unknown): SceneValidationResult {
     objects.push(object);
   });
 
+  const { assemblies, dropped: droppedAssemblies } = validateAssemblies(value.assemblies);
+
   return {
     scene: {
       schemaVersion: SCENE_SCHEMA_VERSION,
       room,
       objects,
       settings: validateSceneSettings(value.settings),
+      // W14: omitted entirely when the scene has no assemblies, so a scene
+      // saved before W14 round-trips to exactly the same JSON shape.
+      ...(assemblies.length > 0 ? { assemblies } : {}),
     },
     droppedObjects,
+    droppedAssemblies,
   };
+}
+
+/**
+ * W14 — validate the stored `assemblies` array.
+ *
+ * The rule is the same as for objects: an entry that cannot be understood is
+ * dropped (and counted), never guessed at. The list is capped at
+ * `MAX_ASSEMBLIES_PER_SCENE`; entries beyond the cap are dropped too, so an
+ * oversized scene cannot exhaust memory on load.
+ *
+ * This validates *structure* only. Whether the parameters make a buildable
+ * construction is decided later by `validateAssemblyParams()` in the geometry
+ * layer — exactly the split the scene layer already uses for objects.
+ */
+export function validateAssemblies(raw: unknown): {
+  assemblies: SceneAssembly[];
+  dropped: number;
+} {
+  if (!Array.isArray(raw)) {
+    return { assemblies: [], dropped: 0 };
+  }
+
+  const assemblies: SceneAssembly[] = [];
+  const seen = new Set<string>();
+  let dropped = 0;
+
+  for (const entry of raw) {
+    if (assemblies.length >= MAX_ASSEMBLIES_PER_SCENE) {
+      dropped += 1;
+      continue;
+    }
+    if (!isRecord(entry)) {
+      dropped += 1;
+      continue;
+    }
+    const id = typeof entry.id === 'string' ? entry.id.trim() : '';
+    if (!id || id.length > 64 || seen.has(id)) {
+      dropped += 1;
+      continue;
+    }
+    if (!isAssemblyKind(entry.kind)) {
+      dropped += 1;
+      continue;
+    }
+    if (!isRecord(entry.params)) {
+      dropped += 1;
+      continue;
+    }
+    seen.add(id);
+    assemblies.push({ id, kind: entry.kind, params: entry.params });
+  }
+
+  return { assemblies, dropped };
 }
 
 /**

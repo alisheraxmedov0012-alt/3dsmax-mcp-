@@ -62,6 +62,44 @@ export const OPENING_LIMITS = {
 
 export const MAX_OPENINGS_PER_ROOM = 12;
 
+/**
+ * W14 — assembly kinds. An assembly is a multi-part construction built from one
+ * parametric description; it is *not* a new furniture type (see
+ * `W14_IMPLEMENTATION_PLAN.md` D2).
+ */
+export const ASSEMBLY_KINDS = [
+  'kitchen-base-run',
+  'wall-cabinet',
+  'wardrobe-section',
+  'stair-straight',
+] as const;
+
+export type AssemblyKind = (typeof ASSEMBLY_KINDS)[number];
+
+/**
+ * W14 — a stored assembly.
+ *
+ * Only the parametric description is persisted. Member objects are derived
+ * deterministically by `buildAssembly()` at load time, which keeps the scene
+ * inside the server's object budget (`MAX_OBJECTS = 500` in
+ * `backend/app/services/scene_payload.py`). See plan D6.
+ *
+ * The field is additive and optional on `SceneData`, so scenes saved before W14
+ * keep loading unchanged.
+ */
+export interface SceneAssembly {
+  id: string;
+  kind: AssemblyKind;
+  params: Record<string, unknown>;
+}
+
+/** Upper bound on assemblies per scene (frontend and backend agree on 20). */
+export const MAX_ASSEMBLIES_PER_SCENE = 20;
+
+export function isAssemblyKind(value: unknown): value is AssemblyKind {
+  return typeof value === 'string' && (ASSEMBLY_KINDS as readonly string[]).includes(value);
+}
+
 export interface RoomConfig {
   /** Room extent along X (cm). */
   widthCm: number;
@@ -119,6 +157,11 @@ export interface SceneData {
   room: RoomConfig;
   objects: SceneObject[];
   settings: SceneSettings;
+  /**
+   * W14: assemblies stored with the scene. Optional — a scene saved before W14
+   * has no such field and loads with `undefined` (no assemblies).
+   */
+  assemblies?: SceneAssembly[];
 }
 
 /** Runtime scene state: persisted data plus transient selection. */

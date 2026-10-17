@@ -6,6 +6,7 @@ import {
   validateSceneObject,
 } from './sceneValidation';
 import {
+  MAX_ASSEMBLIES_PER_SCENE,
   ROOM_DEFAULTS,
   ROOM_LIMITS,
   SCENE_SCHEMA_VERSION,
@@ -234,5 +235,113 @@ describe('migrateLegacyParamsToScene', () => {
       color: '#c0392b',
     });
     expect(scene.settings.cameraPreset).toBe('iso');
+  });
+});
+
+describe('W14 — scene assemblies', () => {
+  function sceneWithAssemblies(assemblies: unknown) {
+    return {
+      schemaVersion: SCENE_SCHEMA_VERSION,
+      room: { ...ROOM_DEFAULTS },
+      objects: [] as unknown[],
+      settings: undefined,
+      assemblies,
+    };
+  }
+
+  it('keeps a valid assembly and round-trips only its parameters', () => {
+    const result = validateSceneData(
+      sceneWithAssemblies([
+        { id: 'a1', kind: 'wall-cabinet', params: { widthCm: 80, heightCm: 60 } },
+      ]),
+    );
+
+    expect(result.scene).not.toBeNull();
+    expect(result.scene?.assemblies).toEqual([
+      { id: 'a1', kind: 'wall-cabinet', params: { widthCm: 80, heightCm: 60 } },
+    ]);
+    expect(result.droppedAssemblies).toBe(0);
+  });
+
+  it('omits the field entirely when a scene has no assemblies (backward compatible)', () => {
+    const result = validateSceneData(sceneWithAssemblies(undefined));
+    expect(result.scene).not.toBeNull();
+    expect(result.scene).not.toHaveProperty('assemblies');
+    expect(result.droppedAssemblies).toBe(0);
+  });
+
+  it('accepts every declared assembly kind', () => {
+    const kinds = ['kitchen-base-run', 'wall-cabinet', 'wardrobe-section', 'stair-straight'];
+    const result = validateSceneData(
+      sceneWithAssemblies(kinds.map((kind, index) => ({ id: `a${index}`, kind, params: {} }))),
+    );
+    expect(result.scene?.assemblies).toHaveLength(4);
+    expect(result.scene?.assemblies?.map((entry) => entry.kind)).toEqual(kinds);
+  });
+
+  it('drops unknown kinds, missing ids, bad params and duplicates', () => {
+    const result = validateSceneData(
+      sceneWithAssemblies([
+        { id: 'ok', kind: 'wall-cabinet', params: {} },
+        { id: 'bad-kind', kind: 'spaceship', params: {} },
+        { kind: 'wall-cabinet', params: {} },
+        { id: 'bad-params', kind: 'wall-cabinet', params: 'nope' },
+        { id: 'ok', kind: 'stair-straight', params: {} },
+        'not-an-object',
+      ]),
+    );
+
+    expect(result.scene?.assemblies).toHaveLength(1);
+    expect(result.scene?.assemblies?.[0].id).toBe('ok');
+    expect(result.droppedAssemblies).toBe(5);
+  });
+
+  it('caps the list at MAX_ASSEMBLIES_PER_SCENE and reports the overflow', () => {
+    const many = Array.from({ length: MAX_ASSEMBLIES_PER_SCENE + 5 }, (_, index) => ({
+      id: `a${index}`,
+      kind: 'wall-cabinet',
+      params: {},
+    }));
+
+    const result = validateSceneData(sceneWithAssemblies(many));
+
+    expect(result.scene?.assemblies).toHaveLength(MAX_ASSEMBLIES_PER_SCENE);
+    expect(result.droppedAssemblies).toBe(5);
+  });
+
+  it('trims ids and rejects an over-long id', () => {
+    const result = validateSceneData(
+      sceneWithAssemblies([
+        { id: '  a1  ', kind: 'wall-cabinet', params: {} },
+        { id: 'x'.repeat(65), kind: 'wall-cabinet', params: {} },
+      ]),
+    );
+
+    expect(result.scene?.assemblies).toHaveLength(1);
+    expect(result.scene?.assemblies?.[0].id).toBe('a1');
+    expect(result.droppedAssemblies).toBe(1);
+  });
+
+  it('does not touch objects, room or settings when assemblies are present', () => {
+    const base = {
+      schemaVersion: SCENE_SCHEMA_VERSION,
+      room: { ...ROOM_DEFAULTS },
+      objects: [createTableSceneObject('t1')],
+      settings: undefined,
+      assemblies: [{ id: 'a1', kind: 'stair-straight', params: {} }],
+    };
+
+    const withAssemblies = validateSceneData(base);
+    const withoutAssemblies = validateSceneData({ ...base, assemblies: undefined });
+
+    expect(withAssemblies.scene?.objects).toEqual(withoutAssemblies.scene?.objects);
+    expect(withAssemblies.scene?.room).toEqual(withoutAssemblies.scene?.room);
+  });
+
+  it('ignores a non-array assemblies value', () => {
+    const result = validateSceneData(sceneWithAssemblies({ id: 'a1' }));
+    expect(result.scene).not.toBeNull();
+    expect(result.scene).not.toHaveProperty('assemblies');
+    expect(result.droppedAssemblies).toBe(0);
   });
 });
