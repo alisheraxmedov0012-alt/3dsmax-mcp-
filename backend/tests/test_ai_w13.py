@@ -353,3 +353,208 @@ def test_api_key_never_appears_in_the_response(client, monkeypatch):
     body = response.text.lower()
     assert "api_key" not in body
     assert "test-key-not-real" not in body
+
+
+# --------------------------------------------------------------------------- #
+# W13.1 / F1 — provider ValidationError must become a controlled 422
+# --------------------------------------------------------------------------- #
+class _ValidationErrorProvider:
+    """A provider that leaks a pydantic ValidationError straight out.
+
+    Before W13.1 this reached the catch-all handler and produced
+    ``500 internal_error``.
+    """
+
+    name = "bad-provider"
+
+    @property
+    def is_configured(self) -> bool:
+        return True
+
+    def generate_design(self, request: DesignRequest):
+        from pydantic import BaseModel, ValidationError
+
+        class _Tiny(BaseModel):
+            count: int
+
+        try:
+            _Tiny(count=4.5)
+        except ValidationError as exc:  # raised on purpose
+            raise exc from None
+        raise AssertionError("unreachable")
+
+
+def test_provider_validation_error_is_a_controlled_422(client, monkeypatch):
+    _use_provider(monkeypatch, _ValidationErrorProvider())
+    _authenticated(client, "w131-f1@example.com")
+
+    response = client.post("/api/ai/design", json={"text": "stol"})
+
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == "ai_invalid_output"
+    # No internal detail leaks to the client.
+    body = response.text.lower()
+    assert "traceback" not in body
+    assert "validationerror" not in body
+    assert "input_value" not in body
+
+
+def test_wrong_typed_detail_is_rejected_not_500(client, monkeypatch):
+    """`legCount: 4.5` is a wrong type for an int channel -> 422, never 500."""
+
+    class _WrongTypeProvider:
+        name = "wrong-type"
+
+        @property
+        def is_configured(self) -> bool:
+            return True
+
+        def generate_design(self, request: DesignRequest):
+            from pydantic import ValidationError
+
+            try:
+                RawDesignSpec(furniture="table", details={"legCount": 4.5})
+            except ValidationError as exc:
+                raise exc from None
+            raise AssertionError("unreachable")
+
+    _use_provider(monkeypatch, _WrongTypeProvider())
+    _authenticated(client, "w131-f1b@example.com")
+
+    response = client.post("/api/ai/design", json={"text": "stol"})
+
+    assert response.status_code == 422, response.text
+    assert response.status_code != 500
+    assert response.json()["error"]["code"] == "ai_invalid_output"
+
+
+def test_provider_validation_error_does_not_write_a_ledger_row(client, monkeypatch):
+    _use_provider(monkeypatch, _ValidationErrorProvider())
+    _authenticated(client, "w131-f1c@example.com")
+
+    response = client.post("/api/ai/design", json={"text": "stol"})
+    assert response.status_code == 422
+    assert _usage_rows("w131-f1c@example.com") == []
+
+
+def test_openai_provider_with_wrong_typed_detail_maps_to_422(client, monkeypatch):
+    """End-to-end: a real provider path that returns a wrong-typed field."""
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=_chat(json.dumps({"furniture": "table", "details": {"legCount": 4.5}})),
+        )
+
+    _use_provider(monkeypatch, _provider(handler, max_retries=0))
+    _authenticated(client, "w131-f1d@example.com")
+
+    response = client.post("/api/ai/design", json={"text": "stol"})
+
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == "ai_invalid_output"
+
+
+def test_unrelated_errors_are_not_swallowed_by_the_validation_handler(client, monkeypatch):
+    """Only pydantic output validation is caught; other exceptions still surface.
+
+    The test client is configured to re-raise server exceptions, so propagating
+    ``RuntimeError`` here is the proof that the new ``ValidationError`` handler
+    did not turn an unrelated bug into a 422.
+    """
+
+    class _BrokenProvider:
+        name = "broken"
+
+        @property
+        def is_configured(self) -> bool:
+            return True
+
+        def generate_design(self, request: DesignRequest):
+            raise RuntimeError("unrelated programming error")
+
+    _use_provider(monkeypatch, _BrokenProvider())
+    _authenticated(client, "w131-f1e@example.com")
+
+    with pytest.raises(RuntimeError, match="unrelated programming error"):
+        client.post("/api/ai/design", json={"text": "stol"})
+
+    # Nothing was metered for a request that never produced a spec.
+    assert _usage_rows("w131-f1e@example.com") == []
+
+
+# --------------------------------------------------------------------------- #
+# W13.1 / F2 — booleans must never pass as numbers
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    "field",
+    ["shelfCount", "doorCount", "drawerCount", "legCount", "topThicknessCm", "seatHeightCm"],
+)
+@pytest.mark.parametrize("value", [True, False])
+def test_boolean_detail_is_rejected(field, value):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        DesignDetails(**{field: value})
+
+
+def test_boolean_detail_is_rejected_through_raw_spec():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        RawDesignSpec(furniture="wardrobe", details={"shelfCount": True})
+
+
+def test_boolean_detail_is_rejected_by_validate_details_for_unvalidated_objects():
+    """A details object built without validation must not smuggle a bool through."""
+    raw = DesignDetails.model_construct(shelfCount=True)
+    with pytest.raises(AiOutputError):
+        build_design_spec(
+            RawDesignSpec.model_construct(furniture="wardrobe", details=raw),
+            provider="test",
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("shelfCount", 5),
+        ("doorCount", 3),
+        ("drawerCount", 4),
+        ("legCount", 6),
+        ("topThicknessCm", 4),
+        ("seatHeightCm", 45),
+    ],
+)
+def test_real_integer_detail_is_still_accepted(field, value):
+    details = DesignDetails(**{field: value})
+    assert getattr(details, field) == value
+    # And it survives the full spec build.
+    spec = build_design_spec(
+        RawDesignSpec(furniture="wardrobe", details={field: value}), provider="test"
+    )
+    assert getattr(spec.details, field) == value
+
+
+def test_multiple_valid_details_still_work():
+    spec = build_design_spec(
+        RawDesignSpec(
+            furniture="wardrobe",
+            dimensions=Dimensions(width_cm=180, height_cm=200, depth_cm=60),
+            details={"doorCount": 3, "shelfCount": 5},
+        ),
+        provider="test",
+    )
+    assert spec.details is not None
+    assert spec.details.doorCount == 3
+    assert spec.details.shelfCount == 5
+
+
+def test_absent_details_remain_backward_compatible():
+    spec = build_design_spec(RawDesignSpec(furniture="table"), provider="test")
+    assert spec.details is None
+
+
+def test_null_detail_is_still_accepted():
+    details = DesignDetails(shelfCount=None)
+    assert details.shelfCount is None

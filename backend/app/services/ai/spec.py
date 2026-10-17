@@ -37,7 +37,7 @@ import re
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .base import AiOutputError
 from .rules import validate_type_rules
@@ -79,6 +79,23 @@ class Dimensions(BaseModel):
     depth_cm: float
 
 
+#: Numeric detail channels that must be finite and non-negative when present.
+_DETAIL_NUMERIC_FIELDS = (
+    "topThicknessCm",
+    "legCount",
+    "seatHeightCm",
+    "backHeightCm",
+    "armHeightCm",
+    "wallThicknessCm",
+    "shelfCount",
+    "doorCount",
+    "drawerCount",
+    "legHeightCm",
+    "mattressHeightCm",
+    "headboardHeightCm",
+)
+
+
 class DesignDetails(BaseModel):
     """Optional, type-specific channels (W13).
 
@@ -114,22 +131,22 @@ class DesignDetails(BaseModel):
     mattressHeightCm: float | None = None
     headboardHeightCm: float | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_boolean_channels(cls, data: object) -> object:
+        """Reject ``true``/``false`` for numeric channels.
 
-#: Numeric detail channels that must be finite and non-negative when present.
-_DETAIL_NUMERIC_FIELDS = (
-    "topThicknessCm",
-    "legCount",
-    "seatHeightCm",
-    "backHeightCm",
-    "armHeightCm",
-    "wallThicknessCm",
-    "shelfCount",
-    "doorCount",
-    "drawerCount",
-    "legHeightCm",
-    "mattressHeightCm",
-    "headboardHeightCm",
-)
+        Python's ``bool`` is a subclass of ``int``, so without this check
+        pydantic happily coerces ``true`` to ``1`` (and to ``1.0`` for the float
+        channels). That is a wrong *type* coming from an untrusted provider, not
+        a legitimate value, so it is rejected rather than silently accepted.
+        The check runs before coercion, while the raw value is still a bool.
+        """
+        if isinstance(data, dict):
+            for field in _DETAIL_NUMERIC_FIELDS:
+                if isinstance(data.get(field), bool):
+                    raise ValueError(f"'{field}' boolean emas, son bo'lishi kerak.")
+        return data
 
 
 class RawDesignSpec(BaseModel):
@@ -181,13 +198,21 @@ def _validate_dimension(value: float, label: str) -> float:
 
 
 def _validate_details(details: DesignDetails | None) -> DesignDetails | None:
-    """Reject non-finite or negative numeric channels before they reach geometry."""
+    """Reject non-numeric, non-finite or negative channels before they reach geometry.
+
+    ``DesignDetails`` already refuses a boolean at parse time. This second check
+    covers a details object built without validation (``model_construct``) and
+    keeps the rule in one place for every caller of ``build_design_spec``.
+    """
     if details is None:
         return None
     for field in _DETAIL_NUMERIC_FIELDS:
         value = getattr(details, field)
         if value is None:
             continue
+        # bool is a subclass of int; True/False must never pass as 1/0.
+        if isinstance(value, bool):
+            raise AiOutputError(f"'{field}' boolean emas, son bo'lishi kerak.")
         number = float(value)
         if not math.isfinite(number) or number < 0:
             raise AiOutputError(f"'{field}' qiymati noto'g'ri.")

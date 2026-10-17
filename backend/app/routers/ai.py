@@ -28,6 +28,7 @@ import time
 import uuid
 
 from fastapi import APIRouter, Depends
+from pydantic import ValidationError
 from sqlalchemy.orm import Session as OrmSession
 
 from ..database import get_db
@@ -120,6 +121,18 @@ def create_design(
             status_code=422,
         ) from exc
     except AiOutputError as exc:
+        raise ApiError(
+            "ai_invalid_output",
+            "AI javobi tekshiruvdan o'tmadi. Iltimos, tavsifni aniqroq yozing.",
+            status_code=422,
+        ) from exc
+    except ValidationError as exc:
+        # Untrusted provider output that failed pydantic validation before it
+        # reached ``build_design_spec`` (e.g. a bool where a number is required,
+        # or a wrong type for a field). This is the same class of failure as
+        # ``AiOutputError``, so it maps to the same controlled 422. The raw
+        # validation errors are never echoed to the client.
+        logger.warning("Provider output failed schema validation: %s", type(exc).__name__)
         raise ApiError(
             "ai_invalid_output",
             "AI javobi tekshiruvdan o'tmadi. Iltimos, tavsifni aniqroq yozing.",
