@@ -79,17 +79,24 @@ AI javobi loyihaga tushmaydi. **Bugungi bo'shliq:** `SUPPORTED_FURNITURE_TYPES` 
 
 ## W15 — AI copilot: mavjud loyihani tahrirlash
 
+> **Holat: implementatsiya qilingan (W15.1–W15.10), avtomatik testlar yashil.
+> Merge qilinmagan, deploy qilinmagan, brauzer/mobil QA bajarilmagan.**
+> Batafsil: `W15_IMPLEMENTATION_PLAN.md` (reja) va `docs/W15_AI_EDIT_FLAG.md` (flag/rollback).
+
 | Bo'lim | Mazmun |
 |---|---|
 | **Maqsad** | "shkafni 20 sm kengaytir" → xavfsiz diff → tasdiq → qo'llash |
-| **Modullar** | `routers/ai.py` (`POST /api/ai/edit`), `src/scene/sceneDiff.ts` (yangi), `src/components/AiEditPanel.tsx` (yangi) |
+| **Modullar** | `src/scene/{sceneDiff,sceneTargets,buildDiff,applyDiff,sceneRevision,sceneHistory}.ts`, `src/hooks/useSceneHistory*.ts`, `src/ai/{editCommandParser,mockEditProvider,editFlag}.ts`, `src/components/AiEditPanel.tsx` — hammasi **yangi**; `src/scene/{types,sceneReducer}.ts` va `src/App.{tsx,css}` **additive** o'zgargan |
 | **Bog'liqlik** | W13, W10 (version) |
-| **Vazifalar** | 20 amalli DSL; diff/patch; preview; undo/redo; server-side amal ruxsati |
-| **Testlar** | 30 deterministik diff fixture; idempotentlik; noto'g'ri amal rad etilishi |
-| **Xavfsizlik** | AI faqat ruxsat etilgan amallarni taklif qiladi; server tekshiradi |
-| **Acceptance** | har tahrir qaytariladi; 0 jimgina o'zgarish; diff ko'rsatiladi |
-| **Rollback** | endpoint flag; eski saqlash oqimi buzilmaydi |
-| **Xarajat** | **T2** (LLM) |
+| **Qarorlar** | **M6** — assembly'ni AI orqali tahrirlash W15 doirasidan tashqarida. **M7** — faqat mock provayder, haqiqiy LLM yo'q |
+| **Vazifalar** | 1) `validateOp`/`validateOps` — 30 reducer action tasniflandi: **6 allowlist + 24 denylist**; ixtiyoriy JSON path yoki reducer action rad etiladi. 2) `SET_VISIBILITY` — idempotent reducer action qo'shildi; `TOGGLE_VISIBILITY` saqlanib qoldi va AI DSL'dan **taqiqlangan**. 3) Scene target validatsiyasi — `resolveEditTarget` + `validateSceneOps`: obyekt mavjudligi, turi, room/assembly ajratilishi, bitta obyekt qoidasi, atomik rad + xato indeksi. 4) `buildDiff` — typed `SceneEditDiff`, `EDIT_SCHEMA_VERSION=1`, deterministik tartib, `duplicate_change`. 5) `applyDiff` — atomik replay, `before` qiymatlari qayta tekshiriladi, `stale_version` / `revision_mismatch` / `stale_content` / `reducer_mismatch`. 6) `sceneRevision` — `SceneState.revision`, `INITIAL_SCENE_REVISION=1`, faqat haqiqiy o'zgarishda +1, no-op'da o'zgarmaydi; `SceneData`ga qo'shilmagan. 7) Undo/redo — snapshot-based `sceneHistoryReducer` + `useSceneHistory`, limit 50, UI-only action'lar tarixga kirmaydi, revision orqaga qaytmaydi. 8) Deterministik parser + `mockEditProvider` — o'zbek/rus/ingliz buyruqlari, faqat 7 DSL operatori. 9) `AiEditPanel` — taklif, preview (before/after + birlik), tasdiq, rad etish, xato xabarlari, undo/redo tugmalari. 10) `VITE_AI_EDIT_ENABLED` — default **false**, faqat aniq `true` yoqadi, rollback hujjati |
+| **Testlar** | Frontend: **69 fayl / 1070 test o'tadi** (W15 boshlanishida 610; **+460**). W15 fayllari bo'yicha: `sceneDiff` 141, `sceneTargets` 39, `buildDiff` 45, `applyDiff` 45, `sceneRevision` 49, `sceneHistory` 31, `useSceneHistory` (jsdom) 7, `editCommandParser` 35, `editFlag` 22, `AiEditPanel` (jsdom) 36, `sceneReducer` ga +11. Qamrov: valid/invalid diff fixture'lar (talab ≥30 edi), invalid action/ID/parametr, atomiklik, idempotentlik, revision monotonligi, undo/redo, stale diff, flag on/off, no-op taklif. Backend: **tegilmagan** — 287 passed / 14 skipped (PostgreSQL-only) W14 bazasidagi o'lchov |
+| **Xavfsizlik** | AI faqat allowlist'dagi operatorlarni taklif qiladi; klient validatsiyasi yagona himoya emas — `buildDiff` va `applyDiff` har bir amalni, obyekt ID'sini va `before` qiymatini qayta tekshiradi. Server-side endpoint bu bosqichda **qo'shilmagan**, shuning uchun server avtorizatsiyasi haqida da'vo yo'q |
+| **Acceptance** | Bajarilgan: har tahrir bitta undo bilan qaytariladi; 0 jimgina o'zgarish (clamp/drop yo'q, `reducer_mismatch` bilan aniqlanadi); diff foydalanuvchiga ko'rsatiladi; tasdiqsiz sahnaga o'zgarish kirmaydi. **Bajarilmagan:** brauzer va mobil qurilmada qo'lda QA |
+| **Rollback** | `VITE_AI_EDIT_ENABLED=false` bilan **qayta build** (Vite `VITE_*` ni build vaqtida bundle'ga yozadi). R1 — `App.tsx`dan panelni olib tashlash; R2 — commit revert. Batafsil: `docs/W15_AI_EDIT_FLAG.md` |
+| **PRlar** | Zanjir draft, merge qilinmagan: #23 `w15-ai-edit-plan` → #24 `w15-scene-diff` → #25 `w15-set-visibility` → #26 `w15-scene-validation` → #27 `w15-build-diff` → #28 `w15-apply-diff` → #29 `w15-scene-revision` → #30 `w15-scene-history` → #31 `w15-ai-edit-panel` → #32 `w15-ai-edit-flag`. Bazasi `main` emas, oldingi bosqich branchi |
+| **Ochiq cheklovlar** | 1) Haqiqiy LLM provider **ulanmagan** — parser deterministik va cheklangan buyruqlar to'plamiga tayanadi. 2) `POST /api/ai/edit` backend endpoint **yo'q**; barcha validatsiya klientda. 3) Billing/to'lov **tegilmagan**. 4) Brauzer/mobil QA **bajarilmagan**. 5) Rejadagi "20 amallik DSL" amalda **7 operator** (6 allowlist action + DSL-only `set_visibility`); kengaytirish alohida qaror talab qiladi. 6) Material reset flat diff'da `apply_material_preset('default')` ga map qilinadi (render natijasi bir xil, saqlangan maydonlar farq qiladi) |
+| **Xarajat** | **T0** — W15 doirasida pullik API chaqirilmagan (reja bo'yicha T2 faqat haqiqiy LLM ulanganda) |
 
 ---
 
