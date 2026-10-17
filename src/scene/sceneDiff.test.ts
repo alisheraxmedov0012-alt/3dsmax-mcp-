@@ -65,14 +65,24 @@ describe('sceneDiff — allowlist surface', () => {
   });
 
   it('denies every reducer action that is not an allowlisted edit', () => {
+    // 31 reducer actions = 7 mapped actions + 24 denied ones (W15.2 added
+    // SET_VISIBILITY, which the DSL's `set_visibility` maps onto).
     expect(DENIED_REDUCER_ACTIONS).toHaveLength(24);
-    // 30 reducer actions = 6 mapped allowlisted actions + 24 denied ones;
-    // `TOGGLE_VISIBILITY` is denied while the DSL uses `set_visibility`.
     expect(new Set(DENIED_REDUCER_ACTIONS).size).toBe(24);
     expect(DENIED_REDUCER_ACTIONS).toContain('TOGGLE_VISIBILITY');
     expect(DENIED_REDUCER_ACTIONS).not.toContain('UPDATE_PARAMS');
+    expect(DENIED_REDUCER_ACTIONS).not.toContain('SET_VISIBILITY');
     expect(EDIT_OPS).toHaveLength(7);
-    expect(24 + 7).toBe(31); // 30 actions + the DSL-only `set_visibility`
+    expect(24 + 7).toBe(31);
+  });
+
+  it('rejects a reducer action even when the DSL maps onto it', () => {
+    // The AI must speak the DSL; handing it a reducer action directly is a
+    // contract error, not a shortcut.
+    expectRejected(
+      validateOp({ type: 'SET_VISIBILITY', id: 'id-wardrobe', visible: false }, objectOf()),
+      'invalid_op',
+    );
   });
 
   it.each(['SET_LAYOUT', 'LOAD_SCENE', 'NEW_SCENE', 'DELETE_OBJECT', 'ADD_ASSEMBLY', 'SELECT'])(

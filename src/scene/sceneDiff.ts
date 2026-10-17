@@ -63,7 +63,8 @@ function hasControlChars(value: string): boolean {
 /**
  * The closed set of operators the AI may produce — one per allowlisted reducer
  * action (plan §3.2). `TOGGLE_VISIBILITY` is intentionally absent: it is not
- * idempotent, so the DSL uses an explicit target value instead.
+ * idempotent, so the DSL uses `set_visibility`, which maps onto the W15.2
+ * `SET_VISIBILITY` reducer action and carries an explicit target value.
  */
 export const EDIT_OPS = [
   'set_params',
@@ -82,9 +83,10 @@ export function isEditOpName(value: unknown): value is EditOpName {
 }
 
 /**
- * Reducer actions the AI may never reach. The list is typed against
- * `SceneAction['type']`, so adding a new reducer action without deciding whether
- * the AI may use it is a compile error.
+ * Reducer actions the AI may never reach. `DeniedActionName` is derived from
+ * `SceneAction['type']`, so a new action is either mapped (listed in the
+ * `Exclude` above, with a DSL operator) or denied — the decision is explicit in
+ * the type, and `sceneDiff.test.ts` pins the resulting counts.
  *
  * `TOGGLE_VISIBILITY` is denied even though visibility is editable: the DSL's
  * `set_visibility` carries an explicit target instead.
@@ -97,6 +99,9 @@ type DeniedActionName = Exclude<
   | 'UPDATE_MATERIAL'
   | 'APPLY_MATERIAL_PRESET'
   | 'RESET_MATERIAL'
+  // W15.2 added the idempotent reducer action behind the DSL's `set_visibility`.
+  // It is mapped, not denied, so it stays out of this union.
+  | 'SET_VISIBILITY'
 >;
 
 export const DENIED_REDUCER_ACTIONS: readonly DeniedActionName[] = [

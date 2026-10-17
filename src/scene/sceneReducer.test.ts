@@ -132,6 +132,95 @@ describe('sceneReducer', () => {
     expect(findSceneObject(state, b.id)?.visible).toBe(true);
   });
 
+  describe('SET_VISIBILITY (W15.2)', () => {
+    function scene() {
+      const state = sceneReducer(initialState(), { type: 'ADD_TABLE', id: 'table-2' });
+      const [a, b] = state.data.objects;
+      return { state, a, b };
+    }
+
+    it('shows a hidden object with visible: true', () => {
+      const base = scene();
+      const hidden = sceneReducer(base.state, { type: 'SET_VISIBILITY', id: base.a.id, visible: false });
+      expect(findSceneObject(hidden, base.a.id)?.visible).toBe(false);
+
+      const shown = sceneReducer(hidden, { type: 'SET_VISIBILITY', id: base.a.id, visible: true });
+      expect(findSceneObject(shown, base.a.id)?.visible).toBe(true);
+    });
+
+    it('hides a visible object with visible: false', () => {
+      const base = scene();
+      const next = sceneReducer(base.state, { type: 'SET_VISIBILITY', id: base.a.id, visible: false });
+      expect(findSceneObject(next, base.a.id)?.visible).toBe(false);
+    });
+
+    it('is idempotent for true', () => {
+      const base = scene();
+      const once = sceneReducer(base.state, { type: 'SET_VISIBILITY', id: base.a.id, visible: true });
+      expect(once).toBe(base.state);
+      const twice = sceneReducer(once, { type: 'SET_VISIBILITY', id: base.a.id, visible: true });
+      expect(twice).toBe(once);
+    });
+
+    it('is idempotent for false', () => {
+      const base = scene();
+      const hidden = sceneReducer(base.state, { type: 'SET_VISIBILITY', id: base.a.id, visible: false });
+      const again = sceneReducer(hidden, { type: 'SET_VISIBILITY', id: base.a.id, visible: false });
+      expect(again).toBe(hidden);
+      expect(findSceneObject(again, base.a.id)?.visible).toBe(false);
+    });
+
+    it('ignores an unknown id and returns the same state', () => {
+      const base = scene();
+      const next = sceneReducer(base.state, { type: 'SET_VISIBILITY', id: 'missing', visible: false });
+      expect(next).toBe(base.state);
+      expect(next.data.objects).toEqual(base.state.data.objects);
+    });
+
+    it('leaves the other objects untouched', () => {
+      const base = scene();
+      const next = sceneReducer(base.state, { type: 'SET_VISIBILITY', id: base.a.id, visible: false });
+      expect(findSceneObject(next, base.b.id)?.visible).toBe(true);
+      expect(findSceneObject(next, base.b.id)).toBe(base.b);
+    });
+
+    it('changes visibility only, not the rest of the object', () => {
+      const base = scene();
+      const before = findSceneObject(base.state, base.a.id);
+      const next = sceneReducer(base.state, { type: 'SET_VISIBILITY', id: base.a.id, visible: false });
+      const after = findSceneObject(next, base.a.id);
+      expect(after).toEqual({ ...before, visible: false });
+      expect({ ...after, visible: true }).toEqual(before);
+    });
+
+    it('keeps TOGGLE_VISIBILITY behaviour unchanged next to it', () => {
+      const base = scene();
+      const toggled = sceneReducer(base.state, { type: 'TOGGLE_VISIBILITY', id: base.a.id });
+      expect(findSceneObject(toggled, base.a.id)?.visible).toBe(false);
+
+      // SET_VISIBILITY on an already-hidden object is still a no-op.
+      const setAgain = sceneReducer(toggled, { type: 'SET_VISIBILITY', id: base.a.id, visible: false });
+      expect(setAgain).toBe(toggled);
+
+      const toggledBack = sceneReducer(toggled, { type: 'TOGGLE_VISIBILITY', id: base.a.id });
+      expect(findSceneObject(toggledBack, base.a.id)?.visible).toBe(true);
+    });
+
+    it('ignores a non-boolean visible value at runtime', () => {
+      const base = scene();
+      const invalid = { type: 'SET_VISIBILITY', id: base.a.id, visible: 'false' } as unknown as Parameters<
+        typeof sceneReducer
+      >[1];
+      expect(sceneReducer(base.state, invalid)).toBe(base.state);
+    });
+
+    it('does not affect selection', () => {
+      const base = scene();
+      const next = sceneReducer(base.state, { type: 'SET_VISIBILITY', id: base.a.id, visible: false });
+      expect(next.selectedId).toBe(base.state.selectedId);
+    });
+  });
+
   it('renames an object', () => {
     const state0 = initialState();
     const id = state0.data.objects[0].id;
