@@ -1,12 +1,18 @@
 import type { AiDesignSpec, AiFurnitureType } from '../api/client';
+import type { FurnitureType } from '../geometry/furniture';
+import { buildFurnitureSpec, type BuiltFurnitureSpec } from './furnitureSpec';
 import type { RawTableProposal } from './normalizeProposal';
 
 /**
- * W1 <-> W2 shared vocabulary (frontend mirror of the backend contract).
+ * Shared furniture vocabulary between the backend contract and the frontend
+ * geometry layer.
  *
- * `SUPPORTED_FURNITURE_TYPES` is the seam: it lists the furniture types the
- * current geometry layer can build. W2 extends both the type union and this set
- * as parametric builders are added; W1 (this adapter) then needs no change.
+ * `FURNITURE_TYPES` is the wire vocabulary; `SUPPORTED_FURNITURE_TYPES` is what
+ * this build can actually turn into geometry. Since W13 every type has a
+ * parametric builder, so the two lists agree. They are kept separate because the
+ * `supported` flag still exists on the wire: a specification produced by an
+ * older build (or a future type) may arrive marked `supported: false`, and the
+ * UI must refuse it rather than guess.
  */
 export const FURNITURE_TYPES: readonly AiFurnitureType[] = [
   'table',
@@ -19,17 +25,36 @@ export const FURNITURE_TYPES: readonly AiFurnitureType[] = [
   'dresser',
 ];
 
-export const SUPPORTED_FURNITURE_TYPES: readonly AiFurnitureType[] = ['table'];
+export const SUPPORTED_FURNITURE_TYPES: readonly AiFurnitureType[] = [...FURNITURE_TYPES];
 
 export function isSupportedFurnitureType(furniture: AiFurnitureType): boolean {
   return SUPPORTED_FURNITURE_TYPES.includes(furniture);
 }
 
 /**
- * Map a validated design spec onto the table proposal shape understood by
- * `normalizeProposal`, which clamps values into the supported table ranges and
- * performs the final geometry-layer validation. Returns `null` when the spec
- * carries no dimensions (the caller then uses defaults with a warning).
+ * Build geometry parameters for the spec's own furniture type.
+ *
+ * Returns `null` when the type is not buildable here or when the geometry layer
+ * rejects the resulting parameters. Callers must treat `null` as "do not apply"
+ * and show the message — never fall back to a different type.
+ */
+export function specToFurnitureParams(spec: AiDesignSpec): BuiltFurnitureSpec | null {
+  if (!spec.supported || !isSupportedFurnitureType(spec.furniture)) {
+    return null;
+  }
+  return buildFurnitureSpec(
+    spec.furniture as FurnitureType,
+    spec.dimensions,
+    spec.details ?? null,
+    spec.color,
+  );
+}
+
+/**
+ * Legacy table-only mapping, kept for callers that still pass a table proposal
+ * through `normalizeProposal`. New code should use `specToFurnitureParams`.
+ *
+ * @deprecated use {@link specToFurnitureParams}
  */
 export function specToTableProposal(spec: AiDesignSpec): RawTableProposal {
   return {

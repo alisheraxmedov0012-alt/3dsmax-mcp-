@@ -65,7 +65,7 @@ describe('generateDesignFromCloud', () => {
     expect(outcome.warnings.join(' ')).toContain('Kenglik');
   });
 
-  it('does not apply a recognised but unsupported furniture type', async () => {
+  it('does not apply a spec the build marks as unsupported', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse(designResponse({ furniture: 'sofa', supported: false })),
     );
@@ -75,7 +75,7 @@ describe('generateDesignFromCloud', () => {
     expect(outcome.kind).toBe('unsupported');
     if (outcome.kind !== 'unsupported') return;
     expect(outcome.furniture).toBe('sofa');
-    expect(outcome.message).toContain("qo'llab-quvvatlanmaydi");
+    expect(outcome.message).toContain('qura olmaydi');
   });
 
   it('treats a not-signed-in / unconfigured response as unavailable (fallback)', async () => {
@@ -107,5 +107,72 @@ describe('generateDesignFromCloud', () => {
     const outcome = await generateDesignFromCloud('nonsense');
 
     expect(outcome.kind).toBe('unavailable');
+  });
+
+  it('applies a wardrobe spec with its own type and details', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        designResponse({
+          furniture: 'wardrobe',
+          dimensions: { width_cm: 180, height_cm: 200, depth_cm: 60 },
+          details: { doorCount: 3, shelfCount: 5 },
+        }),
+      ),
+    );
+
+    const outcome = await generateDesignFromCloud('3 eshikli shkaf');
+
+    expect(outcome.kind).toBe('applied');
+    if (outcome.kind !== 'applied') return;
+    expect(outcome.furniture).toBe('wardrobe');
+    expect(outcome.params.widthCm).toBe(180);
+    expect(outcome.params.doorCount).toBe(3);
+    expect(outcome.params.shelfCount).toBe(5);
+  });
+
+  it('keeps every applied type different from a table', async () => {
+    const cases = [
+      ['chair', { width_cm: 45, height_cm: 90, depth_cm: 50 }],
+      ['armchair', { width_cm: 80, height_cm: 90, depth_cm: 85 }],
+      ['sofa', { width_cm: 200, height_cm: 85, depth_cm: 90 }],
+      ['bed', { width_cm: 160, height_cm: 40, depth_cm: 200 }],
+      ['shelf', { width_cm: 80, height_cm: 180, depth_cm: 30 }],
+      ['dresser', { width_cm: 120, height_cm: 80, depth_cm: 45 }],
+    ] as const;
+
+    const results = await Promise.all(
+      cases.map(async ([furniture, dimensions]) => {
+        fetchMock.mockResolvedValueOnce(jsonResponse(designResponse({ furniture, dimensions })));
+        return { furniture, dimensions, outcome: await generateDesignFromCloud('mebel') };
+      }),
+    );
+
+    for (const { furniture, dimensions, outcome } of results) {
+      expect(outcome.kind, furniture).toBe('applied');
+      if (outcome.kind !== 'applied') continue;
+      expect(outcome.furniture).toBe(furniture);
+      // A bed's depth stays the Z extent; nothing is remapped to a table shape.
+      expect(outcome.params.depthCm).toBe(dimensions.depth_cm);
+    }
+  });
+
+  it('never applies a spec whose parameters the geometry layer rejects', async () => {
+    // A seat at the full height is structurally impossible; the geometry layer
+    // rejects the combination, so nothing may be applied.
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        designResponse({
+          furniture: 'sofa',
+          dimensions: { width_cm: 200, height_cm: 60, depth_cm: 90 },
+          details: { seatHeightCm: 60 },
+        }),
+      ),
+    );
+
+    const outcome = await generateDesignFromCloud('divan');
+
+    expect(outcome.kind).toBe('unsupported');
+    if (outcome.kind !== 'unsupported') return;
+    expect(outcome.furniture).toBe('sofa');
   });
 });

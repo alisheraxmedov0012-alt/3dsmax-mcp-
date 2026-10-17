@@ -22,11 +22,11 @@ import { parseSceneJson } from './export/sceneJson';
 import { ExportError } from './export/exportTypes';
 import type { ExportFormatId } from './export/exportFormats';
 import { exportScenePng, type PngPreset } from './export/sceneImage';
-import type { TableParams } from './geometry/tableParams';
 import {
   createFurnitureParams,
   furnitureParamsToFieldValues,
   parseFurnitureValues,
+  type FurnitureParams,
   type FurnitureType,
 } from './geometry/furniture';
 import { createLocalProjectRepository } from './projects/localProjectRepository';
@@ -209,11 +209,11 @@ export default function App() {
     dispatch({ type: 'ADD_FURNITURE', furnitureType: type, id: createSceneObjectId(), params });
   };
 
-  const applyProposal = (params: TableParams) => {
-    setValues(furnitureParamsToFieldValues('table', params));
-    if (selectedObject) {
-      dispatch({ type: 'UPDATE_PARAMS', id: selectedObject.id, params });
-    }
+  const applyDesign = (type: FurnitureType, params: FurnitureParams) => {
+    // W13: a generated design creates a NEW object. It never overwrites the
+    // current selection, so an AI prompt cannot silently destroy existing work.
+    dispatch({ type: 'ADD_FURNITURE', furnitureType: type, id: createSceneObjectId(), params });
+    setValues(furnitureParamsToFieldValues(type, params));
   };
 
   const handleResetView = () => setResetToken((token) => token + 1);
@@ -603,7 +603,7 @@ export default function App() {
           onApplyPreset={handleApplyMaterialPreset}
           onReset={handleResetMaterial}
         />
-        <AiPromptPanel onApply={applyProposal} />
+        <AiPromptPanel onApply={applyDesign} />
         <ImageReferencePanel onConfirm={handleImageReferenceConfirm} />
         <ManufacturingPanel object={selectedObject} projectName={projectName} />
         <AccountPanel />

@@ -347,6 +347,11 @@ export interface AiDesignDimensions {
 export interface AiDesignSpec {
   furniture: AiFurnitureType;
   dimensions: AiDesignDimensions | null;
+  /**
+   * Optional type-specific channels (W13). Absent on specifications stored
+   * before W13, which is why every key is optional.
+   */
+  details?: AiDesignDetails | null;
   color: string | null;
   material_kind: string | null;
   style: string | null;
@@ -354,6 +359,22 @@ export interface AiDesignSpec {
   notes: string[];
   warnings: string[];
   supported: boolean;
+}
+
+/** Mirrors `FurnitureParams` (the geometry layer) so keys need no translation. */
+export interface AiDesignDetails {
+  topThicknessCm?: number | null;
+  legCount?: number | null;
+  seatHeightCm?: number | null;
+  backHeightCm?: number | null;
+  armHeightCm?: number | null;
+  wallThicknessCm?: number | null;
+  shelfCount?: number | null;
+  doorCount?: number | null;
+  drawerCount?: number | null;
+  legHeightCm?: number | null;
+  mattressHeightCm?: number | null;
+  headboardHeightCm?: number | null;
 }
 
 export interface AiDesignResponse {

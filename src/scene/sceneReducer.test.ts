@@ -519,4 +519,23 @@ describe('scene objects integrate with geometry', () => {
     expect(built.group.children.length).toBeGreaterThan(0);
     built.dispose();
   });
+
+  it('adds a generated object without mutating the existing one (W13)', () => {
+    // The AI flow creates a new object; it must never overwrite the selection.
+    const before = initialState();
+    const existing = before.data.objects[0];
+    const existingSnapshot = JSON.parse(JSON.stringify(existing));
+
+    const after = sceneReducer(before, {
+      type: 'ADD_FURNITURE',
+      furnitureType: 'wardrobe',
+      id: 'ai-generated-1',
+      params: { widthCm: 180, heightCm: 200, depthCm: 60, color: '#a9744f', shelfCount: 4 },
+    });
+
+    expect(after.data.objects).toHaveLength(before.data.objects.length + 1);
+    expect(findSceneObject(after, existing.id)).toEqual(existingSnapshot);
+    expect(findSceneObject(after, 'ai-generated-1')?.type).toBe('wardrobe');
+    expect(after.selectedId).toBe('ai-generated-1');
+  });
 });
