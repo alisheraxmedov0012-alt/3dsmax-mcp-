@@ -70,6 +70,9 @@ export function computePresetFraming(room: RoomConfig, preset: CameraPreset): Ta
   const target = { x: 0, y: room.heightCm / 2, z: 0 };
 
   switch (preset) {
+    case 'product':
+      // Elevated perspective product view.
+      return { position: { x: span * 0.95, y: room.heightCm * 0.9, z: span * 1.25 }, target };
     case 'front':
       return { position: { x: 0, y: room.heightCm * 0.55, z: span * 1.6 }, target };
     case 'side':

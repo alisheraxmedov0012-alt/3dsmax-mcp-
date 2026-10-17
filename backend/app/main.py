@@ -12,7 +12,19 @@ from .error_tracking import init_error_tracking
 from .errors import install_error_handlers
 from .logging_config import configure_logging
 from .middleware import ObservabilityMiddleware
-from .routers import admin, auth, billing, health, plans, projects
+from .routers import (
+    admin,
+    ai,
+    auth,
+    billing,
+    files,
+    health,
+    jobs,
+    plans,
+    projects,
+    usage,
+)
+from .services import jobs as jobs_service
 from .services.plans import seed_plans
 
 settings = get_settings()
@@ -64,6 +76,10 @@ app.include_router(auth.router)
 app.include_router(plans.router)
 app.include_router(billing.router)
 app.include_router(projects.router)
+app.include_router(jobs.router)
+app.include_router(files.router)
+app.include_router(usage.router)
+app.include_router(ai.router)
 app.include_router(admin.router)
 
 
@@ -75,9 +91,17 @@ def _startup() -> None:
         Base.metadata.create_all(bind=engine)
     with SessionLocal() as db:
         seed_plans(db)
+        # Recover jobs a previous process left ``running`` so nothing is stuck
+        # forever after a crash or restart. Safe on every start: it only moves
+        # jobs past their timeout to ``failed`` (marked retryable).
+        recovered = jobs_service.recover_stale_jobs(db)
     logger.info(
         "Startup complete",
-        extra={"metric": "startup", "environment": settings.environment},
+        extra={
+            "metric": "startup",
+            "environment": settings.environment,
+            "recovered_jobs": recovered,
+        },
     )
 
 

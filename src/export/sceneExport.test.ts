@@ -1,8 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { buildExportScene, exportSceneToGlb, SCENE_EXPORT_FILENAME } from './sceneExport';
-import { createTableSceneObject, SCENE_SCHEMA_VERSION, type SceneData } from '../scene/types';
+import {
+  createFurnitureSceneObject,
+  createTableSceneObject,
+  SCENE_SCHEMA_VERSION,
+  type SceneData,
+} from '../scene/types';
 import { createDefaultSettings } from '../scene/sceneSettings';
+import { FURNITURE_TYPES } from '../geometry/furniture/types';
+import { inferDesignSpec, specToFurnitureParams } from '../image/referenceInference';
 
 /**
  * Node has no FileReader, which GLTFExporter uses to assemble the binary (.glb)
@@ -164,6 +171,37 @@ describe('exportSceneToGlb', () => {
     expect(SCENE_EXPORT_FILENAME).toBe('3d-studio-ai-scene.glb');
   });
 
+  it('exports a non-table furniture type (sofa) with all its parts', async () => {
+    const buffer = await exportSceneToGlb(
+      makeScene({ objects: [createFurnitureSceneObject('sofa', 's1')] }),
+    );
+    const { json } = parseGlb(buffer);
+
+    const node = (json.nodes ?? []).find((entry) => entry.name === 'object:s1');
+    expect(node).toBeDefined();
+    // The sofa is built from several parts, so more than one mesh is written.
+    expect((json.meshes ?? []).length).toBeGreaterThan(1);
+  });
+
+  it('exports a scene containing several different furniture types', async () => {
+    const buffer = await exportSceneToGlb(
+      makeScene({
+        objects: [
+          createTableSceneObject('t1'),
+          createFurnitureSceneObject('chair', 'c1'),
+          createFurnitureSceneObject('wardrobe', 'w1'),
+        ],
+      }),
+    );
+    const parsed = parseGlb(buffer);
+    expect(parsed.version).toBe(2);
+    expect(parsed.hasBin).toBe(true);
+    const names = (parsed.json.nodes ?? []).map((entry) => entry.name);
+    expect(names).toContain('object:t1');
+    expect(names).toContain('object:c1');
+    expect(names).toContain('object:w1');
+  });
+
   it('writes per-object PBR material values into the GLB', async () => {
     const buffer = await exportSceneToGlb(
       makeScene({
@@ -184,6 +222,24 @@ describe('exportSceneToGlb', () => {
     expect(match).toBe(true);
   });
 
+  it('exports a transparent (glass) material as alphaMode BLEND', async () => {
+    const buffer = await exportSceneToGlb(
+      makeScene({
+        objects: [
+          createTableSceneObject('t1', {
+            material: { metalness: 0, roughness: 0.05, materialId: 'glass-clear', opacity: 0.3 },
+          }),
+        ],
+      }),
+    );
+    const { json } = parseGlb(buffer);
+
+    const blend = (json.materials ?? []).some(
+      (material) => (material as { alphaMode?: string }).alphaMode === 'BLEND',
+    );
+    expect(blend).toBe(true);
+  });
+
   it('still exports a valid GLB when visualization settings are customized', async () => {
     const scene = makeScene();
     scene.settings.background = '#000000';
@@ -195,5 +251,45 @@ describe('exportSceneToGlb', () => {
     const parsed = parseGlb(buffer);
     expect(parsed.version).toBe(2);
     expect(parsed.hasBin).toBe(true);
+  });
+
+  it('exports every W2 furniture type as a valid multi-mesh GLB', async () => {
+    for (const type of FURNITURE_TYPES) {
+      // Sequential on purpose: GLTFExporter is not run concurrently here.
+      // eslint-disable-next-line no-await-in-loop
+      const buffer = await exportSceneToGlb(
+        makeScene({ objects: [createFurnitureSceneObject(type, `x-${type}`)] }),
+      );
+      const parsed = parseGlb(buffer);
+      expect(parsed.version).toBe(2);
+      expect(parsed.hasBin).toBe(true);
+      // Each furniture type is made of several parts.
+      expect((parsed.json.meshes ?? []).length).toBeGreaterThan(1);
+      const names = (parsed.json.nodes ?? []).map((entry) => entry.name);
+      expect(names).toContain(`object:x-${type}`);
+    }
+  });
+
+  it('exports a scene containing an image-derived object with all its parts', async () => {
+    // Emulate the confirmed W7 flow: inference -> params -> scene object.
+    const inference = inferDesignSpec({
+      type: 'wardrobe',
+      sample: { aspectRatio: 0.9, averageColor: '#8b5a2b' },
+      referenceWidthCm: 180,
+      reference: 'widthCm',
+    });
+    expect(inference.ok).toBe(true);
+    if (!inference.ok) return;
+
+    const params = specToFurnitureParams(inference.spec.furniture, inference.spec.dimensions);
+    const object = createFurnitureSceneObject('wardrobe', 'img-1', { params });
+
+    const buffer = await exportSceneToGlb(makeScene({ objects: [object] }));
+    const parsed = parseGlb(buffer);
+    expect(parsed.version).toBe(2);
+    expect(parsed.hasBin).toBe(true);
+    expect((parsed.json.meshes ?? []).length).toBeGreaterThan(1);
+    const names = (parsed.json.nodes ?? []).map((entry) => entry.name);
+    expect(names).toContain('object:img-1');
   });
 });

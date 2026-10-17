@@ -88,4 +88,36 @@ describe('buildRoom', () => {
 
     dispose();
   });
+
+  it('adds a ceiling only when showCeiling is set', () => {
+    const without = buildRoom(room);
+    expect(without.group.getObjectByName('room-ceiling')).toBeUndefined();
+    without.dispose();
+
+    const withCeiling = buildRoom({ ...room, showCeiling: true });
+    const ceiling = withCeiling.group.getObjectByName('room-ceiling');
+    expect(ceiling).toBeDefined();
+    // The ceiling sits just above the wall top.
+    expect(ceiling!.position.y).toBeGreaterThan(room.heightCm);
+    withCeiling.dispose();
+  });
+
+  it('renders a marker frame per door/window without cutting the wall', () => {
+    const withOpenings = buildRoom({
+      ...room,
+      openings: [
+        { id: 'd1', kind: 'door', wall: 'north', offsetCm: 0, widthCm: 90, heightCm: 200, sillCm: 0 },
+        { id: 'w1', kind: 'window', wall: 'east', offsetCm: -50, widthCm: 120, heightCm: 120, sillCm: 90 },
+      ],
+    });
+
+    expect(withOpenings.group.getObjectByName('room-opening-1')).toBeDefined();
+    expect(withOpenings.group.getObjectByName('room-opening-2')).toBeDefined();
+    // The four wall meshes are still present (no hole was cut).
+    const walls = withOpenings.group.children.filter((child) =>
+      child.name.startsWith('room-wall-'),
+    );
+    expect(walls).toHaveLength(4);
+    withOpenings.dispose();
+  });
 });

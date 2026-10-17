@@ -1,0 +1,48 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`W14 assembly part snapshots > kitchen-base-run: default part structure 1`] = `
+"kitchen-base-run-plinth [plinth] 180x10x60
+kitchen-base-run-module-1 [corpus] 60x72x60
+kitchen-base-run-door-1 [door] 59.5x71.5x2
+kitchen-base-run-module-2 [corpus] 60x72x60
+kitchen-base-run-door-2 [door] 59.5x71.5x2
+kitchen-base-run-module-3 [corpus] 60x72x60
+kitchen-base-run-door-3 [door] 59.5x71.5x2
+kitchen-base-run-top [top] 180x3x60"
+`;
+
+exports[`W14 assembly part snapshots > stair-straight: default part structure 1`] = `
+"stair-straight-step-1 [step] 100x17.5x28
+stair-straight-step-2 [step] 100x17.5x28
+stair-straight-step-3 [step] 100x17.5x28
+stair-straight-step-4 [step] 100x17.5x28
+stair-straight-step-5 [step] 100x17.5x28
+stair-straight-step-6 [step] 100x17.5x28
+stair-straight-step-7 [step] 100x17.5x28
+stair-straight-step-8 [step] 100x17.5x28
+stair-straight-step-9 [step] 100x17.5x28
+stair-straight-step-10 [step] 100x17.5x28
+stair-straight-step-11 [step] 100x17.5x28
+stair-straight-step-12 [step] 100x17.5x28
+stair-straight-stringer-left [stringer] 5x210x336
+stair-straight-stringer-right [stringer] 5x210x336"
+`;
+
+exports[`W14 assembly part snapshots > wall-cabinet: default part structure 1`] = `
+"wall-cabinet-corpus [corpus] 80x70x32
+wall-cabinet-door-1 [door] 39.5x69.5x2
+wall-cabinet-door-2 [door] 39.5x69.5x2"
+`;
+
+exports[`W14 assembly part snapshots > wardrobe-section: default part structure 1`] = `
+"wardrobe-section-corpus [corpus] 180x220x60
+wardrobe-section-divider-1 [divider] 2x216x58
+wardrobe-section-shelf-1-1 [shelf] 86x2x58
+wardrobe-section-shelf-1-2 [shelf] 86x2x58
+wardrobe-section-shelf-1-3 [shelf] 86x2x58
+wardrobe-section-shelf-2-1 [shelf] 86x2x58
+wardrobe-section-shelf-2-2 [shelf] 86x2x58
+wardrobe-section-shelf-2-3 [shelf] 86x2x58
+wardrobe-section-door-1 [door] 89.5x219.5x2
+wardrobe-section-door-2 [door] 89.5x219.5x2"
+`;

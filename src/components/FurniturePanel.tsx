@@ -1,58 +1,83 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { TABLE_COLORS } from '../geometry/tableParams';
 import {
-  TABLE_COLORS,
-  TABLE_LIMITS,
-  type TableDimensionField,
-  type TableErrors,
-  type TableFieldValues,
-} from '../geometry/tableParams';
+  FURNITURE_FIELDS,
+  FURNITURE_TYPES,
+  FURNITURE_TYPE_LABELS,
+  type FurnitureType,
+} from '../geometry/furniture/types';
+import type { FurnitureErrors } from '../geometry/furniture/params';
+import type { SceneObject } from '../scene/types';
 
-interface ControlsPanelProps {
-  values: TableFieldValues;
-  errors: TableErrors;
-  onChange: (field: keyof TableFieldValues, value: string) => void;
+interface FurniturePanelProps {
+  object: SceneObject | null;
+  values: Record<string, string>;
+  errors: FurnitureErrors;
+  onChange: (field: string, value: string) => void;
   onReset: () => void;
-  tableSelected?: boolean;
+  onAdd: (type: FurnitureType) => void;
   children?: ReactNode;
 }
 
-const DIMENSION_FIELDS: ReadonlyArray<{ key: TableDimensionField; label: string }> = [
-  { key: 'widthCm', label: 'Kenglik (sm)' },
-  { key: 'heightCm', label: 'Balandlik (sm)' },
-  { key: 'depthCm', label: 'Chuqurlik (sm)' },
-];
-
-function sliderValue(raw: string, min: number, max: number): number {
-  const numeric = Number(raw.trim());
+function sliderValue(raw: string | undefined, min: number, max: number): number {
+  const numeric = Number((raw ?? '').trim());
   if (!Number.isFinite(numeric)) {
     return min;
   }
   return Math.min(Math.max(numeric, min), max);
 }
 
-export function ControlsPanel({
+export function FurniturePanel({
+  object,
   values,
   errors,
   onChange,
   onReset,
-  tableSelected = true,
+  onAdd,
   children,
-}: ControlsPanelProps) {
-  const colorIsValid = /^#[0-9a-fA-F]{6}$/.test(values.color);
+}: FurniturePanelProps) {
+  const [addType, setAddType] = useState<FurnitureType>('table');
+  const colorIsValid = /^#[0-9a-fA-F]{6}$/.test(values.color ?? '');
 
   return (
     <aside className="panel">
       <header className="panel__header">
         <h1 className="panel__title">3D Studio AI</h1>
-        <p className="panel__subtitle">6-bosqich — mahsulot vizualizatsiyasi</p>
+        <p className="panel__subtitle">W2 — parametrik mebel</p>
       </header>
 
-      {tableSelected ? (
-        <section className="table-params">
-          <h2 className="table-params__title">Stol parametrlari</h2>
+      <section className="furniture-add">
+        <h2 className="table-params__title">Mebel qo&apos;shish</h2>
+        <div className="field">
+          <label className="field__label" htmlFor="furniture-type">
+            Mebel turi
+          </label>
+          <select
+            id="furniture-type"
+            className="field__input"
+            value={addType}
+            onChange={(event) => setAddType(event.target.value as FurnitureType)}
+          >
+            {FURNITURE_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {FURNITURE_TYPE_LABELS[type]}
+              </option>
+            ))}
+          </select>
+          <button type="button" className="reset" onClick={() => onAdd(addType)}>
+            {FURNITURE_TYPE_LABELS[addType]} qo&apos;shish
+          </button>
+        </div>
+      </section>
 
-          {DIMENSION_FIELDS.map(({ key, label }) => {
-            const range = TABLE_LIMITS[key];
+      {object ? (
+        <section className="table-params">
+          <h2 className="table-params__title">
+            {FURNITURE_TYPE_LABELS[object.type]} parametrlari
+          </h2>
+
+          {FURNITURE_FIELDS[object.type].map((spec) => {
+            const { key, label, range } = spec;
             return (
               <div className="field" key={key}>
                 <label className="field__label" htmlFor={`${key}-number`}>
@@ -78,7 +103,7 @@ export function ControlsPanel({
                   min={range.min}
                   max={range.max}
                   step={range.step}
-                  value={values[key]}
+                  value={values[key] ?? ''}
                   aria-invalid={Boolean(errors[key])}
                   onChange={(event) => onChange(key, event.target.value)}
                 />
@@ -109,7 +134,7 @@ export function ControlsPanel({
             <input
               className={errors.color ? 'field__input field__input--error' : 'field__input'}
               type="color"
-              value={colorIsValid ? values.color : '#000000'}
+              value={colorIsValid ? (values.color ?? '#000000') : '#000000'}
               aria-label="Rang tanlash"
               onChange={(event) => onChange('color', event.target.value)}
             />
@@ -121,12 +146,12 @@ export function ControlsPanel({
           </div>
 
           <button type="button" className="reset" onClick={onReset}>
-            Stolni boshlang'ich holatga qaytarish
+            Boshlang&apos;ich holatga qaytarish
           </button>
         </section>
       ) : (
         <p className="panel__hint">
-          Stol parametrlari uchun stolni tanlang (ro'yxatdan yoki 3D ko'rinishdan).
+          Parametrlarni tahrirlash uchun mebelni tanlang (ro&apos;yxatdan yoki 3D ko&apos;rinishdan).
         </p>
       )}
 

@@ -551,8 +551,81 @@ qilinadi). Ular qo'lda tekshiriladi.
 - Android telefonda: bitta barmoq bilan aylantirish, ikki barmoq bilan zoom, obyektni
   barmoq bilan tanlash, saqlangan loyihalar ro'yxati va tugmalarning tor ekranda sig'ishi.
 
+## W11 — ishonchlilik, xarajat hisobi, kuzatuv va UX
+
+Bu bosqich **production chiqarilmagan**; merge qilinmagan va deploy qilinmagan.
+
+### Foydalanish va xarajat hisobi
+- `usage_records` — har bir operatsiya uchun **append-only** yozuv (loyiha, fayl, job,
+  eksport, render, AI). Mavjud tarif/limit tizimi (`UsageCounter`) saqlanadi; bu yozuv
+  faqat audit va hisobot uchun.
+- Har bir yozuv `(user_id, idempotency_key)` bo'yicha **unikal** — qayta urinish yoki
+  parallel so'rov ikki marta hisoblanmaydi. Po'lat DB cheklovi bilan himoyalangan.
+- `cost_kind` — `actual` / `estimated` / `unknown`. Narx tasdiqlanmagan bo'lsa xarajat
+  **uydirilmaydi** (`cost_micros` bo'sh qoladi). Provayder token soni faqat haqiqatan
+  qaytarilganda saqlanadi.
+- `GET /api/usage/summary`, `GET /api/usage/records` — foydalanuvchining o'z yozuvlari.
+
+### Rate limiting va resurslar
+- Har bir endpoint uchun alohida (per-scope) byudjet; `APP_RATE_LIMIT_SCOPES` bilan
+  sozlanadi. 429/503 javoblari `Retry-After` sarlavhasini qaytaradi.
+- `X-Forwarded-For` faqat `APP_TRUST_FORWARDED_FOR=true` bo'lganda (ishonchli proksi
+  ortida) hisobga olinadi; aks holda so'rovchi o'z IP sini yashira olmaydi.
+- So'rov hajmi (multipartdan tashqari) middleware darajasida oldindan rad etiladi (413).
+
+### Job ishonchliligi
+- Xatolar `retryable` (vaqtinchalik) va doimiy turlarga ajratiladi; tasniflanmagan xato
+  doimiy hisoblanadi.
+- `recover_stale_jobs` ishga tushishda (`app.main` startup), worker startupida, admin
+  endpointi va CLI orqali chaqiriladi — vaqt tugagan `running` joblar `failed`
+  (retryable) holatiga o'tadi.
+- Foydalanuvchi uchun parallel job chegarasi (`APP_JOB_MAX_PARALLEL_PER_USER`).
+- `python -m app.worker` — backend mustaqil worker (noop bajaradi; providerga bog'liq
+  turlarni halol xato bilan yakunlaydi). Heartbeat orqali readiness holati aniqlanadi.
+
+### Kuzatuv
+- Strukturali loglar; javoblarda `X-Request-ID`; job diagnostikasi `job_id` bilan
+  bog'lanadi.
+- Jarayon ichidagi metrikalar: `GET /api/health/metrics` (tashqi monitoring provayderi
+  **ulanmagan** — bu aniq ko'rsatiladi).
+- `GET /api/health/ready` — DB, saqlash va worker holatini tekshiradi.
+- `GET /api/admin/diagnostics` — production tayyorgarligi (sir qiymatlari ko'rsatilmaydi).
+
+### Frontend UX
+- Yuklash/jarayon/xato/qayta-urinish holatlari; muvaffaqiyat faqat server tasdiqlagach
+  ko'rsatiladi. Jarayon foizsiz (aniq o'lchovsiz) ko'rsatiladi.
+- Sessiya muddati tugashi, xizmat ishlamasligi, limit va rate-limit uchun aniq xabarlar.
+- Saqlanmagan o'zgarishlardan himoya (sahifadan chiqishda ogohlantirish).
+- Takroriy bosishdan himoya (single-flight); mobil ekranlar uchun moslashtirilgan.
+
+## W12 — production tayyorgarligi, xavfsizlik auditi va release gate
+
+Bu bosqich **production deploy qilinmagan**; faqat tayyorgarlik va tekshiruv.
+
+- **PostgreSQL real serverda tekshirildi:** migratsiyalar (`upgrade → downgrade →
+  upgrade`) va PostgreSQL-only integratsion testlar (unikal cheklovlar, foreign key
+  cascade, `timestamptz`, JSON, stale-job recovery, versioning) o‘tdi. CI’ga
+  PostgreSQL job qo‘shildi.
+- **SQLite FK muammosi tuzatildi:** SQLite endi `PRAGMA foreign_keys=ON` bilan
+  ishlaydi, shuning uchun lokal testlar production (PostgreSQL) kabi FK buzilishini
+  ushlaydi.
+- **Xavfsizlik:** 2 Medium + 1 Low topilma tuzatildi (sandbox to‘lov va console
+  email production’da bloklanadi; admin POST’ga CSRF qo‘shildi). Mustaqil pentest
+  o‘tkazilmagan.
+- **Hujjatlar:** [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) (12 bo‘lim),
+  [`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md),
+  [`docs/RELEASE_GATE.md`](docs/RELEASE_GATE.md),
+  [`docs/W12_TEST_REPORT.md`](docs/W12_TEST_REPORT.md).
+- **Release gate natijasi:** **NOT READY FOR PRODUCTION** — tashqi integratsiyalar
+  (haqiqiy AI, to‘lov, monitoring, SMTP), infratuzilma (managed PostgreSQL, hosting,
+  backup/restore mashqi) va qo‘lda brauzer/telefon sinovi hali yo‘q.
+
 ## Hujjatlar
 
 - [`PROJECT_PLAN.md`](PROJECT_PLAN.md) — maqsad, modullar, arxitektura, xavfsizlik,
   testlash, deploy va bosqichma-bosqich roadmap.
 - [`AGENTS.md`](AGENTS.md) — kod sifati, testlar va Git xavfsizligi qoidalari.
+- [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — deployment qo‘llanmasi va rollback rejasi.
+- [`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md) — W12 xavfsizlik auditi.
+- [`docs/RELEASE_GATE.md`](docs/RELEASE_GATE.md) — release mezonlari va bloklovchilar.
+- [`docs/W12_TEST_REPORT.md`](docs/W12_TEST_REPORT.md) — test va migratsiya natijalari.

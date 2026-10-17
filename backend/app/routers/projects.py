@@ -1,13 +1,17 @@
-"""Local (localStorage) project import.
+"""Server-side projects: CRUD with ownership, versioning and safe validation.
 
-Before accounts existed, projects lived in the browser's localStorage. This
-endpoint lets an authenticated user import those projects safely:
+Two capabilities live here:
 
-* it is **idempotent** — re-importing the same ``client_id`` updates the
-  existing row instead of creating a duplicate,
-* it never deletes the user's local data (that is the client's decision),
-* a bad item is skipped without failing the whole import,
-* a user can only ever read/write their own projects.
+* the **server project CRUD** (W10): create/read/update/delete a project stored
+  on the server, with ownership enforced per record and optimistic concurrency on
+  updates;
+* the original **local import** (Stage 7): idempotent import of browser
+  ``localStorage`` projects.
+
+Every endpoint authenticates the user server-side and never trusts a
+client-supplied user id, plan or limit. A project owned by another user is
+reported as not found so the API does not reveal that it exists. Mutating calls
+require the CSRF token.
 """
 from __future__ import annotations
 
@@ -23,11 +27,85 @@ from ..schemas import (
     AdminUserResponse,
     LocalProjectImportRequest,
     LocalProjectImportResult,
+    ProjectCreateRequest,
+    ProjectResponse,
+    ProjectUpdateRequest,
     UserResponse,  # noqa: F401  (re-exported for routers)
 )
 from ..services.limits import METRIC_PROJECTS, enforce_limit
+from ..services.projects import (
+    create_project,
+    delete_project,
+    get_owned_project,
+    list_owned_projects,
+    project_to_dict,
+    update_project,
+)
 
 router = APIRouter(prefix="/api", tags=["projects"])
+
+
+# ---------------------------------------------------------------------------
+# Server-side project CRUD (W10)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/projects", response_model=ProjectResponse, status_code=201)
+def create_server_project(
+    payload: ProjectCreateRequest,
+    _: None = Depends(require_csrf),
+    __: None = Depends(user_rate_limit("projects")),
+    user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> ProjectResponse:
+    project = create_project(db, user, name=payload.name, payload=payload.scene)
+    return ProjectResponse(**project_to_dict(project))
+
+
+@router.get("/projects/{project_id}", response_model=ProjectResponse)
+def read_server_project(
+    project_id: str,
+    user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> ProjectResponse:
+    project = get_owned_project(db, user, project_id)
+    return ProjectResponse(**project_to_dict(project))
+
+
+@router.patch("/projects/{project_id}", response_model=ProjectResponse)
+def patch_server_project(
+    project_id: str,
+    payload: ProjectUpdateRequest,
+    _: None = Depends(require_csrf),
+    __: None = Depends(user_rate_limit("projects")),
+    user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> ProjectResponse:
+    project = update_project(
+        db,
+        user,
+        project_id,
+        name=payload.name,
+        payload=payload.scene,
+        expected_version=payload.expected_version,
+    )
+    return ProjectResponse(**project_to_dict(project))
+
+
+@router.delete("/projects/{project_id}", status_code=204)
+def delete_server_project(
+    project_id: str,
+    _: None = Depends(require_csrf),
+    __: None = Depends(user_rate_limit("projects")),
+    user: User = Depends(get_current_user),
+    db: OrmSession = Depends(get_db),
+) -> None:
+    delete_project(db, user, project_id)
+
+
+# ---------------------------------------------------------------------------
+# Local (localStorage) project import
+# ---------------------------------------------------------------------------
 
 
 @router.post("/projects/import", response_model=LocalProjectImportResult)
@@ -53,6 +131,7 @@ def import_local_projects(
             # Idempotent update; never duplicate.
             existing.name = item.name
             existing.scene = item.scene
+            existing.version = existing.version + 1
             project_ids.append(existing.id)
             skipped += 1
             continue
@@ -75,15 +154,12 @@ def import_local_projects(
     return LocalProjectImportResult(imported=imported, skipped=skipped, project_ids=project_ids)
 
 
-@router.get("/projects", response_model=list[dict])
+@router.get("/projects", response_model=list[ProjectResponse])
 def list_projects(
     user: User = Depends(get_current_user), db: OrmSession = Depends(get_db)
-) -> list[dict]:
-    rows = db.execute(select(Project).where(Project.user_id == user.id)).scalars().all()
-    return [
-        {"id": row.id, "client_id": row.client_id, "name": row.name, "scene": row.scene}
-        for row in rows
-    ]
+) -> list[ProjectResponse]:
+    rows = list_owned_projects(db, user)
+    return [ProjectResponse(**project_to_dict(row)) for row in rows]
 
 
 __all__ = ["AdminUserResponse", "router"]

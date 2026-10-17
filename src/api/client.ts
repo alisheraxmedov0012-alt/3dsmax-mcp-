@@ -21,13 +21,48 @@ export interface ApiErrorShape {
 export class ApiRequestError extends Error {
   readonly code: string;
   readonly status: number;
+  /** Seconds the server asked the client to wait (429/503), when provided. */
+  readonly retryAfter: number | null;
+  /** True when a retry (possibly after waiting) could plausibly succeed. */
+  readonly retryable: boolean;
 
-  constructor(code: string, message: string, status: number) {
+  constructor(code: string, message: string, status: number, retryAfter: number | null = null) {
     super(message);
     this.name = 'ApiRequestError';
     this.code = code;
     this.status = status;
+    this.retryAfter = retryAfter;
+    // A transport error (status 0), a rate limit, a temporary outage or a 5xx
+    // are worth retrying; a 4xx validation/auth failure is not.
+    this.retryable =
+      status === 0 || status === 429 || status === 503 || (status >= 500 && status < 600);
   }
+}
+
+/** Session/authentication problems the UI must react to by asking to sign in. */
+export function isAuthError(error: unknown): boolean {
+  return (
+    error instanceof ApiRequestError &&
+    (error.status === 401 || error.code === 'not_authenticated')
+  );
+}
+
+/** The plan limit was reached (402) — surface an upgrade hint, not a retry. */
+export function isLimitError(error: unknown): boolean {
+  return error instanceof ApiRequestError && error.code === 'limit_reached';
+}
+
+/** Too many parallel jobs / rate limited (429). */
+export function isBusyError(error: unknown): boolean {
+  return (
+    error instanceof ApiRequestError &&
+    (error.status === 429 || error.code === 'too_many_parallel_jobs')
+  );
+}
+
+/** A dependency (worker, storage, DB) is temporarily unavailable (503). */
+export function isServiceDownError(error: unknown): boolean {
+  return error instanceof ApiRequestError && (error.status === 503 || error.code === 'service_unavailable');
 }
 
 /** A user-facing Uzbek message for a failed request. */
@@ -36,6 +71,15 @@ export function describeError(error: unknown): string {
     return error.message;
   }
   return "Serverga ulanib bo'lmadi. Iltimos, keyinroq qayta urinib ko'ring.";
+}
+
+function parseRetryAfter(response: Response): number | null {
+  const raw = response.headers.get('Retry-After');
+  if (!raw) {
+    return null;
+  }
+  const seconds = Number.parseInt(raw, 10);
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
 }
 
 interface RequestOptions {
@@ -84,6 +128,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       errorShape?.code ?? 'request_failed',
       errorShape?.message ?? "So'rov amalga oshmadi.",
       response.status,
+      parseRetryAfter(response),
     );
   }
 
@@ -177,6 +222,166 @@ export interface ImportResult {
   project_ids: string[];
 }
 
+/**
+ * W10 — server-side project, job and storage wire types.
+ * These mirror the FastAPI schemas; the server enforces ownership and limits.
+ */
+export interface ServerProject {
+  id: string;
+  client_id: string;
+  name: string;
+  version: number;
+  schema_version: number;
+  created_at: string | null;
+  updated_at: string | null;
+  scene?: Record<string, unknown>;
+}
+
+export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+
+export interface ServerJob {
+  id: string;
+  kind: string;
+  status: JobStatus;
+  attempts: number;
+  max_attempts: number;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  retryable: boolean | null;
+  created_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface StorageStatus {
+  backend: string;
+  available: boolean;
+  persistent: boolean;
+  message: string;
+}
+
+export interface ReadinessResponse {
+  status: 'ready' | 'not_ready';
+  checks: {
+    database: boolean;
+    storage: boolean;
+    worker: boolean;
+  };
+  environment: string;
+  database_backend: string;
+  storage_backend: string | null;
+  worker: { mode: string; required: boolean; running: boolean; note: string };
+  rate_limit_backend: string;
+  error_tracking: boolean;
+}
+
+export interface UsageSummaryRow {
+  operation: string;
+  records: number;
+  quantity: number;
+  duration_ms: number;
+  total_tokens: number;
+  actual: number;
+  estimated: number;
+  unknown: number;
+}
+
+export interface UsageRecordRow {
+  id: string;
+  operation: string;
+  quantity: number;
+  unit: string;
+  duration_ms: number | null;
+  cost_kind: string;
+  cost_micros: number | null;
+  currency: string | null;
+  provider: string | null;
+  model: string | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  total_tokens: number | null;
+  project_id: string | null;
+  job_id: string | null;
+  meta: Record<string, unknown>;
+  created_at: string | null;
+}
+
+export interface DiagnosticsCheck {
+  key: string;
+  ok: boolean;
+  required: boolean;
+  detail: string;
+}
+
+export interface DiagnosticsResponse {
+  environment: string;
+  production: boolean;
+  ready: boolean;
+  checks: DiagnosticsCheck[];
+  blocking: string[];
+  config_problems: string[];
+  payments_real: boolean;
+}
+
+/**
+ * Wire contract for AI design generation (W1). Mirrors the backend
+ * ``DesignSpec``; ``furniture`` is the shared W1/W2 vocabulary and ``supported``
+ * says whether the current build can turn the spec into geometry.
+ */
+export type AiFurnitureType =
+  | 'table'
+  | 'chair'
+  | 'armchair'
+  | 'sofa'
+  | 'bed'
+  | 'wardrobe'
+  | 'shelf'
+  | 'dresser';
+
+export interface AiDesignDimensions {
+  width_cm: number;
+  height_cm: number;
+  depth_cm: number;
+}
+
+export interface AiDesignSpec {
+  furniture: AiFurnitureType;
+  dimensions: AiDesignDimensions | null;
+  /**
+   * Optional type-specific channels (W13). Absent on specifications stored
+   * before W13, which is why every key is optional.
+   */
+  details?: AiDesignDetails | null;
+  color: string | null;
+  material_kind: string | null;
+  style: string | null;
+  confidence: 'high' | 'medium' | 'low';
+  notes: string[];
+  warnings: string[];
+  supported: boolean;
+}
+
+/** Mirrors `FurnitureParams` (the geometry layer) so keys need no translation. */
+export interface AiDesignDetails {
+  topThicknessCm?: number | null;
+  legCount?: number | null;
+  seatHeightCm?: number | null;
+  backHeightCm?: number | null;
+  armHeightCm?: number | null;
+  wallThicknessCm?: number | null;
+  shelfCount?: number | null;
+  doorCount?: number | null;
+  drawerCount?: number | null;
+  legHeightCm?: number | null;
+  mattressHeightCm?: number | null;
+  headboardHeightCm?: number | null;
+}
+
+export interface AiDesignResponse {
+  provider: string;
+  spec: AiDesignSpec;
+}
+
 export const api = {
   health: () => request<{ status: string }>('/api/health'),
 
@@ -238,5 +443,61 @@ export const api = {
       method: 'POST',
       body: { projects },
       csrfToken,
+    }),
+
+  // --- W10: server-side projects, jobs and storage ---
+
+  serverProjects: () => request<ServerProject[]>('/api/projects'),
+
+  serverProject: (id: string) => request<ServerProject>(`/api/projects/${id}`),
+
+  createServerProject: (name: string, scene: Record<string, unknown>, csrfToken: string | null) =>
+    request<ServerProject>('/api/projects', { method: 'POST', body: { name, scene }, csrfToken }),
+
+  updateServerProject: (
+    id: string,
+    patch: { name?: string; scene?: Record<string, unknown>; expected_version?: number },
+    csrfToken: string | null,
+  ) => request<ServerProject>(`/api/projects/${id}`, { method: 'PATCH', body: patch, csrfToken }),
+
+  deleteServerProject: (id: string, csrfToken: string | null) =>
+    request<void>(`/api/projects/${id}`, { method: 'DELETE', csrfToken }),
+
+  jobs: () => request<ServerJob[]>('/api/jobs'),
+
+  job: (id: string) => request<ServerJob>(`/api/jobs/${id}`),
+
+  createJob: (kind: string, idempotencyKey: string, csrfToken: string | null) =>
+    request<ServerJob>('/api/jobs', {
+      method: 'POST',
+      body: { kind, idempotency_key: idempotencyKey, payload: {} },
+      csrfToken,
+    }),
+
+  cancelJob: (id: string, csrfToken: string | null) =>
+    request<ServerJob>(`/api/jobs/${id}/cancel`, { method: 'POST', csrfToken }),
+
+  retryJob: (id: string, csrfToken: string | null) =>
+    request<ServerJob>(`/api/jobs/${id}/retry`, { method: 'POST', csrfToken }),
+
+  // Public: reports the storage backend honestly (no auth required).
+  storageStatus: () => request<StorageStatus>('/api/files/status'),
+
+  // --- W11: readiness, usage and diagnostics ---
+
+  readiness: () => request<ReadinessResponse>('/api/health/ready'),
+
+  usageSummary: () => request<UsageSummaryRow[]>('/api/usage/summary'),
+
+  usageRecords: (limit = 50) => request<UsageRecordRow[]>(`/api/usage/records?limit=${limit}`),
+
+  diagnostics: () => request<DiagnosticsResponse>('/api/admin/diagnostics'),
+
+  // AI design generation (W1). Authenticated compute endpoint; requires a session
+  // cookie but no CSRF token (it does not mutate user-visible state).
+  aiDesign: (text: string, imageFileName?: string) =>
+    request<AiDesignResponse>('/api/ai/design', {
+      method: 'POST',
+      body: { text, image_filename: imageFileName ?? null },
     }),
 };

@@ -10,6 +10,10 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+#: Payment provider names that are sandbox/test substitutes and must never be
+#: active in production (they would let subscriptions activate without payment).
+SANDBOX_PAYMENT_PROVIDERS = frozenset({"fake", "fake-sandbox", "sandbox"})
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -51,6 +55,19 @@ class Settings(BaseSettings):
     rate_limit_window_seconds: int = 60
     rate_limit_backend: str = "memory"  # memory | redis
     redis_url: str | None = None
+    # W11: per-scope overrides, e.g. "login=5,ai=3,files=30". A scope not listed
+    # keeps its built-in default (see app/rate_limit.py); an unset value falls
+    # back to ``rate_limit_attempts``.
+    rate_limit_scopes: str = ""
+    # W11: reverse-proxy handling. When true, the client IP is read from
+    # ``X-Forwarded-For`` counting ``trusted_proxy_count`` hops from the right
+    # (the address the trusted proxy appended last). Only enable this behind a
+    # proxy you control; otherwise a client can spoof the header.
+    trust_forwarded_for: bool = False
+    trusted_proxy_count: int = 1
+    # W11: maximum request body size for non-multipart requests (bytes). File
+    # uploads are bounded separately by ``storage_max_bytes``.
+    max_request_bytes: int = 1024 * 1024
 
     # Logging / observability
     log_format: str = "json"  # json | text
@@ -76,6 +93,41 @@ class Settings(BaseSettings):
     # labelled as a sandbox substitute, never a real provider.
     payment_provider: str = "fake"
     payment_webhook_secret: str | None = None
+
+    # W10 — job queue.
+    # ``inline`` runs jobs synchronously in the request (development/test only).
+    # A production deployment must set ``worker`` and run a separate worker
+    # process; the API never claims a job is processed by a background fleet when
+    # no worker is configured.
+    job_backend: str = "inline"  # inline | worker
+    job_max_attempts: int = 3
+    job_timeout_seconds: int = 300
+    job_max_payload_bytes: int = 64 * 1024
+    # W11: cap on jobs a single user may have running at once.
+    job_max_parallel_per_user: int = 3
+    # W11: how long a worker heartbeat stays fresh for readiness purposes.
+    worker_heartbeat_ttl_seconds: int = 60
+
+    # W10 — file storage.
+    # ``memory`` keeps bytes in-process (test/development); ``local`` writes to
+    # ``storage_dir``; ``s3`` is a documented boundary that is NOT implemented
+    # here and must be configured by a real deployment.
+    storage_backend: str = "memory"  # memory | local | s3
+    storage_dir: str = "./var/storage"
+    storage_max_bytes: int = 25 * 1024 * 1024
+    storage_max_project_bytes: int = 200 * 1024 * 1024
+
+    # AI design provider (W1). "none" (default) reports the integration as
+    # unconfigured; "local" is the offline, credential-free fallback;
+    # "openai_compatible" talks to any OpenAI-compatible /chat/completions API.
+    # The API key is read from the server environment only and never logged or
+    # exposed to the frontend.
+    ai_provider: str = "none"  # none | local | openai_compatible
+    ai_api_key: str | None = None
+    ai_base_url: str = "https://api.openai.com/v1"
+    ai_model: str | None = None
+    ai_timeout_seconds: float = 20.0
+    ai_max_retries: int = 1
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -114,6 +166,34 @@ class Settings(BaseSettings):
             problems.append("Productionda SQLite emas, PostgreSQL ishlatilishi kerak.")
         if self.rate_limit_backend == "redis" and not self.redis_url:
             problems.append("APP_RATE_LIMIT_BACKEND=redis uchun APP_REDIS_URL kerak.")
+        # W10: a production deployment must not silently rely on the in-process
+        # job runner or on volatile storage.
+        if self.job_backend != "worker":
+            problems.append(
+                "Productionda APP_JOB_BACKEND=worker bo'lishi shart (inline faqat test/ishlab chiqish uchun)."
+            )
+        if self.storage_backend == "s3":
+            problems.append(
+                "APP_STORAGE_BACKEND=s3 hali amalga oshirilmagan — production uchun storage adapterini sozlash kerak."
+            )
+        if self.storage_backend == "memory":
+            problems.append(
+                "Productionda APP_STORAGE_BACKEND=memory ishlatilmasin (fayllar saqlanmaydi)."
+            )
+        # W12: test/sandbox adapters must never be silently active in production.
+        # A sandbox payment provider would activate a subscription without a real
+        # payment; the console email adapter would silently drop verification and
+        # password-reset messages.
+        if (self.payment_provider or "").lower() in SANDBOX_PAYMENT_PROVIDERS:
+            problems.append(
+                "Productionda APP_PAYMENT_PROVIDER sandbox ('fake') bo'lmasin — haqiqiy "
+                "provayder sozlanmagan; sandbox obunani to'lovsiz faollashtiradi."
+            )
+        if (self.email_backend or "").lower() == "console":
+            problems.append(
+                "Productionda APP_EMAIL_BACKEND=smtp bo'lishi shart (console adapter xat "
+                "yubormaydi; tasdiqlash/tiklash ishlamaydi)."
+            )
         return problems
 
 

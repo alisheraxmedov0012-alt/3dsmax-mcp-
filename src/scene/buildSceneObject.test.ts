@@ -63,7 +63,9 @@ describe('buildSceneObject', () => {
   });
 
   it('throws for an unsupported object type', () => {
-    expect(() => buildSceneObject({ ...createTableSceneObject('x'), type: 'sofa' as never })).toThrow();
+    expect(() =>
+      buildSceneObject({ ...createTableSceneObject('x'), type: 'spaceship' as never }),
+    ).toThrow();
   });
 });
 

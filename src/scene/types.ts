@@ -1,4 +1,11 @@
-import { TABLE_DEFAULTS, type TableParams } from '../geometry/tableParams';
+import { TABLE_DEFAULTS } from '../geometry/tableParams';
+import {
+  FURNITURE_DEFAULT_NAMES,
+  createFurnitureParams,
+  type FurnitureParams,
+  type FurnitureType,
+} from '../geometry/furniture/types';
+import type { MaterialPresetId } from '../materials/types';
 import { createDefaultSettings, type SceneSettings } from './sceneSettings';
 
 /**
@@ -18,12 +25,79 @@ import { createDefaultSettings, type SceneSettings } from './sceneSettings';
  * validated and tested without a WebGL context.
  */
 
-export type SceneObjectType = 'table';
+/** Scene object types are the W2 furniture vocabulary. */
+export type SceneObjectType = FurnitureType;
 
 export interface Vec3 {
   x: number;
   y: number;
   z: number;
+}
+
+export type RoomWall = 'north' | 'south' | 'east' | 'west';
+
+export const ROOM_WALLS: readonly RoomWall[] = ['north', 'east', 'south', 'west'];
+
+export type OpeningKind = 'door' | 'window';
+
+/** A door/window *model* entry on a wall (see the room builder for rendering). */
+export interface RoomOpening {
+  id: string;
+  kind: OpeningKind;
+  wall: RoomWall;
+  /** Centre offset along the wall from the room centre (cm). */
+  offsetCm: number;
+  widthCm: number;
+  heightCm: number;
+  /** Distance of the opening's bottom edge from the floor (cm); 0 for doors. */
+  sillCm: number;
+}
+
+export const OPENING_LIMITS = {
+  offsetCm: { min: -2000, max: 2000, step: 5 },
+  widthCm: { min: 40, max: 400, step: 5 },
+  heightCm: { min: 40, max: 400, step: 5 },
+  sillCm: { min: 0, max: 300, step: 5 },
+} satisfies Record<'offsetCm' | 'widthCm' | 'heightCm' | 'sillCm', NumericRange>;
+
+export const MAX_OPENINGS_PER_ROOM = 12;
+
+/**
+ * W14 — assembly kinds. An assembly is a multi-part construction built from one
+ * parametric description; it is *not* a new furniture type (see
+ * `W14_IMPLEMENTATION_PLAN.md` D2).
+ */
+export const ASSEMBLY_KINDS = [
+  'kitchen-base-run',
+  'wall-cabinet',
+  'wardrobe-section',
+  'stair-straight',
+] as const;
+
+export type AssemblyKind = (typeof ASSEMBLY_KINDS)[number];
+
+/**
+ * W14 — a stored assembly.
+ *
+ * Only the parametric description is persisted. Member objects are derived
+ * deterministically by `buildAssembly()` at load time, which keeps the scene
+ * inside the server's object budget (`MAX_OBJECTS = 500` in
+ * `backend/app/services/scene_payload.py`). See plan D6.
+ *
+ * The field is additive and optional on `SceneData`, so scenes saved before W14
+ * keep loading unchanged.
+ */
+export interface SceneAssembly {
+  id: string;
+  kind: AssemblyKind;
+  params: Record<string, unknown>;
+}
+
+/** Upper bound on assemblies per scene (frontend and backend agree on 20). */
+export const MAX_ASSEMBLIES_PER_SCENE = 20;
+
+export function isAssemblyKind(value: unknown): value is AssemblyKind {
+  return typeof value === 'string' && (ASSEMBLY_KINDS as readonly string[]).includes(value);
 }
 
 export interface RoomConfig {
@@ -33,6 +107,14 @@ export interface RoomConfig {
   lengthCm: number;
   /** Wall height along Y (cm). */
   heightCm: number;
+  /** W6: draw a ceiling slab. */
+  showCeiling?: boolean;
+  /**
+   * W6: extensible door/window model. Purely descriptive here — the room builder
+   * draws thin markers on the wall to show the positions; they are NOT real
+   * holes cut out of the wall geometry (documented, deferred).
+   */
+  openings?: RoomOpening[];
 }
 
 export interface SceneObject {
@@ -44,7 +126,7 @@ export interface SceneObject {
   rotation: Vec3;
   scale: Vec3;
   visible: boolean;
-  params: TableParams;
+  params: FurnitureParams;
   /** PBR material overrides (metalness/roughness). Base colour is `params.color`. */
   material: ObjectMaterial;
 }
@@ -52,6 +134,15 @@ export interface SceneObject {
 export interface ObjectMaterial {
   metalness: number;
   roughness: number;
+  /**
+   * W4 PBR channels. All optional so Stage 6 projects (which only stored
+   * metalness/roughness) stay valid; the renderer resolves any missing value to
+   * its default. Base colour / albedo is the object's `params.color`.
+   */
+  materialId?: MaterialPresetId;
+  opacity?: number;
+  textureScale?: number;
+  normalStrength?: number;
 }
 
 export const MATERIAL_DEFAULTS: ObjectMaterial = { metalness: 0.05, roughness: 0.6 };
@@ -66,6 +157,11 @@ export interface SceneData {
   room: RoomConfig;
   objects: SceneObject[];
   settings: SceneSettings;
+  /**
+   * W14: assemblies stored with the scene. Optional — a scene saved before W14
+   * has no such field and loads with `undefined` (no assemblies).
+   */
+  assemblies?: SceneAssembly[];
 }
 
 /** Runtime scene state: persisted data plus transient selection. */
@@ -127,6 +223,26 @@ export function createTableSceneObject(
     scale: { x: 1, y: 1, z: 1 },
     visible: true,
     params: { ...TABLE_DEFAULTS },
+    material: { ...MATERIAL_DEFAULTS },
+    ...overrides,
+  };
+}
+
+/** Creates a scene object of any W2 furniture type with that type's defaults. */
+export function createFurnitureSceneObject(
+  type: FurnitureType,
+  id: string,
+  overrides: Partial<Omit<SceneObject, 'id' | 'type'>> = {},
+): SceneObject {
+  return {
+    id,
+    type,
+    name: FURNITURE_DEFAULT_NAMES[type],
+    position: { x: 0, y: 0, z: 0 },
+    rotation: { x: 0, y: 0, z: 0 },
+    scale: { x: 1, y: 1, z: 1 },
+    visible: true,
+    params: createFurnitureParams(type),
     material: { ...MATERIAL_DEFAULTS },
     ...overrides,
   };

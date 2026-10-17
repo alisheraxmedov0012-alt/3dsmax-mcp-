@@ -1,10 +1,15 @@
 import { useState } from 'react';
-import type { TableParams } from '../geometry/tableParams';
+import type { FurnitureParams, FurnitureType } from '../geometry/furniture';
 import { localTableAdapter } from '../ai/localTableAdapter';
+import { generateDesignFromCloud } from '../ai/cloudDesignAdapter';
 import { AiAdapterError, type ProposalConfidence } from '../ai/types';
 
 interface AiPromptPanelProps {
-  onApply: (params: TableParams) => void;
+  /**
+   * Called with the type and parameters of a validated result. The panel never
+   * edits an existing object: the caller creates a new one.
+   */
+  onApply: (type: FurnitureType, params: FurnitureParams) => void;
 }
 
 type PromptStatus = 'idle' | 'working' | 'done' | 'error';
@@ -15,13 +20,25 @@ const CONFIDENCE_LABEL: Record<ProposalConfidence, string> = {
   low: 'past',
 };
 
-const EXAMPLES = 'Masalan: "180x60x75 sm, yog\'och rangli stol"';
+const EXAMPLES =
+  'Masalan: "180x60x75 sm, yog\'och rangli stol" yoki "3 eshikli shkaf, 200 sm baland"';
 
 export function AiPromptPanel({ onApply }: AiPromptPanelProps) {
   const [text, setText] = useState('');
   const [status, setStatus] = useState<PromptStatus>('idle');
   const [message, setMessage] = useState('');
   const [details, setDetails] = useState<string[]>([]);
+
+  const runLocalFallback = async (reason: string) => {
+    const proposal = await localTableAdapter.generate({ text });
+    // The offline fallback only understands tables; it is used exactly as before.
+    onApply('table', proposal.params);
+    setStatus('done');
+    setMessage(
+      `${reason} Mahalliy tahlil ishlatildi (ishonch: ${CONFIDENCE_LABEL[proposal.confidence]}).`,
+    );
+    setDetails([...proposal.notes, ...proposal.warnings]);
+  };
 
   const handleGenerate = async () => {
     if (status === 'working') {
@@ -33,13 +50,28 @@ export function AiPromptPanel({ onApply }: AiPromptPanelProps) {
     setDetails([]);
 
     try {
-      const proposal = await localTableAdapter.generate({ text });
-      onApply(proposal.params);
-      setStatus('done');
-      setMessage(
-        `Parametrlar qo'llanildi (ishonch: ${CONFIDENCE_LABEL[proposal.confidence]}).`,
-      );
-      setDetails([...proposal.notes, ...proposal.warnings]);
+      const outcome = await generateDesignFromCloud(text);
+
+      if (outcome.kind === 'applied') {
+        onApply(outcome.furniture as FurnitureType, outcome.params);
+        setStatus('done');
+        setMessage(
+          `AI (${outcome.provider}) natijasi qo'llanildi: ${outcome.furniture} ` +
+            `(ishonch: ${CONFIDENCE_LABEL[outcome.confidence]}).`,
+        );
+        setDetails([...outcome.notes, ...outcome.warnings]);
+        return;
+      }
+
+      if (outcome.kind === 'unsupported') {
+        setStatus('error');
+        setMessage(outcome.message);
+        return;
+      }
+
+      // Cloud unavailable (not signed in, unconfigured, invalid output, network):
+      // fall back to the offline analyzer with a clear message.
+      await runLocalFallback(`Server AI xizmatidan foydalanib bo'lmadi (${outcome.reason}).`);
     } catch (error) {
       setStatus('error');
       setMessage(
@@ -93,8 +125,9 @@ export function AiPromptPanel({ onApply }: AiPromptPanelProps) {
       )}
 
       <p className="ai__hint">
-        Hozircha matn tahlili mahalliy (oflayn) qoidaga asoslangan; tashqi AI xizmati
-        ulanmagan.
+        Serverda AI provayderi sozlangan bo'lsa u ishlatiladi; aks holda (yoki
+        tizimga kirmagan bo'lsangiz) matn tahlili mahalliy (oflayn) qoidaga
+        asoslangan holda bajariladi.
       </p>
     </section>
   );

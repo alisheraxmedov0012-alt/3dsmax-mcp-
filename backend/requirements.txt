@@ -18,6 +18,9 @@ redis==6.4.0
 # Optional error tracking (active only when APP_ERROR_TRACKING_DSN is set).
 sentry-sdk==2.72.0
 
+# HTTP client: used by the OpenAI-compatible AI provider (W1) at runtime, and by
+# the test client.
+httpx==0.28.1
+
 # --- Development / test only ---
 pytest==9.1.1
-httpx==0.28.1

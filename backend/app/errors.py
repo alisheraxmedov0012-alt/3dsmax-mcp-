@@ -26,16 +26,33 @@ GENERIC_500 = "Serverda kutilmagan xatolik. Iltimos, keyinroq qayta urinib ko'ri
 
 
 class ApiError(Exception):
-    def __init__(self, code: str, message: str, status_code: int = status.HTTP_400_BAD_REQUEST):
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        status_code: int = status.HTTP_400_BAD_REQUEST,
+        *,
+        headers: dict[str, str] | None = None,
+    ):
         self.code = code
         self.message = message
         self.status_code = status_code
+        # Optional response headers (e.g. Retry-After on 429/503). Values must be
+        # client-safe strings and never contain secrets.
+        self.headers = headers or {}
         super().__init__(message)
 
 
-def error_response(code: str, message: str, status_code: int) -> JSONResponse:
+def error_response(
+    code: str,
+    message: str,
+    status_code: int,
+    headers: dict[str, str] | None = None,
+) -> JSONResponse:
     return JSONResponse(
-        status_code=status_code, content={"error": {"code": code, "message": message}}
+        status_code=status_code,
+        content={"error": {"code": code, "message": message}},
+        headers=headers,
     )
 
 
@@ -65,7 +82,7 @@ _HTTP_CODE_MAP = {
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ApiError)
     async def _api_error(_: Request, exc: ApiError):
-        return error_response(exc.code, exc.message, exc.status_code)
+        return error_response(exc.code, exc.message, exc.status_code, exc.headers)
 
     @app.exception_handler(RequestValidationError)
     async def _validation_error(_: Request, exc: RequestValidationError):
