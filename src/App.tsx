@@ -4,6 +4,7 @@ import { ServerPanel } from './components/ServerPanel';
 import { AssemblyPanel } from './components/AssemblyPanel';
 import { JobsPanel } from './components/JobsPanel';
 import { AiPromptPanel } from './components/AiPromptPanel';
+import { AiEditPanel } from './components/AiEditPanel';
 import { ImageReferencePanel } from './components/ImageReferencePanel';
 import { FurniturePanel } from './components/FurniturePanel';
 import { ExportControls, type ExportStatus } from './components/ExportControls';
@@ -72,7 +73,7 @@ export default function App() {
   // W15.6B: the scene and its undo timeline live in one reducer, so a mutation
   // and its history entry cannot drift apart. `dispatch` keeps the signature
   // every call site already uses.
-  const { scene, dispatch, undo, redo } = useSceneHistory(() =>
+  const { scene, dispatch, undo, redo, applyEdit, canUndo, canRedo } = useSceneHistory(() =>
     createDefaultSceneState(createSceneObjectId),
   );
   useSceneHistoryShortcuts(undo, redo);
@@ -615,6 +616,15 @@ export default function App() {
           onReset={handleResetMaterial}
         />
         <AiPromptPanel onApply={applyDesign} />
+        <AiEditPanel
+          scene={scene}
+          selectedObject={selectedObject}
+          onApply={applyEdit}
+          undo={undo}
+          redo={redo}
+          canUndo={canUndo}
+          canRedo={canRedo}
+        />
         <ImageReferencePanel onConfirm={handleImageReferenceConfirm} />
         <ManufacturingPanel object={selectedObject} projectName={projectName} />
         <AccountPanel />
