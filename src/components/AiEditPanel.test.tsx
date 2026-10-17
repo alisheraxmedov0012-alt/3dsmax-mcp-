@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { AiEditPanel } from './AiEditPanel';
+import { AiEditPanel, describeTarget } from './AiEditPanel';
+import { AI_EDIT_FLAG_NAME } from '../ai/editFlag';
 import { useSceneHistory } from '../hooks/useSceneHistory';
 import { applyDiff } from '../scene/applyDiff';
 import { buildDiff } from '../scene/buildDiff';
@@ -80,11 +81,15 @@ function Harness({ selected = wardrobe() as SceneObject | null }: { selected?: S
 }
 
 beforeEach(() => {
-  // The panel awaits the provider; keep the duration deterministic.
+  // W15.10: the panel is behind a flag; these tests exercise the enabled path.
+  vi.stubEnv(AI_EDIT_FLAG_NAME, 'true');
   vi.useRealTimers();
 });
 
-afterEach(() => cleanup());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  cleanup();
+});
 
 async function propose(text: string) {
   fireEvent.change(screen.getByTestId('aiedit-target').ownerDocument.querySelector('textarea')!, {
@@ -378,3 +383,72 @@ describe('AiEditPanel — accessibility and layout', () => {
     expect(container.querySelector('.aiedit__button')).not.toBeNull();
   });
 });
+
+describe('AiEditPanel — W15.10 feature flag', () => {
+  it('renders nothing when the flag is absent', () => {
+    vi.unstubAllEnvs();
+    const { container } = render(<Harness />);
+    expect(container.querySelector('.aiedit')).toBeNull();
+    // The surrounding app keeps working: the scene is still rendered.
+    expect(screen.getByTestId('scene-width').textContent).toBe('180');
+  });
+
+  it.each(['false', '0', 'yes', 'on'])('renders nothing when the flag is %j', (value) => {
+    vi.stubEnv(AI_EDIT_FLAG_NAME, value);
+    const { container } = render(<Harness />);
+    expect(container.querySelector('.aiedit')).toBeNull();
+  });
+
+  it('renders the panel when the flag is true', () => {
+    vi.stubEnv(AI_EDIT_FLAG_NAME, 'true');
+    render(<Harness />);
+    expect(screen.getByText('AI bilan tahrirlash')).toBeTruthy();
+  });
+
+  it('does not change the scene or the history while disabled', () => {
+    vi.stubEnv(AI_EDIT_FLAG_NAME, 'false');
+    render(<Harness />);
+    expect(screen.getByTestId('scene-width').textContent).toBe('180');
+    expect(screen.getByTestId('undo-depth').textContent).toBe('0');
+    expect(screen.getByTestId('scene-revision').textContent).toBe('1');
+  });
+
+  it('keeps the AI flow working once enabled', async () => {
+    vi.stubEnv(AI_EDIT_FLAG_NAME, 'true');
+    render(<Harness />);
+    await propose('Shkafni 20 sm kengaytir');
+    fireEvent.click(screen.getByTestId('aiedit-apply'));
+
+    expect(screen.getByTestId('scene-width').textContent).toBe('200');
+    expect(screen.getByTestId('undo-depth').textContent).toBe('1');
+  });
+});
+
+describe('describeTarget — friendly preview label', () => {
+  it('uses the object name', () => {
+    expect(describeTarget(wardrobe(), 'w-1')).toBe('Shkaf');
+  });
+
+  it('falls back to the type label when the name is blank', () => {
+    const unnamed = { ...wardrobe(), name: '   ' };
+    expect(describeTarget(unnamed, 'w-1')).toBe('Shkaf');
+  });
+
+  it('falls back to a safe label for another object', () => {
+    expect(describeTarget(wardrobe(), 'other-id')).toBe('Tanlangan obyekt');
+  });
+
+  it('falls back when nothing is selected', () => {
+    expect(describeTarget(null, 'w-1')).toBe('Tanlangan obyekt');
+  });
+
+  it('shows the name in the preview heading instead of the id', async () => {
+    render(<Harness />);
+    await propose('Shkafni 20 sm kengaytir');
+
+    const preview = screen.getByTestId('aiedit-preview');
+    expect(within(preview).getByText('Taklif: Shkaf')).toBeTruthy();
+    expect(within(preview).queryByText(/Taklif: w-1/)).toBeNull();
+  });
+});
+
