@@ -65,6 +65,7 @@ export type SceneAction =
   | { type: 'APPLY_MATERIAL_PRESET'; id: string; presetId: string }
   | { type: 'RESET_MATERIAL'; id: string }
   | { type: 'TOGGLE_VISIBILITY'; id: string }
+  | { type: 'SET_VISIBILITY'; id: string; visible: boolean }
   | { type: 'DELETE_OBJECT'; id: string }
   | { type: 'SET_BACKGROUND'; color: string }
   | { type: 'UPDATE_LIGHTS'; lights: Partial<LightSettings> }
@@ -82,6 +83,15 @@ export type SceneAction =
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
+}
+
+/**
+ * Runtime check for values that arrive from outside TypeScript's reach
+ * (restored history, persisted state). Same spirit as the numeric guards in
+ * `mergeVec3` and `mergeMaterial`.
+ */
+function isBoolean(value: unknown): value is boolean {
+  return typeof value === 'boolean';
 }
 
 function mergeVec3(base: Vec3, patch: Partial<Vec3> | undefined, min: number, max: number): Vec3 {
@@ -347,6 +357,21 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
 
     case 'TOGGLE_VISIBILITY':
       return replaceObject(state, action.id, (object) => ({ ...object, visible: !object.visible }));
+
+    case 'SET_VISIBILITY': {
+      // W15.2: the idempotent counterpart to TOGGLE_VISIBILITY. An AI edit names
+      // a target value, so replaying it must not flip the object back. Unknown
+      // ids and an unchanged target return the same state, which keeps no-op
+      // edits out of the undo history.
+      if (!isBoolean(action.visible)) {
+        return state;
+      }
+      const target = findSceneObject(state, action.id);
+      if (target === null || target.visible === action.visible) {
+        return state;
+      }
+      return replaceObject(state, action.id, (object) => ({ ...object, visible: action.visible }));
+    }
 
     case 'DELETE_OBJECT': {
       const objects = state.data.objects.filter((object) => object.id !== action.id);
