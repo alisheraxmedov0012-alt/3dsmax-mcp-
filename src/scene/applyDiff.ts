@@ -23,6 +23,7 @@ import {
   type FurnitureType,
 } from '../geometry/furniture';
 import { DEFAULT_MATERIAL_ID, DEFAULT_PBR_MATERIAL } from '../materials/types';
+import { advanceRevision } from './sceneRevision';
 import { validateSceneOps, type SceneOpsErrorCode } from './sceneTargets';
 import { sceneReducer, type SceneAction } from './sceneReducer';
 import {
@@ -47,6 +48,7 @@ export type ApplyDiffErrorCode =
   | 'invalid_current_version'
   | 'stale_version'
   | 'stale_content'
+  | 'revision_mismatch'
   | 'type_mismatch'
   | 'invalid_change'
   | 'duplicate_change'
@@ -54,8 +56,9 @@ export type ApplyDiffErrorCode =
 
 export interface ApplyDiffOptions {
   /**
-   * The scene version the caller believes is current. Required: `SceneData`
-   * carries no revision, and defaulting this would let a stale diff through.
+   * The revision the caller believes is current. Required, and cross-checked
+   * against `scene.revision` — a number the caller invents is rejected rather
+   * than trusted.
    */
   currentVersion: number;
 }
@@ -137,6 +140,17 @@ export function applyDiff(
     );
   }
 
+  // The caller supplies `currentVersion`, so it can be wrong. Cross-check it
+  // against the revision the scene actually carries: this is what stops a
+  // caller from "refreshing" a stale diff with a made-up number.
+  if (currentVersion !== scene.revision) {
+    return reject(
+      'revision_mismatch',
+      -1,
+      `Chaqiruvchi ${currentVersion}-versiyani ko'rsatdi, sahna esa ${scene.revision}-reviziyada.`,
+    );
+  }
+
   const object = resolveTarget(scene, proposal.objectId);
   if (!object.ok) {
     return object;
@@ -212,7 +226,9 @@ export function applyDiff(
     }
   }
 
-  return { ok: true, state: working, actions };
+  // Applying an edit is a real scene change, so the revision moves forward —
+  // the diff that produced it quoted the old value and must not be reusable.
+  return { ok: true, state: { ...working, revision: advanceRevision(scene.revision) }, actions };
 }
 
 // ---------------------------------------------------------------------------

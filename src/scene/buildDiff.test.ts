@@ -430,7 +430,7 @@ describe('buildDiff — visibility maps onto the W15.2 reducer action', () => {
 
     // The diff names a target value; SET_VISIBILITY applies exactly that value.
     const next = sceneReducer(
-      { data: base, selectedId: null },
+      { data: base, selectedId: null, revision: 1 },
       { type: 'SET_VISIBILITY', id: result.diff.objectId, visible: change.after as boolean },
     );
     expect(next.data.objects[0].visible).toBe(false);
@@ -447,7 +447,7 @@ describe('buildDiff — visibility maps onto the W15.2 reducer action', () => {
     }
 
     const once = sceneReducer(
-      { data: base, selectedId: null },
+      { data: base, selectedId: null, revision: 1 },
       { type: 'SET_VISIBILITY', id: 'wardrobe-1', visible: false },
     );
     const twice = sceneReducer(once, { type: 'SET_VISIBILITY', id: 'wardrobe-1', visible: false });

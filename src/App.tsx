@@ -37,7 +37,8 @@ import {
   sceneSignature,
   shouldProtectUnload,
 } from './projects/unsavedChanges';
-import { findSceneObject, sceneReducer } from './scene/sceneReducer';
+import { findSceneObject } from './scene/sceneReducer';
+import { sceneReducerWithRevision } from './scene/sceneRevision';
 import { createSceneObjectId } from './scene/sceneIds';
 import {
   createLayoutObjects,
@@ -67,8 +68,10 @@ import type {
 import './App.css';
 
 export default function App() {
+  // W15.6: every scene mutation goes through this one reducer, so wrapping it
+  // is what keeps `scene.revision` consistent across all 36 dispatch sites.
   const [scene, dispatch] = useReducer(
-    sceneReducer,
+    sceneReducerWithRevision,
     undefined,
     () => createDefaultSceneState(createSceneObjectId),
   );

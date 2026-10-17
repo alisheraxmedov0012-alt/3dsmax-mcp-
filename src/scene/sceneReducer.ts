@@ -216,6 +216,10 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
           objects,
         },
         selectedId: objects[0]?.id ?? ROOM_OBJECT_ID,
+        // The reducer never advances the counter; `sceneReducerWithRevision`
+        // owns that. Preserving it here keeps the field truthful for callers
+        // that use the raw reducer.
+        revision: state.revision,
       };
     }
 
@@ -258,6 +262,7 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
           settings: state.data.settings,
         },
         selectedId: object.id,
+        revision: state.revision,
       };
     }
 
@@ -279,6 +284,7 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
           settings: state.data.settings,
         },
         selectedId: object.id,
+        revision: state.revision,
       };
     }
 
@@ -382,6 +388,7 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
         data: { ...state.data, objects },
         selectedId:
           state.selectedId === action.id ? (objects[0]?.id ?? ROOM_OBJECT_ID) : state.selectedId,
+        revision: state.revision,
       };
     }
 
@@ -389,6 +396,7 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
       return {
         data: action.scene,
         selectedId: action.scene.objects[0]?.id ?? ROOM_OBJECT_ID,
+        revision: state.revision,
       };
 
     case 'ADD_ASSEMBLY': {
@@ -404,6 +412,7 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
       return {
         data: { ...state.data, assemblies: [...current, action.assembly] },
         selectedId: state.selectedId,
+        revision: state.revision,
       };
     }
 
@@ -418,6 +427,7 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
           assemblies: current.filter((entry) => entry.id !== action.id),
         },
         selectedId: state.selectedId,
+        revision: state.revision,
       };
     }
 
@@ -431,6 +441,7 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
           settings: createDefaultSettings(),
         },
         selectedId: object.id,
+        revision: state.revision,
       };
     }
 
