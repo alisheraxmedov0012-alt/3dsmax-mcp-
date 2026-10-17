@@ -258,7 +258,7 @@ Bu raqamlar W14 hisobotidagi "610 frontend / 287 backend / 14 skip" bilan mos.
 | 13 | `UPDATE_MATERIAL` | **ALLOW (cheklangan)** | 3.6 |
 | 14 | `APPLY_MATERIAL_PRESET` | **ALLOW** | 3.7 (yopiq ro'yxat) |
 | 15 | `RESET_MATERIAL` | **ALLOW** | 3.7 (idempotent) |
-| 16 | `TOGGLE_VISIBILITY` | **ALLOW (guarded)** | 3.8 — idempotent emas |
+| 16 | `TOGGLE_VISIBILITY` | **DENY (DSL: `set_visibility`)** | 3.8 — idempotent emas; AI faqat aniq maqsad qiymat beradi |
 | 17 | `DELETE_OBJECT` | **DENY** | Buzg'unchi; undo bilan ham xavfli |
 | 18 | `SET_BACKGROUND` | **DENY** | Sahna ko'rinishi |
 | 19 | `UPDATE_LIGHTS` | **DENY** | Yorug'lik |
@@ -274,7 +274,7 @@ Bu raqamlar W14 hisobotidagi "610 frontend / 287 backend / 14 skip" bilan mos.
 | 29 | `DELETE_ASSEMBLY` | **DENY** | **M6** |
 | 30 | `NEW_SCENE` | **DENY** | Buzg'unchi |
 
-**Jami:** 7 ta allowlist (ulardan 3 tasi cheklangan/guarded), 23 ta denylist.
+**Jami:** 6 ta allowlist reducer action + 1 ta DSL-only operator (`set_visibility`) = **7 operator**; **24 ta denylist** (30 − 6).
 
 > **Muhim:** roadmap "20 amalli DSL" deb yozadi (`IMPLEMENTATION_ROADMAP.md:87`).
 > Audit 30 reducer action va faqat **7** xavfsiz mutatsiya turi borligini ko'rsatadi.
@@ -829,17 +829,55 @@ Har qadamdan keyin: `npm test`, `npx oxlint src --deny-warnings`,
 | **D8** | Undo tarixi 50 yozuv, faqat `SceneData` |
 | **D9** | Mock provayder — deterministik qoidalar, `provider: 'mock'` |
 | **D10** | Assembly op'lari rad (M6) |
+| **D11** | V1 faqat **7** xavfsiz edit action bilan ishlaydi (D-OPEN-1 yopildi) |
+| **D12** | `SET_VISIBILITY` additive qo'shiladi; AI DSL `TOGGLE_VISIBILITY` chaqira olmaydi |
+| **D13** | Rotation deterministik normalizatsiya (370° → 10°), clamp emas |
+| **D14** | `textureScale` / `normalStrength` / `materialId` v1 scope'idan tashqarida |
+| **D15** | Undo paytida `revision` kamaymaydi |
+| **D16** | Mock provayder o'zbek, rus va ingliz tillarini tushunadi |
 
-### 13.2 Ochiq masalalar (OPEN DECISION)
+### 13.2 "20 amal" haqida — nima uchun v1 da 7 ta
 
-| ID | Masala | Variantlar | Tavsiya |
+`IMPLEMENTATION_ROADMAP.md:87` "20 amalli DSL" deb yozadi. Audit shuni ko'rsatadiki,
+bu raqamni **reducer action'lari soni** deb o'qish mumkin emas:
+
+| Fakt | Dalil |
+|---|---|
+| Reducer'da jami **30** action bor | `src/scene/sceneReducer.ts:45–81` |
+| Ulardan faqat **6** tasi mavjud obyektning maydonlarini xavfsiz o'zgartiradi | `UPDATE_TRANSFORM`, `RENAME_OBJECT`, `UPDATE_PARAMS`, `UPDATE_MATERIAL`, `APPLY_MATERIAL_PRESET`, `RESET_MATERIAL` |
+| Qolgan **24** tasi sahna tuzilmasini, xonani, yorug'likni, kamerani o'zgartiradi yoki obyekt yaratadi/o'chiradi | 3.2 jadval |
+| Visibility uchun yagona reducer amali `TOGGLE_VISIBILITY` — **idempotent emas** | `sceneReducer.ts:348` |
+
+Ya'ni 20 ta "amal"ni faqat denylist'dagi 24 action hisobiga to'ldirish mumkin, va bu
+aynan xavfli amallarni AI'ga ochish demakdir. Shuning uchun v1:
+
+1. **6 ta reducer action** + **1 ta DSL-only `set_visibility`** = **7 operator**;
+2. har bir operator maydon darajasida cheklangan (8 mebel turi × o'z parametrlari,
+   transform guruhlari, material kanallari) — bu **amal** soni emas, **maydon** soni;
+3. roadmap'dagi "20" raqami maydon darajasidagi qamrov sifatida qondiriladi
+   (8 tur × 2–6 maydon + transform + material), lekin **ruxsat etilgan action
+   soni ataylab 7 ta bo'lib qoladi**.
+
+Allowlist'ni sun'iy ravishda kengaytirish taqiqlanadi: yangi action faqat alohida
+qaror, xavfsizlik tahlili va testlar bilan qo'shiladi.
+
+### 13.3 Hal qilingan ochiq masalalar
+
+| ID | Qaror (repo egasi tomonidan tasdiqlangan) |
+|---|---|
+| **D-OPEN-1** | **7 ta xavfsiz action** (D11). "20 actions" 20 ta xavfsiz reducer action degani emas; allowlist kengaytirilmaydi |
+| **D-W15-3** | `SET_VISIBILITY` qo'shiladi (D12). AI DSL faqat aniq boolean qabul qiladi; `TOGGLE_VISIBILITY` DSL orqali chaqirilmaydi |
+| **D-W15-6** | Rotation deterministik normalizatsiya qilinadi (D13). Coordinate convention va o'qlar tekshirilgan: viewer Euler XYZ darajani to'g'ridan-to'g'ri qo'llaydi (`buildSceneObject.ts:20–23`), shuning uchun 370° va 10° bir xil orientatsiya |
+| **D-W15-7** | Uch maydon v1 scope'idan tashqarida (D14) |
+| **D-W15-8** | `revision` undo paytida kamaymaydi (D15) |
+| **D-W15-9** | Mock provayder uch tilda (D16) |
+
+### 13.4 Implementatsiya paytida aniqlangan kod farqlari
+
+| Masala | Reja | Kod | Qabul qilingan yechim |
 |---|---|---|---|
-| **D-OPEN-1** | Roadmap "20 amal" vs 7 xavfsiz action | (a) 7 action, hujjatda tushuntirish; (b) sun'iy 20 ta amal | **(a)** — xavfsizlik ustuvor |
-| **D-W15-3** | `SET_VISIBILITY` qo'shishmi? | (a) yangi additive action; (b) guarded toggle | **(a)** |
-| **D-W15-6** | `rotation` 370° | (a) normalizatsiya; (b) rad etish | **(a)** |
-| **D-W15-7** | `textureScale` / `normalStrength` / `materialId` W15da? | (a) v1da yo'q; (b) qo'shish | **(a)** — minimal scope |
-| **D-W15-8** | Undo paytida `revision` | (a) kamaymaydi; (b) kamayadi | **(a)** — server versiyasi bilan chalkashmaslik |
-| **D-W15-9** | Mock provayder tili | (a) faqat o'zbekcha naqshlar; (b) o'zbek + rus + ingliz | **(b)** — minimal lug'at |
+| `opacity` minimal qiymati | 0–1 (§3.6) | `PBR_LIMITS.opacity.min = 0.1` (`src/materials/types.ts:66`) | **Kod** — 0 shaffoflik obyektni ko'rinmas qiladi; W15 `PBR_LIMITS`ni ishlatadi |
+| `position.y < 0` | Rad etiladi (§3.3) | `OBJECT_LIMITS.position` −2000…2000 | **Reja** — W15 qat'iyroq: obyekt pol ostiga tushmaydi |
 
 ---
 
@@ -847,7 +885,7 @@ Har qadamdan keyin: `npm test`, `npx oxlint src --deny-warnings`,
 
 **Reja implementatsiyaga TAYYOR**, quyidagi shartlar bilan:
 
-1. 30 reducer action **to'liq** tasniflangan (7 allowlist / 23 denylist).
+1. 30 reducer action **to'liq** tasniflangan: 6 allowlist + 24 denylist; DSL'da 7 operator.
 2. Allowlist per-type parametr jadvali bilan asoslangan
    (`src/geometry/furniture/types.ts:96`).
 3. Typed DSL, diff, patch va atomiklik qoidalari aniq.
@@ -857,7 +895,7 @@ Har qadamdan keyin: `npm test`, `npx oxlint src --deny-warnings`,
 7. Feature flag va rollback darajalari belgilangan.
 8. Har bir da'vo `fayl:satr` bilan tasdiqlangan.
 
-**Ochiq qolgan:** 6 ta OPEN DECISION (13.2). Ularning tavsiya etilgan
-variantlari qabul qilinsa, W15.1 dan boshlash mumkin.
+**Ochiq qolgan:** 6 ta OPEN DECISION (13.3) **yopildi** va 13.1/13.3 da qayd etildi.
+W15.1 `src/scene/sceneDiff.ts` bilan boshlandi.
 
 **W15 hech qanday "manufacturing-ready" yoki "haqiqiy AI" kafolatini bermaydi.**
