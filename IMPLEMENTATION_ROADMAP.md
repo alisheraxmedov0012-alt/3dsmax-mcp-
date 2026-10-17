@@ -1,6 +1,10 @@
 # IMPLEMENTATION_ROADMAP — W13…W23
 
-> **Hujjat holati:** Phase 0 (reja). Bajarilmagan.
+> **Hujjat holati:** W13–W23 uchun reja. Bosqichlar holati har bir bo'limda yoziladi.
+> **W15** (W15.1–W15.10) implementatsiya qilingan va avtomatik frontend testlari yashil,
+> lekin draft PR'larda turadi: **merge qilinmagan, deploy qilinmagan, brauzer/mobil QA
+> bajarilmagan**. Qolgan bosqichlar (W16–W23) hali bajarilmagan — ular bo'yicha da'vo
+> yo'q. W15 ham "production-ready" deb belgilanmagan; cheklovlari o'z bo'limida.
 > **Baza:** `integration/w1-w12` @ `439c047b5380e609a84260e2ab7bbfe8785edaaf`.
 > **W1–W12 — mavjud poydevor.** Bu hujjat ularni qayta implementatsiya qilmaydi va
 > ularning tarixini o'zgartirmaydi. Yangi ishlar **W13–W23** identifikatorlarini oladi.
