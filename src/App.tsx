@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AccountPanel } from './components/AccountPanel';
 import { ServerPanel } from './components/ServerPanel';
 import { AssemblyPanel } from './components/AssemblyPanel';
@@ -38,7 +38,8 @@ import {
   shouldProtectUnload,
 } from './projects/unsavedChanges';
 import { findSceneObject } from './scene/sceneReducer';
-import { sceneReducerWithRevision } from './scene/sceneRevision';
+import { useSceneHistory } from './hooks/useSceneHistory';
+import { useSceneHistoryShortcuts } from './hooks/useSceneHistoryShortcuts';
 import { createSceneObjectId } from './scene/sceneIds';
 import {
   createLayoutObjects,
@@ -68,13 +69,13 @@ import type {
 import './App.css';
 
 export default function App() {
-  // W15.6: every scene mutation goes through this one reducer, so wrapping it
-  // is what keeps `scene.revision` consistent across all 36 dispatch sites.
-  const [scene, dispatch] = useReducer(
-    sceneReducerWithRevision,
-    undefined,
-    () => createDefaultSceneState(createSceneObjectId),
+  // W15.6B: the scene and its undo timeline live in one reducer, so a mutation
+  // and its history entry cannot drift apart. `dispatch` keeps the signature
+  // every call site already uses.
+  const { scene, dispatch, undo, redo } = useSceneHistory(() =>
+    createDefaultSceneState(createSceneObjectId),
   );
+  useSceneHistoryShortcuts(undo, redo);
 
   const [values, setValues] = useState<Record<string, string>>(() =>
     furnitureParamsToFieldValues('table', createFurnitureParams('table')),
