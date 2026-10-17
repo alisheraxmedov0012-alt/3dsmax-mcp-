@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { AccountPanel } from './components/AccountPanel';
 import { ServerPanel } from './components/ServerPanel';
+import { AssemblyPanel } from './components/AssemblyPanel';
 import { JobsPanel } from './components/JobsPanel';
 import { AiPromptPanel } from './components/AiPromptPanel';
 import { ImageReferencePanel } from './components/ImageReferencePanel';
@@ -52,6 +53,7 @@ import {
   ROOM_OBJECT_ID,
   createDefaultSceneState,
   type ObjectMaterial,
+  type SceneAssembly,
   type OpeningKind,
   type RoomConfig,
   type Vec3,
@@ -215,6 +217,11 @@ export default function App() {
     dispatch({ type: 'ADD_FURNITURE', furnitureType: type, id: createSceneObjectId(), params });
     setValues(furnitureParamsToFieldValues(type, params));
   };
+
+  const handleAddAssembly = (assembly: SceneAssembly) =>
+    dispatch({ type: 'ADD_ASSEMBLY', assembly });
+
+  const handleDeleteAssembly = (id: string) => dispatch({ type: 'DELETE_ASSEMBLY', id });
 
   const handleResetView = () => setResetToken((token) => token + 1);
 
@@ -608,6 +615,11 @@ export default function App() {
         <ManufacturingPanel object={selectedObject} projectName={projectName} />
         <AccountPanel />
         <ServerPanel />
+        <AssemblyPanel
+          assemblies={scene.data.assemblies ?? []}
+          onAdd={handleAddAssembly}
+          onDelete={handleDeleteAssembly}
+        />
         <JobsPanel />
         <ProjectsPanel
           projects={projects}

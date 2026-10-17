@@ -25,6 +25,7 @@ import {
 import {
   MATERIAL_DEFAULTS,
   MATERIAL_LIMITS,
+  MAX_ASSEMBLIES_PER_SCENE,
   OBJECT_NAME_MAX_LENGTH,
   OBJECT_LIMITS,
   ROOM_OBJECT_ID,
@@ -34,6 +35,7 @@ import {
   type ObjectMaterial,
   type RoomConfig,
   type RoomOpening,
+  type SceneAssembly,
   type SceneData,
   type SceneObject,
   type SceneState,
@@ -74,6 +76,8 @@ export type SceneAction =
   | { type: 'SET_EXPOSURE'; exposure: number }
   | { type: 'SET_TONE_MAPPING'; toneMapping: ToneMappingMode }
   | { type: 'LOAD_SCENE'; scene: SceneData }
+  | { type: 'ADD_ASSEMBLY'; assembly: SceneAssembly }
+  | { type: 'DELETE_ASSEMBLY'; id: string }
   | { type: 'NEW_SCENE'; id: string };
 
 function clamp(value: number, min: number, max: number): number {
@@ -361,6 +365,36 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
         data: action.scene,
         selectedId: action.scene.objects[0]?.id ?? ROOM_OBJECT_ID,
       };
+
+    case 'ADD_ASSEMBLY': {
+      // W14: assemblies are stored as parameters only; the cap is enforced here
+      // and mirrored on the server, so a scene cannot exceed it either way.
+      const current = state.data.assemblies ?? [];
+      if (current.length >= MAX_ASSEMBLIES_PER_SCENE) {
+        return state;
+      }
+      if (current.some((entry) => entry.id === action.assembly.id)) {
+        return state;
+      }
+      return {
+        data: { ...state.data, assemblies: [...current, action.assembly] },
+        selectedId: state.selectedId,
+      };
+    }
+
+    case 'DELETE_ASSEMBLY': {
+      const current = state.data.assemblies ?? [];
+      if (!current.some((entry) => entry.id === action.id)) {
+        return state;
+      }
+      return {
+        data: {
+          ...state.data,
+          assemblies: current.filter((entry) => entry.id !== action.id),
+        },
+        selectedId: state.selectedId,
+      };
+    }
 
     case 'NEW_SCENE': {
       const object = createTableSceneObject(action.id);

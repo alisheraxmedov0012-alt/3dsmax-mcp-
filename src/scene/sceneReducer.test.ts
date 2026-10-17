@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { findSceneObject, sceneReducer } from './sceneReducer';
 import {
+  MAX_ASSEMBLIES_PER_SCENE,
+  type SceneAssembly,
   createDefaultSceneState,
   createTableSceneObject,
   ROOM_DEFAULTS,
@@ -507,6 +509,71 @@ describe('sceneReducer', () => {
     expect(fresh.data.objects).toHaveLength(1);
     expect(fresh.data.objects[0].id).toBe('new-1');
     expect(fresh.selectedId).toBe('new-1');
+  });
+});
+
+describe('W14 assembly actions', () => {
+  const assembly = (id: string): SceneAssembly => ({
+    id,
+    kind: 'wall-cabinet',
+    params: { widthCm: 80, heightCm: 70 },
+  });
+
+  it('adds an assembly without touching objects or the room', () => {
+    const before = initialState();
+    const after = sceneReducer(before, { type: 'ADD_ASSEMBLY', assembly: assembly('a1') });
+
+    expect(after.data.assemblies).toEqual([assembly('a1')]);
+    expect(after.data.objects).toEqual(before.data.objects);
+    expect(after.data.room).toEqual(before.data.room);
+  });
+
+  it('keeps assemblies in insertion order', () => {
+    let state = initialState();
+    state = sceneReducer(state, { type: 'ADD_ASSEMBLY', assembly: assembly('a1') });
+    state = sceneReducer(state, { type: 'ADD_ASSEMBLY', assembly: assembly('a2') });
+    expect(state.data.assemblies?.map((entry) => entry.id)).toEqual(['a1', 'a2']);
+  });
+
+  it('ignores a duplicate assembly id', () => {
+    let state = sceneReducer(initialState(), { type: 'ADD_ASSEMBLY', assembly: assembly('a1') });
+    const snapshot = state;
+    state = sceneReducer(state, { type: 'ADD_ASSEMBLY', assembly: assembly('a1') });
+    expect(state).toBe(snapshot);
+    expect(state.data.assemblies).toHaveLength(1);
+  });
+
+  it('stops at MAX_ASSEMBLIES_PER_SCENE', () => {
+    let state = initialState();
+    for (let index = 0; index < MAX_ASSEMBLIES_PER_SCENE; index += 1) {
+      state = sceneReducer(state, { type: 'ADD_ASSEMBLY', assembly: assembly(`a${index}`) });
+    }
+    expect(state.data.assemblies).toHaveLength(MAX_ASSEMBLIES_PER_SCENE);
+
+    const atCap = state;
+    state = sceneReducer(state, { type: 'ADD_ASSEMBLY', assembly: assembly('overflow') });
+    expect(state).toBe(atCap);
+    expect(state.data.assemblies).toHaveLength(MAX_ASSEMBLIES_PER_SCENE);
+  });
+
+  it('deletes an assembly by id and leaves the rest in place', () => {
+    let state = sceneReducer(initialState(), { type: 'ADD_ASSEMBLY', assembly: assembly('a1') });
+    state = sceneReducer(state, { type: 'ADD_ASSEMBLY', assembly: assembly('a2') });
+    state = sceneReducer(state, { type: 'DELETE_ASSEMBLY', id: 'a1' });
+
+    expect(state.data.assemblies?.map((entry) => entry.id)).toEqual(['a2']);
+  });
+
+  it('ignores a delete for an unknown id', () => {
+    const state = sceneReducer(initialState(), { type: 'ADD_ASSEMBLY', assembly: assembly('a1') });
+    const next = sceneReducer(state, { type: 'DELETE_ASSEMBLY', id: 'nope' });
+    expect(next).toBe(state);
+  });
+
+  it('does not resurrect assemblies on NEW_SCENE', () => {
+    let state = sceneReducer(initialState(), { type: 'ADD_ASSEMBLY', assembly: assembly('a1') });
+    state = sceneReducer(state, { type: 'NEW_SCENE', id: 'fresh' });
+    expect(state.data.assemblies).toBeUndefined();
   });
 });
 
