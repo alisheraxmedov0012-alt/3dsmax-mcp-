@@ -1,4 +1,6 @@
 import { useRef, useState } from 'react';
+import { FURNITURE_TYPE_LABELS } from '../geometry/furniture';
+import { aiEditEnabled } from '../ai/editFlag';
 import { applyDiff, type ApplyDiffErrorCode } from '../scene/applyDiff';
 import { buildDiff } from '../scene/buildDiff';
 import type { SceneEditChange, SceneEditDiff } from '../scene/sceneDiff';
@@ -26,8 +28,22 @@ interface OpenProposal {
   /** The revision the proposal was built against. */
   revision: number;
   objectId: string;
+  /** Display label captured at propose time; never used for identification. */
+  objectLabel: string;
   prompt: string;
   notes: string[];
+}
+
+/** Friendly label for the preview heading. The id stays the identity. */
+export function describeTarget(object: SceneObject | null, objectId: string): string {
+  if (object && object.id === objectId) {
+    const name = object.name.trim();
+    if (name !== '') {
+      return name;
+    }
+    return FURNITURE_TYPE_LABELS[object.type] ?? object.type;
+  }
+  return 'Tanlangan obyekt';
 }
 
 const EXAMPLES = [
@@ -121,6 +137,13 @@ export function AiEditPanel({
   const applyLock = useRef(false);
   const requestId = useRef(0);
 
+  // W15.10: the feature ships behind a flag. Returning `null` (the same pattern
+  // `AssemblyPanel` uses) keeps the panel out of the DOM entirely, so nothing in
+  // its flow can be reached while the build has the flag off.
+  if (!aiEditEnabled()) {
+    return null;
+  }
+
   // A proposal belongs to the object it was built for and to the revision it
   // was built against. Both are derived during render rather than stored, so a
   // scene edit or a new selection cannot leave a clickable stale preview
@@ -175,6 +198,7 @@ export function AiEditPanel({
         diff: built.diff,
         revision: scene.revision,
         objectId: built.diff.objectId,
+        objectLabel: describeTarget(selectedObject, built.diff.objectId),
         prompt: trimmed,
         notes: result.notes,
       });
@@ -304,7 +328,7 @@ export function AiEditPanel({
       {openProposal && (
         <div className="aiedit__preview" data-testid="aiedit-preview">
           <h3 className="aiedit__preview-title">
-            Taklif: {openProposal.diff.objectId}
+            Taklif: {openProposal.objectLabel}
           </h3>
           <table className="aiedit__table">
             <thead>
