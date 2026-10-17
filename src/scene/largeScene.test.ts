@@ -75,6 +75,7 @@ describe('large scene (100 objects)', () => {
     let state = {
       data: buildLargeScene(),
       selectedId: 'obj-0' as string | null,
+      revision: 1,
     };
 
     const before = new Set(

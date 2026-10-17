@@ -164,13 +164,39 @@ export interface SceneData {
   assemblies?: SceneAssembly[];
 }
 
-/** Runtime scene state: persisted data plus transient selection. */
+/**
+ * Runtime scene state: persisted data plus transient selection.
+ *
+ * `revision` is a **runtime-only** counter, deliberately not part of `SceneData`:
+ * `SceneData` is what gets saved, exported and sent to the backend, and adding a
+ * counter there would change the storage schema and the server contract for no
+ * benefit. It is also not a substitute for `Project.version` — see
+ * `sceneRevision.ts`.
+ */
 export interface SceneState {
   data: SceneData;
   selectedId: string | null;
+  /**
+   * Monotonic counter of real scene changes. Starts at
+   * {@link INITIAL_SCENE_REVISION}; advanced only by
+   * `sceneReducerWithRevision`. Zero is not a valid value: `buildDiff` and
+   * `applyDiff` both require a positive version, so a `0` default would either
+   * fail immediately or silently look "current".
+   */
+  revision: number;
 }
 
 export const SCENE_SCHEMA_VERSION = 3;
+
+/** First revision of a freshly created or loaded scene. Never `0`. */
+export const INITIAL_SCENE_REVISION = 1;
+
+/**
+ * Upper bound for the counter. `Number.MAX_SAFE_INTEGER` is the largest integer
+ * that survives arithmetic unchanged; going past it would make two different
+ * revisions compare equal.
+ */
+export const MAX_SCENE_REVISION = Number.MAX_SAFE_INTEGER;
 
 /** Pseudo-id used to select the room itself in the hierarchy / viewer. */
 export const ROOM_OBJECT_ID = 'room';
@@ -260,5 +286,9 @@ export function createDefaultScene(idFactory: () => string): SceneData {
 
 export function createDefaultSceneState(idFactory: () => string): SceneState {
   const data = createDefaultScene(idFactory);
-  return { data, selectedId: data.objects[0]?.id ?? ROOM_OBJECT_ID };
+  return {
+    data,
+    selectedId: data.objects[0]?.id ?? ROOM_OBJECT_ID,
+    revision: INITIAL_SCENE_REVISION,
+  };
 }

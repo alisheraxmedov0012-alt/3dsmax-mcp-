@@ -35,7 +35,7 @@ function table(id = 'table-1'): SceneObject {
 
 function stateWith(objects: SceneObject[], assemblies?: SceneAssembly[]): SceneState {
   const data = sceneWith(objects, assemblies);
-  return { data, selectedId: data.objects[0]?.id ?? null };
+  return { data, selectedId: data.objects[0]?.id ?? null, revision: 1 };
 }
 
 function build(scene: SceneData, ops: unknown[], baseVersion = 1): SceneEditDiff {
@@ -106,7 +106,7 @@ describe('applyDiff — success', () => {
   });
 
   it('continues when baseVersion equals currentVersion', () => {
-    const scene = stateWith([wardrobe()]);
+    const scene = { ...stateWith([wardrobe()]), revision: 9 };
     const diff = build(scene.data, WIDTH_OP, 9);
     const result = expectApplied(applyDiff(scene, diff, { currentVersion: 9 }));
     expect(result.state.data.objects[0].params.widthCm).toBe(200);
@@ -251,7 +251,7 @@ describe('applyDiff — visibility', () => {
     expect(result.actions.some((action) => action.type === 'TOGGLE_VISIBILITY')).toBe(false);
   });
 
-  it('is idempotent: replaying the same diff is a successful no-op', () => {
+  it('never flips the object when the same diff is replayed', () => {
     const scene = stateWith([wardrobe()]);
     const diff = build(scene.data, [
       { op: 'set_visibility', objectId: 'wardrobe-1', visible: false },
@@ -259,10 +259,17 @@ describe('applyDiff — visibility', () => {
 
     const first = expectApplied(applyDiff(scene, diff, { currentVersion: 1 }));
     expect(first.state.data.objects[0].visible).toBe(false);
+    expect(first.state.revision).toBe(2);
 
-    const second = expectApplied(applyDiff(first.state, diff, { currentVersion: 1 }));
-    expect(second.state).toBe(first.state);
-    expect(second.actions).toEqual([]);
+    // W15.6: applying a diff is a real change, so the revision moves and the
+    // diff is now stale. It is refused — and crucially, never toggles the
+    // object back on, which is what a TOGGLE-based apply would do.
+    const second = expectRejected(
+      applyDiff(first.state, diff, { currentVersion: first.state.revision }),
+      'stale_version',
+    );
+    expect(second.index).toBe(-1);
+    expect(first.state.data.objects[0].visible).toBe(false);
   });
 });
 
@@ -338,6 +345,7 @@ describe('applyDiff — atomicity', () => {
         ],
       },
       selectedId: scene.selectedId,
+      revision: scene.revision,
     };
 
     expectRejected(applyDiff(moved, diff, { currentVersion: 1 }), 'stale_content');
