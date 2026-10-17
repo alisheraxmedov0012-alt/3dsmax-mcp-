@@ -1,0 +1,608 @@
+[
+  {
+    "id": "uz-latn-table-01",
+    "lang": "uz-latn",
+    "prompt": "180x60x75 sm oq stol",
+    "expect": {
+      "furniture": "table",
+      "dimensions": {
+        "width_cm": 180,
+        "height_cm": 75,
+        "depth_cm": 60
+      },
+      "color": "#ffffff"
+    }
+  },
+  {
+    "id": "uz-latn-chair-01",
+    "lang": "uz-latn",
+    "prompt": "45x50x90 sm yashil stul",
+    "expect": {
+      "furniture": "chair",
+      "dimensions": {
+        "width_cm": 45,
+        "height_cm": 90,
+        "depth_cm": 50
+      },
+      "color": "#2e8b57"
+    }
+  },
+  {
+    "id": "uz-latn-armchair-01",
+    "lang": "uz-latn",
+    "prompt": "80x85x90 sm kulrang kreslo",
+    "expect": {
+      "furniture": "armchair",
+      "dimensions": {
+        "width_cm": 80,
+        "height_cm": 90,
+        "depth_cm": 85
+      },
+      "color": "#808080"
+    }
+  },
+  {
+    "id": "uz-latn-sofa-01",
+    "lang": "uz-latn",
+    "prompt": "200x90x85 sm ko'k divan",
+    "expect": {
+      "furniture": "sofa",
+      "dimensions": {
+        "width_cm": 200,
+        "height_cm": 85,
+        "depth_cm": 90
+      },
+      "color": "#2f6fb0"
+    }
+  },
+  {
+    "id": "uz-latn-bed-01",
+    "lang": "uz-latn",
+    "prompt": "160x200x40 sm jigarrang karavot",
+    "expect": {
+      "furniture": "bed",
+      "dimensions": {
+        "width_cm": 160,
+        "height_cm": 40,
+        "depth_cm": 200
+      },
+      "color": "#8b5a2b"
+    }
+  },
+  {
+    "id": "uz-latn-wardrobe-01",
+    "lang": "uz-latn",
+    "prompt": "180x60x200 sm shkaf, 3 eshikli",
+    "expect": {
+      "furniture": "wardrobe",
+      "dimensions": {
+        "width_cm": 180,
+        "height_cm": 200,
+        "depth_cm": 60
+      },
+      "details": {
+        "doorCount": 3
+      }
+    }
+  },
+  {
+    "id": "uz-latn-shelf-01",
+    "lang": "uz-latn",
+    "prompt": "80x30x180 sm javon",
+    "expect": {
+      "furniture": "shelf",
+      "dimensions": {
+        "width_cm": 80,
+        "height_cm": 180,
+        "depth_cm": 30
+      }
+    }
+  },
+  {
+    "id": "uz-latn-dresser-01",
+    "lang": "uz-latn",
+    "prompt": "120x45x80 sm komod, 3 tortmali",
+    "expect": {
+      "furniture": "dresser",
+      "dimensions": {
+        "width_cm": 120,
+        "height_cm": 80,
+        "depth_cm": 45
+      },
+      "details": {
+        "drawerCount": 3
+      }
+    }
+  },
+  {
+    "id": "uz-cyrl-table-01",
+    "lang": "uz-cyrl",
+    "prompt": "180x60x75 см оқ стол",
+    "expect": {
+      "furniture": "table",
+      "dimensions": {
+        "width_cm": 180,
+        "height_cm": 75,
+        "depth_cm": 60
+      },
+      "color": "#ffffff"
+    }
+  },
+  {
+    "id": "uz-cyrl-chair-01",
+    "lang": "uz-cyrl",
+    "prompt": "45x50x90 см яшил стул",
+    "expect": {
+      "furniture": "chair",
+      "dimensions": {
+        "width_cm": 45,
+        "height_cm": 90,
+        "depth_cm": 50
+      },
+      "color": "#2e8b57"
+    }
+  },
+  {
+    "id": "uz-cyrl-armchair-01",
+    "lang": "uz-cyrl",
+    "prompt": "80x85x90 см кулранг кресло",
+    "expect": {
+      "furniture": "armchair",
+      "dimensions": {
+        "width_cm": 80,
+        "height_cm": 90,
+        "depth_cm": 85
+      },
+      "color": "#808080"
+    }
+  },
+  {
+    "id": "uz-cyrl-sofa-01",
+    "lang": "uz-cyrl",
+    "prompt": "200x90x85 см кўк диван",
+    "expect": {
+      "furniture": "sofa",
+      "dimensions": {
+        "width_cm": 200,
+        "height_cm": 85,
+        "depth_cm": 90
+      },
+      "color": "#2f6fb0"
+    }
+  },
+  {
+    "id": "uz-cyrl-bed-01",
+    "lang": "uz-cyrl",
+    "prompt": "160x200x40 см жигарранг каравот",
+    "expect": {
+      "furniture": "bed",
+      "dimensions": {
+        "width_cm": 160,
+        "height_cm": 40,
+        "depth_cm": 200
+      },
+      "color": "#8b5a2b"
+    }
+  },
+  {
+    "id": "uz-cyrl-wardrobe-01",
+    "lang": "uz-cyrl",
+    "prompt": "180x60x200 см шкаф",
+    "expect": {
+      "furniture": "wardrobe",
+      "dimensions": {
+        "width_cm": 180,
+        "height_cm": 200,
+        "depth_cm": 60
+      }
+    }
+  },
+  {
+    "id": "uz-cyrl-shelf-01",
+    "lang": "uz-cyrl",
+    "prompt": "80x30x180 см жавон",
+    "expect": {
+      "furniture": "shelf",
+      "dimensions": {
+        "width_cm": 80,
+        "height_cm": 180,
+        "depth_cm": 30
+      }
+    }
+  },
+  {
+    "id": "uz-cyrl-dresser-01",
+    "lang": "uz-cyrl",
+    "prompt": "120x45x80 см комод",
+    "expect": {
+      "furniture": "dresser",
+      "dimensions": {
+        "width_cm": 120,
+        "height_cm": 80,
+        "depth_cm": 45
+      }
+    }
+  },
+  {
+    "id": "ru-table-01",
+    "lang": "ru",
+    "prompt": "стол 180x60x75 см белый",
+    "expect": {
+      "furniture": "table",
+      "dimensions": {
+        "width_cm": 180,
+        "height_cm": 75,
+        "depth_cm": 60
+      },
+      "color": "#ffffff"
+    }
+  },
+  {
+    "id": "ru-chair-01",
+    "lang": "ru",
+    "prompt": "стул 45x50x90 см зелёный",
+    "expect": {
+      "furniture": "chair",
+      "dimensions": {
+        "width_cm": 45,
+        "height_cm": 90,
+        "depth_cm": 50
+      },
+      "color": "#2e8b57"
+    }
+  },
+  {
+    "id": "ru-armchair-01",
+    "lang": "ru",
+    "prompt": "кресло 80x85x90 см серый",
+    "expect": {
+      "furniture": "armchair",
+      "dimensions": {
+        "width_cm": 80,
+        "height_cm": 90,
+        "depth_cm": 85
+      },
+      "color": "#808080"
+    }
+  },
+  {
+    "id": "ru-sofa-01",
+    "lang": "ru",
+    "prompt": "диван 200x90x85 см синий",
+    "expect": {
+      "furniture": "sofa",
+      "dimensions": {
+        "width_cm": 200,
+        "height_cm": 85,
+        "depth_cm": 90
+      },
+      "color": "#2f6fb0"
+    }
+  },
+  {
+    "id": "ru-bed-01",
+    "lang": "ru",
+    "prompt": "кровать 160x200x40 см коричневый",
+    "expect": {
+      "furniture": "bed",
+      "dimensions": {
+        "width_cm": 160,
+        "height_cm": 40,
+        "depth_cm": 200
+      },
+      "color": "#8b5a2b"
+    }
+  },
+  {
+    "id": "ru-wardrobe-01",
+    "lang": "ru",
+    "prompt": "шкаф 180x60x200 см",
+    "expect": {
+      "furniture": "wardrobe",
+      "dimensions": {
+        "width_cm": 180,
+        "height_cm": 200,
+        "depth_cm": 60
+      }
+    }
+  },
+  {
+    "id": "ru-shelf-01",
+    "lang": "ru",
+    "prompt": "полка 80x30x180 см",
+    "expect": {
+      "furniture": "shelf",
+      "dimensions": {
+        "width_cm": 80,
+        "height_cm": 180,
+        "depth_cm": 30
+      }
+    }
+  },
+  {
+    "id": "ru-dresser-01",
+    "lang": "ru",
+    "prompt": "комод 120x45x80 см",
+    "expect": {
+      "furniture": "dresser",
+      "dimensions": {
+        "width_cm": 120,
+        "height_cm": 80,
+        "depth_cm": 45
+      }
+    }
+  },
+  {
+    "id": "en-table-01",
+    "lang": "en",
+    "prompt": "white table 180x60x75 cm",
+    "expect": {
+      "furniture": "table",
+      "dimensions": {
+        "width_cm": 180,
+        "height_cm": 75,
+        "depth_cm": 60
+      },
+      "color": "#ffffff"
+    }
+  },
+  {
+    "id": "en-chair-01",
+    "lang": "en",
+    "prompt": "green chair 45x50x90 cm",
+    "expect": {
+      "furniture": "chair",
+      "dimensions": {
+        "width_cm": 45,
+        "height_cm": 90,
+        "depth_cm": 50
+      },
+      "color": "#2e8b57"
+    }
+  },
+  {
+    "id": "en-armchair-01",
+    "lang": "en",
+    "prompt": "grey armchair 80x85x90 cm",
+    "expect": {
+      "furniture": "armchair",
+      "dimensions": {
+        "width_cm": 80,
+        "height_cm": 90,
+        "depth_cm": 85
+      },
+      "color": "#808080"
+    }
+  },
+  {
+    "id": "en-sofa-01",
+    "lang": "en",
+    "prompt": "blue sofa 200x90x85 cm",
+    "expect": {
+      "furniture": "sofa",
+      "dimensions": {
+        "width_cm": 200,
+        "height_cm": 85,
+        "depth_cm": 90
+      },
+      "color": "#2f6fb0"
+    }
+  },
+  {
+    "id": "en-bed-01",
+    "lang": "en",
+    "prompt": "brown bed 160x200x40 cm",
+    "expect": {
+      "furniture": "bed",
+      "dimensions": {
+        "width_cm": 160,
+        "height_cm": 40,
+        "depth_cm": 200
+      },
+      "color": "#8b5a2b"
+    }
+  },
+  {
+    "id": "en-wardrobe-01",
+    "lang": "en",
+    "prompt": "wardrobe 180x60x200 cm with 3 doors",
+    "expect": {
+      "furniture": "wardrobe",
+      "dimensions": {
+        "width_cm": 180,
+        "height_cm": 200,
+        "depth_cm": 60
+      },
+      "details": {
+        "doorCount": 3
+      }
+    }
+  },
+  {
+    "id": "en-shelf-01",
+    "lang": "en",
+    "prompt": "shelf 80x30x180 cm",
+    "expect": {
+      "furniture": "shelf",
+      "dimensions": {
+        "width_cm": 80,
+        "height_cm": 180,
+        "depth_cm": 30
+      }
+    }
+  },
+  {
+    "id": "en-dresser-01",
+    "lang": "en",
+    "prompt": "dresser 120x45x80 cm with 3 drawers",
+    "expect": {
+      "furniture": "dresser",
+      "dimensions": {
+        "width_cm": 120,
+        "height_cm": 80,
+        "depth_cm": 45
+      },
+      "details": {
+        "drawerCount": 3
+      }
+    }
+  },
+  {
+    "id": "uz-latn-bed-length-01",
+    "lang": "uz-latn",
+    "prompt": "karavot, kengligi 160, uzunligi 200, balandligi 40",
+    "expect": {
+      "furniture": "bed",
+      "dimensions": {
+        "width_cm": 160,
+        "height_cm": 40,
+        "depth_cm": 200
+      },
+      "note_contains": "chuqurlik"
+    }
+  },
+  {
+    "id": "ru-bed-length-01",
+    "lang": "ru",
+    "prompt": "кровать ширина 160 длина 200 высота 40",
+    "expect": {
+      "furniture": "bed",
+      "dimensions": {
+        "width_cm": 160,
+        "height_cm": 40,
+        "depth_cm": 200
+      },
+      "note_contains": "chuqurlik"
+    }
+  },
+  {
+    "id": "en-bed-length-01",
+    "lang": "en",
+    "prompt": "bed width 160 length 200 height 40",
+    "expect": {
+      "furniture": "bed",
+      "dimensions": {
+        "width_cm": 160,
+        "height_cm": 40,
+        "depth_cm": 200
+      },
+      "note_contains": "chuqurlik"
+    }
+  },
+  {
+    "id": "uz-latn-bed-depth-wins-01",
+    "lang": "uz-latn",
+    "prompt": "karavot, kengligi 160, chuqurligi 200, uzunligi 195, balandligi 40",
+    "expect": {
+      "furniture": "bed",
+      "dimensions": {
+        "width_cm": 160,
+        "height_cm": 40,
+        "depth_cm": 200
+      }
+    }
+  },
+  {
+    "id": "uz-latn-table-legs-01",
+    "lang": "uz-latn",
+    "prompt": "stol 120x60x75, 6 oyoqli",
+    "expect": {
+      "furniture": "table",
+      "dimensions": {
+        "width_cm": 120,
+        "height_cm": 75,
+        "depth_cm": 60
+      },
+      "details": {
+        "legCount": 6
+      }
+    }
+  },
+  {
+    "id": "ru-wardrobe-doors-01",
+    "lang": "ru",
+    "prompt": "шкаф 180x60x220, 4 двери",
+    "expect": {
+      "furniture": "wardrobe",
+      "dimensions": {
+        "width_cm": 180,
+        "height_cm": 220,
+        "depth_cm": 60
+      },
+      "details": {
+        "doorCount": 4
+      }
+    }
+  },
+  {
+    "id": "en-shelf-tiers-01",
+    "lang": "en",
+    "prompt": "shelf 80x30x180 with 5 shelves",
+    "expect": {
+      "furniture": "shelf",
+      "dimensions": {
+        "width_cm": 80,
+        "height_cm": 180,
+        "depth_cm": 30
+      },
+      "details": {
+        "shelfCount": 5
+      }
+    }
+  },
+  {
+    "id": "en-dresser-drawers-01",
+    "lang": "en",
+    "prompt": "dresser 120x45x80 with 4 drawers",
+    "expect": {
+      "furniture": "dresser",
+      "dimensions": {
+        "width_cm": 120,
+        "height_cm": 80,
+        "depth_cm": 45
+      },
+      "details": {
+        "drawerCount": 4
+      }
+    }
+  },
+  {
+    "id": "ru-cyrillic-x-01",
+    "lang": "ru",
+    "prompt": "стол 180х60х75 см",
+    "expect": {
+      "furniture": "table",
+      "dimensions": {
+        "width_cm": 180,
+        "height_cm": 75,
+        "depth_cm": 60
+      }
+    }
+  },
+  {
+    "id": "ru-wardrobe-coupe-01",
+    "lang": "ru",
+    "prompt": "шкаф-купе 200x60x240",
+    "expect": {
+      "furniture": "wardrobe",
+      "dimensions": {
+        "width_cm": 200,
+        "height_cm": 240,
+        "depth_cm": 60
+      }
+    }
+  },
+  {
+    "id": "ru-shelf-stellazh-01",
+    "lang": "ru",
+    "prompt": "стеллаж 90x35x200",
+    "expect": {
+      "furniture": "shelf",
+      "dimensions": {
+        "width_cm": 90,
+        "height_cm": 200,
+        "depth_cm": 35
+      }
+    }
+  }
+]

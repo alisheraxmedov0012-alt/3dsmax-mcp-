@@ -143,6 +143,17 @@ def test_local_provider_returns_validated_spec(client, monkeypatch):
 
 
 def test_recognised_but_unsupported_type_is_not_applied(client, monkeypatch):
+    """A spec the build cannot turn into geometry is still never applied.
+
+    Since W13 all eight types have builders, so this guards the *mechanism*: the
+    router still returns the spec marked ``supported=false`` and the frontend
+    refuses it. The supported set is narrowed here on purpose.
+    """
+    from app.services.ai import spec as spec_module
+
+    monkeypatch.setattr(
+        spec_module, "SUPPORTED_FURNITURE_TYPES", frozenset({spec_module.FurnitureType.TABLE})
+    )
     _use_provider(monkeypatch, LocalHeuristicProvider())
     _authenticated(client)
 
@@ -151,7 +162,7 @@ def test_recognised_but_unsupported_type_is_not_applied(client, monkeypatch):
     spec = response.json()["spec"]
     assert spec["furniture"] == "sofa"
     assert spec["supported"] is False
-    assert any("W2" in warning for warning in spec["warnings"])
+    assert any("qo'llab-quvvatlanmaydi" in warning for warning in spec["warnings"])
 
 
 def test_unknown_furniture_type_from_provider_is_rejected(client, monkeypatch):
@@ -337,9 +348,27 @@ def test_build_design_spec_drops_bad_color_with_warning():
 
 
 def test_build_design_spec_marks_unsupported_types():
-    spec = build_design_spec(RawDesignSpec(furniture="bed"), provider="test")
+    """Narrowing the supported set marks the type unsupported (mechanism guard)."""
+    from app.services.ai import spec as spec_module
+
+    original = spec_module.SUPPORTED_FURNITURE_TYPES
+    try:
+        spec_module.SUPPORTED_FURNITURE_TYPES = frozenset({spec_module.FurnitureType.TABLE})
+        spec = build_design_spec(RawDesignSpec(furniture="bed"), provider="test")
+    finally:
+        spec_module.SUPPORTED_FURNITURE_TYPES = original
+
     assert spec.furniture is FurnitureType.BED
     assert spec.supported is False
+
+
+@pytest.mark.parametrize("furniture", [t.value for t in FurnitureType])
+def test_build_design_spec_marks_every_geometry_type_supported(furniture):
+    """W13: all eight types that have a builder are reported as supported."""
+    spec = build_design_spec(RawDesignSpec(furniture=furniture), provider="test")
+    assert spec.furniture.value == furniture
+    assert spec.supported is True
+    assert not any("qo'llab-quvvatlanmaydi" in warning for warning in spec.warnings)
 
 
 # --------------------------------------------------------------------------- #
@@ -416,4 +445,4 @@ def test_local_provider_is_offline_and_deterministic():
     assert provider.is_configured is True
     spec = provider.generate_design(DesignRequest(text="yog'och stul"))
     assert spec.furniture is FurnitureType.CHAIR
-    assert spec.supported is False  # chair is a W2 type
+    assert spec.supported is True  # W13: chair has a builder

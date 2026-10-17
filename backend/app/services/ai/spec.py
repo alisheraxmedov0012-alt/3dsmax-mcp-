@@ -1,20 +1,34 @@
-"""Design specification: the shared vocabulary between W1 (AI) and W2 (geometry).
+"""Design specification: the shared vocabulary between the AI layer and geometry.
 
 This module is the single source of truth for the *wire* design contract:
 
-    DesignSpec = { furniture, dimensions, color, material_kind, style,
+    DesignSpec = { furniture, dimensions, details, color, material_kind, style,
                    confidence, notes, warnings, supported }
 
-``FurnitureType`` and ``SUPPORTED_FURNITURE_TYPES`` are the W1 <-> W2 seam. W2
-adds parametric builders for the remaining types and extends
-``SUPPORTED_FURNITURE_TYPES``; W1 then needs no change. Until then a recognised
-but not-yet-buildable type is returned with ``supported = False`` and an explicit
-warning, so nothing is silently turned into a table (no false capability claims).
+Dimension semantics (W13, explicit and tested)
+----------------------------------------------
+``width_cm`` / ``depth_cm`` / ``height_cm`` are **geometric extents along the
+fixed world axes** used by every builder:
+
+* ``width_cm``  -> X axis
+* ``depth_cm``  -> Z axis
+* ``height_cm`` -> Y axis
+
+For a bed this has a naming consequence worth stating out loud: the Z extent is
+the head-board-to-foot direction, which people call the bed's *length*. The
+geometry layer has always built the bed that way (``buildBed`` places the frame
+along Z), and the furniture UI labels ``depthCm`` as "Uzunlik" for beds. The two
+names therefore describe the same extent; there is no second "length" axis.
+
+Nothing in this module silently moves a bed's length into another axis. When a
+prompt says "uzunlik / длина / length", the *parser* maps that word onto
+``depth_cm`` for beds only, and emits an explicit note saying so. Every other
+type ignores the word rather than guessing.
 
 Untrusted input: anything a provider produces is treated as untrusted and must
-pass :func:`build_design_spec`. Unknown furniture types and non-finite,
-non-positive or absurd dimensions are rejected; only clearly recoverable values
-(e.g. a malformed colour) are downgraded to defaults with a warning.
+pass :func:`build_design_spec`. Unknown furniture types, non-finite dimensions
+and structurally impossible combinations are rejected; only clearly recoverable
+values (e.g. a malformed colour) are downgraded to defaults with a warning.
 """
 from __future__ import annotations
 
@@ -26,6 +40,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .base import AiOutputError
+from .rules import validate_type_rules
 
 # Absolute sanity bounds for any single dimension (cm) from an untrusted model.
 MIN_DIMENSION_CM = 1.0
@@ -37,7 +52,7 @@ Confidence = Literal["high", "medium", "low"]
 
 
 class FurnitureType(StrEnum):
-    """Known furniture categories (W2 vocabulary)."""
+    """Furniture categories with a parametric builder in the geometry layer."""
 
     TABLE = "table"
     CHAIR = "chair"
@@ -49,9 +64,11 @@ class FurnitureType(StrEnum):
     DRESSER = "dresser"
 
 
-# W1 <-> W2 seam: the types the current geometry layer can actually assemble.
-# W2 extends this set as builders are added; W1 needs no change.
-SUPPORTED_FURNITURE_TYPES: frozenset[FurnitureType] = frozenset({FurnitureType.TABLE})
+#: Every type above has a builder (``src/geometry/furniture/buildFurniture.ts``),
+#: so all eight are buildable. The flag is kept rather than removed: a stored
+#: spec written by an older build keeps its meaning, and a future type can be
+#: introduced behind the same contract without a breaking change.
+SUPPORTED_FURNITURE_TYPES: frozenset[FurnitureType] = frozenset(FurnitureType)
 
 
 class Dimensions(BaseModel):
@@ -62,6 +79,59 @@ class Dimensions(BaseModel):
     depth_cm: float
 
 
+class DesignDetails(BaseModel):
+    """Optional, type-specific channels (W13).
+
+    The field names intentionally match ``FurnitureParams`` in the frontend
+    geometry layer (``src/geometry/furniture/types.ts``) so the frontend can
+    merge them onto ``FURNITURE_DEFAULTS[type]`` without a translation table.
+    Because they mirror a TypeScript interface, they keep that casing on the
+    wire.
+
+    All fields are optional and default to ``None``, which makes the addition
+    backward compatible: a stored specification written before W13 simply has no
+    ``details`` key and continues to work.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    # table
+    topThicknessCm: float | None = None
+    legCount: int | None = None
+    # chair / armchair / sofa
+    seatHeightCm: float | None = None
+    backHeightCm: float | None = None
+    armHeightCm: float | None = None
+    # wardrobe / shelf
+    wallThicknessCm: float | None = None
+    shelfCount: int | None = None
+    # wardrobe / dresser
+    doorCount: int | None = None
+    # dresser
+    drawerCount: int | None = None
+    legHeightCm: float | None = None
+    # bed
+    mattressHeightCm: float | None = None
+    headboardHeightCm: float | None = None
+
+
+#: Numeric detail channels that must be finite and non-negative when present.
+_DETAIL_NUMERIC_FIELDS = (
+    "topThicknessCm",
+    "legCount",
+    "seatHeightCm",
+    "backHeightCm",
+    "armHeightCm",
+    "wallThicknessCm",
+    "shelfCount",
+    "doorCount",
+    "drawerCount",
+    "legHeightCm",
+    "mattressHeightCm",
+    "headboardHeightCm",
+)
+
+
 class RawDesignSpec(BaseModel):
     """Provider output before domain validation (all fields untrusted/optional)."""
 
@@ -69,6 +139,7 @@ class RawDesignSpec(BaseModel):
 
     furniture: str | None = None
     dimensions: Dimensions | None = None
+    details: DesignDetails | None = None
     color: str | None = None
     material_kind: str | None = None
     style: str | None = None
@@ -82,6 +153,7 @@ class DesignSpec(BaseModel):
 
     furniture: FurnitureType
     dimensions: Dimensions | None = None
+    details: DesignDetails | None = None
     color: str | None = None
     material_kind: str | None = None
     style: str | None = None
@@ -108,11 +180,26 @@ def _validate_dimension(value: float, label: str) -> float:
     return value
 
 
+def _validate_details(details: DesignDetails | None) -> DesignDetails | None:
+    """Reject non-finite or negative numeric channels before they reach geometry."""
+    if details is None:
+        return None
+    for field in _DETAIL_NUMERIC_FIELDS:
+        value = getattr(details, field)
+        if value is None:
+            continue
+        number = float(value)
+        if not math.isfinite(number) or number < 0:
+            raise AiOutputError(f"'{field}' qiymati noto'g'ri.")
+    return details
+
+
 def build_design_spec(raw: RawDesignSpec, *, provider: str) -> DesignSpec:
     """Validate untrusted provider output into a ``DesignSpec``.
 
-    Raises :class:`AiOutputError` for an unknown furniture type or an invalid
-    dimension. A malformed colour is dropped with a warning rather than failing
+    Raises :class:`AiOutputError` for an unknown furniture type, an invalid
+    dimension, an unusable type-specific channel, or a structurally impossible
+    combination. A malformed colour is dropped with a warning rather than failing
     the whole request.
     """
     if not raw.furniture:
@@ -136,6 +223,8 @@ def build_design_spec(raw: RawDesignSpec, *, provider: str) -> DesignSpec:
     else:
         warnings.append("O'lchamlar aniqlanmadi; standart qiymatlar ishlatiladi.")
 
+    details = _validate_details(raw.details)
+
     color: str | None = None
     if raw.color:
         if HEX_COLOR.match(raw.color.strip()):
@@ -143,16 +232,25 @@ def build_design_spec(raw: RawDesignSpec, *, provider: str) -> DesignSpec:
         else:
             warnings.append(f"Rang: \"{raw.color}\" noto'g'ri, standart rang ishlatiladi.")
 
+    # Type-specific rules: reject only combinations that cannot be built.
+    validate_type_rules(
+        furniture.value,
+        height_cm=dimensions.height_cm if dimensions else None,
+        depth_cm=dimensions.depth_cm if dimensions else None,
+        details=details.model_dump(exclude_none=True) if details else None,
+    )
+
     supported = furniture in SUPPORTED_FURNITURE_TYPES
     if not supported:
         warnings.append(
-            f"\"{furniture.value}\" hozircha geometriyada qo'llab-quvvatlanmaydi "
-            "(W2 bosqichida qo'shiladi); model o'zgartirilmadi."
+            f"\"{furniture.value}\" hozircha geometriyada qo'llab-quvvatlanmaydi; "
+            "model o'zgartirilmadi."
         )
 
     return DesignSpec(
         furniture=furniture,
         dimensions=dimensions,
+        details=details,
         color=color,
         material_kind=raw.material_kind,
         style=raw.style,
@@ -170,6 +268,7 @@ __all__ = [
     "AiDesignRequest",
     "AiDesignResponse",
     "Confidence",
+    "DesignDetails",
     "DesignSpec",
     "Dimensions",
     "FurnitureType",

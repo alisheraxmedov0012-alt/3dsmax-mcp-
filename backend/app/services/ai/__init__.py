@@ -9,6 +9,7 @@ logged.
 from __future__ import annotations
 
 from .base import (
+    AiAmbiguousPrompt,
     AiOutputError,
     AiProvider,
     AiProviderError,
@@ -18,6 +19,7 @@ from .base import (
 from .registry import get_ai_provider
 from .spec import (
     SUPPORTED_FURNITURE_TYPES,
+    DesignDetails,
     DesignSpec,
     Dimensions,
     FurnitureType,
@@ -25,9 +27,11 @@ from .spec import (
 
 __all__ = [
     "SUPPORTED_FURNITURE_TYPES",
+    "AiAmbiguousPrompt",
     "AiOutputError",
     "AiProvider",
     "AiProviderError",
+    "DesignDetails",
     "DesignRequest",
     "DesignSpec",
     "Dimensions",

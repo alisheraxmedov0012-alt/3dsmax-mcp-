@@ -41,6 +41,17 @@ class AiOutputError(AiProviderError):
     code = "ai_invalid_output"
 
 
+class AiAmbiguousPrompt(AiProviderError):
+    """The request is understandable as language but names no known furniture.
+
+    This is deliberately distinct from :class:`AiOutputError`: nothing is wrong
+    with the *output*, the *input* simply does not determine a single furniture
+    type, so guessing one would silently build the wrong object.
+    """
+
+    code = "ai_ambiguous_type"
+
+
 class AiProvider(Protocol):
     """A text -> design spec provider."""
 
@@ -55,6 +66,7 @@ class AiProvider(Protocol):
 
 
 __all__ = [
+    "AiAmbiguousPrompt",
     "AiOutputError",
     "AiProvider",
     "AiProviderError",
