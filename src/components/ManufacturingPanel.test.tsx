@@ -271,3 +271,57 @@ describe('ManufacturingPanel — package button', () => {
     expect(ARCHIVE_NAME).toMatch(/^stol-loyihasi-[0-9a-f]{12}-package\.zip$/);
   });
 });
+
+describe('C4 — validation report in the panel', () => {
+  it('shows the check summary and what was not checked', () => {
+    renderPanel();
+    const section = screen.getByTestId('manufacturing-validation');
+    expect(section.textContent).toContain('Tekshiruv');
+    // The limitations are always visible, so a clean count cannot be read as a pass.
+    expect(section.textContent).toContain('sertifikat');
+  });
+
+  it('lists a warning with its severity label and explanation', () => {
+    renderPanel();
+    const section = screen.getByTestId('manufacturing-validation');
+    // The default table model has no material assigned, which is a warning.
+    expect(section.textContent).toContain('Ogohlantirish');
+    expect(section.textContent).toContain('Material tanlanmagan');
+  });
+
+  it('labels severity in text, not only by colour', () => {
+    renderPanel();
+    const items = document.querySelectorAll('.manufacturing__validation-item');
+    expect(items.length).toBeGreaterThan(0);
+    const first = items[0] as HTMLElement;
+    expect(first.textContent).toMatch(/^(Xatolik|Ogohlantirish|Ma'lumot)/);
+  });
+
+  it('reflects C3 material data in the panel instead of ignoring it', () => {
+    // Before C4 the panel called buildBom without the object's assignments.
+    const withMaterial = {
+      ...objectOf(),
+      sheetMaterials: [
+        { partId: 'table-top', materialId: 'mdf' as const, thicknessMm: 40, thicknessSource: 'user' as const },
+      ],
+    };
+    renderPanel({ object: withMaterial });
+
+    // MDF now appears in the parts list, which is built from the BOM rows.
+    expect(screen.getByText(/MDF/)).toBeTruthy();
+  });
+
+  it('shows a material error as an error in the panel', () => {
+    const broken = {
+      ...objectOf(),
+      sheetMaterials: [
+        { partId: 'table-top', materialId: 'mdf' as const, thicknessMm: 0, thicknessSource: 'user' as const },
+      ],
+    };
+    renderPanel({ object: broken });
+
+    const section = screen.getByTestId('manufacturing-validation');
+    expect(section.textContent).toContain('Xatolik');
+    expect(section.textContent).toMatch(/noldan katta/i);
+  });
+});

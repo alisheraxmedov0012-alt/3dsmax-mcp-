@@ -26,6 +26,12 @@ import { buildBom, PANEL_MAX_THICKNESS_CM, type BomResult } from './bom';
 import { buildCutList, type CutListResult } from './cutList';
 import { bomToCsv, cutListToCsv } from './manufacturingExport';
 import { groupByMaterial, type MaterialGroup, type SheetIssue } from './sheetMaterial';
+import {
+  validateManufacturing,
+  type ValidationIssue,
+  type ValidationLevel,
+  type ValidationReport,
+} from './validation';
 import { createTechnicalDrawingSvg } from './technicalDrawing';
 
 /** Every entry the archive must contain, in a stable order. */
@@ -123,6 +129,16 @@ interface MetaFile {
   materials: MaterialGroup[];
   /** Material and thickness problems, so the shop sees them before cutting. */
   issues: SheetIssue[];
+  /**
+   * C4 validation report. `ok` means "no error-level issue was found", never
+   * "safe to manufacture" — the limitations list says what was not checked.
+   */
+  validation: {
+    ok: boolean;
+    counts: Record<ValidationLevel, number>;
+    issues: ValidationIssue[];
+    limitations: string[];
+  };
   files: PackageEntryName[];
   limitations: string[];
 }
@@ -132,6 +148,7 @@ function buildMeta(
   bom: BomResult,
   cutList: CutListResult,
   exportedAt: Date,
+  validation: ValidationReport,
 ): string {
   const meta: MetaFile = {
     format: PACKAGE_META_FORMAT,
@@ -151,6 +168,12 @@ function buildMeta(
     },
     materials: groupByMaterial(bom.rows),
     issues: [...bom.issues],
+    validation: {
+      ok: validation.ok,
+      counts: validation.counts,
+      issues: validation.issues,
+      limitations: validation.limitations,
+    },
     files: [...PACKAGE_ENTRIES],
     limitations: [...bom.limitations, ...cutList.limitations],
   };
@@ -194,7 +217,39 @@ function materialSection(bom: BomResult): string[] {
   return lines;
 }
 
-function buildReadme(input: BuildPackageInput, bom: BomResult, cutList: CutListResult): string {
+/**
+ * Validation summary for the README.
+ *
+ * States the counts and, deliberately, what the check did *not* cover: a shop
+ * reading "0 xatolik" must not conclude the piece is certified.
+ */
+function validationSection(report: ValidationReport): string[] {
+  const lines = [`Tekshiruv (C4)`, ``];
+  lines.push(
+    `  Xatolik: ${report.counts.error} · Ogohlantirish: ${report.counts.warning} · Malumot: ${report.counts.info}`,
+  );
+  const problems = report.issues.filter((entry) => entry.level !== 'info');
+  if (problems.length === 0) {
+    lines.push(`  Aniqlangan muammo yoq.`);
+  } else {
+    for (const entry of problems) {
+      const mark = entry.level === 'error' ? 'XATO' : 'OGOH';
+      lines.push(`  [${mark}] ${entry.message}`);
+    }
+  }
+  lines.push(`  Bu tekshiruv ishlab chiqarishga yaroqlilikni tasdiqlamaydi:`);
+  for (const limitation of report.limitations) {
+    lines.push(`    - ${limitation}`);
+  }
+  return lines;
+}
+
+function buildReadme(
+  input: BuildPackageInput,
+  bom: BomResult,
+  cutList: CutListResult,
+  validation: ValidationReport,
+): string {
   const label = FURNITURE_TYPE_LABELS[bom.type];
   const name = input.projectName.trim() || 'Nomsiz loyiha';
   const lines = [
@@ -215,6 +270,8 @@ function buildReadme(input: BuildPackageInput, bom: BomResult, cutList: CutListR
     `Jami: ${bom.totalParts} detal, ${cutList.totalPieces} panel, ${cutList.panelAreaM2} m2 panel yuzasi.`,
     ``,
     ...materialSection(bom),
+    ``,
+    ...validationSection(validation),
     `Muhim cheklovlar`,
     ...bom.limitations.map((line) => `  - ${line}`),
     ...cutList.limitations.map((line) => `  - ${line}`),
@@ -250,6 +307,10 @@ export async function buildManufacturingPackage(
     return { ok: false, reason: bomOutcome.reason };
   }
   const bom = bomOutcome.bom;
+
+  // One report for the piece, reused by meta.json and the README so the two can
+  // never disagree. Validation never mutates the model.
+  const validation = validateManufacturing(object.type, object.params, object.sheetMaterials);
 
   const cutList = buildCutList(bom);
   if (cutList.rows.length === 0) {
@@ -302,8 +363,8 @@ export async function buildManufacturingPackage(
     'BOM.csv': strToU8(bomToCsv(bom)),
     'cutlist.csv': strToU8(cutListToCsv(cutList)),
     'drawing.svg': strToU8(drawing.svg),
-    'meta.json': strToU8(buildMeta(input, bom, cutList, exportedAt)),
-    'README.txt': strToU8(buildReadme(input, bom, cutList)),
+    'meta.json': strToU8(buildMeta(input, bom, cutList, exportedAt, validation)),
+    'README.txt': strToU8(buildReadme(input, bom, cutList, validation)),
   };
 
   let bytes: Uint8Array<ArrayBuffer>;

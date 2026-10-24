@@ -288,6 +288,24 @@ input[type='color'] {
   overflow-y: auto;
 }
 
+/* C4 validation report: severity is carried by colour *and* by the visible
+   "Xatolik"/"Ogohlantirish" label, so colour is never the only signal. */
+.manufacturing__validation-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: #9aa6b2;
+}
+
+.manufacturing__validation-item--error {
+  color: #e07070;
+}
+
+.manufacturing__validation-item--warning {
+  color: #d6a35c;
+}
+
 .manufacturing__package-button {
   width: 100%;
   text-align: left;

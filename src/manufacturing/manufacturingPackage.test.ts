@@ -679,3 +679,115 @@ describe('C3 — materials in the package', () => {
     expect(meta.totals.cutPieces).toBe(11);
   });
 });
+
+describe('C4 — validation in the package', () => {
+  it('writes the validation report into meta.json', async () => {
+    const built = await build();
+    const meta = JSON.parse(text(unzip(built.package.bytes), 'meta.json'));
+
+    expect(meta.validation).toBeDefined();
+    expect(typeof meta.validation.ok).toBe('boolean');
+    expect(meta.validation.counts).toEqual({ error: 0, warning: expect.any(Number), info: 0 });
+    expect(Array.isArray(meta.validation.issues)).toBe(true);
+    // The report must never imply certification.
+    expect(meta.validation.limitations.join(' ')).toMatch(/sertifikat/i);
+  });
+
+  it('states the outcome in README.txt without claiming readiness', async () => {
+    const built = await build();
+    const readme = text(unzip(built.package.bytes), 'README.txt');
+    expect(readme).toContain('Tekshiruv (C4)');
+    expect(readme).toMatch(/Xatolik: 0/);
+    expect(readme).toContain('ishlab chiqarishga yaroqlilikni tasdiqlamaydi');
+  });
+
+  it('reports a material error in the package for an invalid assignment', async () => {
+    const object = objectOf('wardrobe', 'w-bad-thick');
+    const broken = {
+      ...object,
+      sheetMaterials: [
+        { partId: 'wardrobe-door', materialId: 'mdf' as const, thicknessMm: 0, thicknessSource: 'user' as const },
+      ],
+    };
+    const result = await buildManufacturingPackage({
+      scene: sceneWith(broken),
+      object: broken,
+      projectName: 'Shkaf',
+      generatedAt: FIXED_DATE,
+    });
+    if (!result.ok) throw new Error(result.reason);
+
+    const meta = JSON.parse(text(unzip(result.package.bytes), 'meta.json'));
+    expect(meta.validation.ok).toBe(false);
+    const codes = meta.validation.issues.map((entry: { code: string }) => entry.code);
+    expect(codes).toContain('bad-thickness');
+    expect(text(unzip(result.package.bytes), 'README.txt')).toContain('[XATO]');
+  });
+
+  it('keeps the six entries and the archive deterministic', async () => {
+    const object = objectOf('wardrobe', 'w-c4det');
+    const withMaterial = {
+      ...object,
+      sheetMaterials: [
+        { partId: 'wardrobe-door', materialId: 'mdf' as const, thicknessMm: 12, thicknessSource: 'user' as const },
+      ],
+    };
+    const run = () =>
+      buildManufacturingPackage({
+        scene: sceneWith(withMaterial),
+        object: withMaterial,
+        projectName: 'Shkaf',
+        generatedAt: FIXED_DATE,
+      });
+
+    const first = await run();
+    await new Promise((resolve) => setTimeout(resolve, 2600));
+    const second = await run();
+    if (!first.ok || !second.ok) throw new Error('build failed');
+
+    expect(Object.keys(unzip(first.package.bytes)).sort()).toEqual(
+      ['BOM.csv', 'README.txt', 'cutlist.csv', 'drawing.svg', 'meta.json', 'model.glb'].sort(),
+    );
+    expect(second.package.bytes).toEqual(first.package.bytes);
+  }, 20_000);
+
+  it('leaves the drawing and the model untouched by validation', async () => {
+    // Same geometry, one export with a material and one without: if validation
+    // changed anything, these entries would differ.
+    const base = objectOf('wardrobe', 'w-c4same');
+    const withMaterial = {
+      ...base,
+      sheetMaterials: [
+        { partId: 'wardrobe-door', materialId: 'mdf' as const, thicknessMm: 12, thicknessSource: 'user' as const },
+      ],
+    };
+    const run = (object: typeof base) =>
+      buildManufacturingPackage({
+        scene: sceneWith(object),
+        object,
+        projectName: 'Shkaf',
+        generatedAt: FIXED_DATE,
+      });
+
+    const a = await run(base);
+    const b = await run(withMaterial);
+    if (!a.ok || !b.ok) throw new Error('build failed');
+    const plain = unzip(a.package.bytes);
+    const withMat = unzip(b.package.bytes);
+
+    expect(withMat['drawing.svg']).toEqual(plain['drawing.svg']);
+    expect(withMat['model.glb']).toEqual(plain['model.glb']);
+  });
+
+  it('still refuses a sofa instead of shipping a package', async () => {
+    const sofa = objectOf('sofa', 'sofa-c4');
+    const outcome = await buildManufacturingPackage({
+      scene: sceneWith(sofa),
+      object: sofa,
+      projectName: 'Divan',
+      generatedAt: FIXED_DATE,
+    });
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.reason).toContain('yupqa panel emas');
+  });
+});

@@ -10,6 +10,7 @@ import {
 } from '../manufacturing/manufacturingExport';
 import { buildManufacturingPackage } from '../manufacturing/manufacturingPackage';
 import { createTechnicalDrawingSvg } from '../manufacturing/technicalDrawing';
+import { validateManufacturing, type ValidationLevel } from '../manufacturing/validation';
 
 interface ManufacturingPanelProps {
   object: SceneObject | null;
@@ -19,6 +20,12 @@ interface ManufacturingPanelProps {
 }
 
 type Status = 'idle' | 'ok' | 'error';
+
+const VALIDATION_LEVEL_LABELS: Record<ValidationLevel, string> = {
+  error: 'Xatolik',
+  warning: 'Ogohlantirish',
+  info: "Ma'lumot",
+};
 
 const EXPORT_BUTTONS: Array<{ kind: ManufacturingArtifactKind; label: string }> = [
   { kind: 'bom-csv', label: 'BOM (CSV)' },
@@ -44,11 +51,15 @@ export function ManufacturingPanel({ object, projectName, scene }: Manufacturing
       return null;
     }
     try {
-      const bomOutcome = buildBom(object.type, object.params);
+      const bomOutcome = buildBom(object.type, object.params, object.sheetMaterials);
       if (!bomOutcome.ok) {
         return { error: bomOutcome.reason };
       }
-      return { bom: bomOutcome.bom, cutList: buildCutList(bomOutcome.bom) };
+      return {
+        bom: bomOutcome.bom,
+        cutList: buildCutList(bomOutcome.bom),
+        validation: validateManufacturing(object.type, object.params, object.sheetMaterials),
+      };
     } catch (error) {
       console.error('Ishlab chiqarish hisob-kitobi xatosi:', error);
       return { error: "Hisob-kitobda kutilmagan xatolik yuz berdi." };
@@ -179,6 +190,38 @@ export function ManufacturingPanel({ object, projectName, scene }: Manufacturing
             </p>
           </div>
 
+          <div className="field" data-testid="manufacturing-validation">
+            <span className="field__label">
+              Tekshiruv: {computed.validation.counts.error} xatolik ·{' '}
+              {computed.validation.counts.warning} ogohlantirish
+            </span>
+            {computed.validation.issues.filter((entry) => entry.level !== 'info').length === 0 ? (
+              <p className="visual__hint">
+                Aniqlangan muammo yo‘q. Bu ishlab chiqarishga yaroqlilikni tasdiqlamaydi — quyidagi
+                cheklovlar hali tekshirilmagan.
+              </p>
+            ) : (
+              <ul className="manufacturing__validation-list">
+                {computed.validation.issues
+                  .filter((entry) => entry.level !== 'info')
+                  .map((entry) => (
+                    <li
+                      key={`${entry.level}-${entry.code}-${entry.partId ?? 'all'}`}
+                      className={`manufacturing__validation-item manufacturing__validation-item--${entry.level}`}
+                    >
+                      <strong>{VALIDATION_LEVEL_LABELS[entry.level]}</strong>
+                      {entry.partId ? ` · ${entry.partId}` : ''}: {entry.message}
+                    </li>
+                  ))}
+              </ul>
+            )}
+            <ul className="image-ref__warnings">
+              {computed.validation.limitations.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </div>
+
           <div className="field">
             <span className="field__label">Texnik chizma</span>
             <button type="button" className="visual-reset" onClick={handleDrawing}>
@@ -196,6 +239,10 @@ export function ManufacturingPanel({ object, projectName, scene }: Manufacturing
                 <li key={entry.partId + entry.sizeMm.x}>
                   {entry.name} × {entry.quantity} — {entry.sizeMm.x}×{entry.sizeMm.y}×{entry.sizeMm.z} mm
                   {entry.thicknessMm !== null ? ` (qalinlik ${entry.thicknessMm} mm)` : ''}
+                  {/* Material is shown next to the measured geometry, never instead of it. */}
+                  {entry.material
+                    ? ` · ${entry.material.name}, nominal ${entry.material.thicknessMm} mm`
+                    : ''}
                 </li>
               ))}
             </ul>
