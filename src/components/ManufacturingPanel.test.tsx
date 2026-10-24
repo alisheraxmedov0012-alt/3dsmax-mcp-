@@ -2,7 +2,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ManufacturingPanel } from './ManufacturingPanel';
-import type { PackageOutcome } from '../manufacturing/manufacturingPackage';
+import { packageFilename, type PackageOutcome } from '../manufacturing/manufacturingPackage';
 import {
   ROOM_DEFAULTS,
   SCENE_SCHEMA_VERSION,
@@ -112,12 +112,15 @@ function packageButton(): HTMLButtonElement {
   return screen.getByTestId('manufacturing-package') as HTMLButtonElement;
 }
 
+/** Derived from the real naming function, so the fixture cannot go stale. */
+const ARCHIVE_NAME = packageFilename('Stol loyihasi');
+
 function successOutcome(): PackageOutcome {
   return {
     ok: true,
     package: {
       bytes: new Uint8Array([1, 2, 3, 4]),
-      filename: 'stol-loyihasi-package.zip',
+      filename: ARCHIVE_NAME,
       mimeType: 'application/zip',
       entries: [
         { name: 'README.txt', bytes: 1 },
@@ -157,13 +160,15 @@ describe('ManufacturingPanel — package button', () => {
 
     await waitFor(() => expect(downloaded).toHaveLength(1));
     expect(downloaded[0]).toEqual({
-      name: 'stol-loyihasi-package.zip',
+      name: ARCHIVE_NAME,
       type: 'application/zip',
       size: 4,
     });
 
     await waitFor(() =>
-      expect(screen.getByText(/stol-loyihasi-package\.zip yuklab olindi/)).toBeTruthy(),
+      expect(
+        screen.getByText((content) => content.startsWith(`${ARCHIVE_NAME} yuklab olindi`)),
+      ).toBeTruthy(),
     );
     expect(screen.getByText(/5 detal, 1 panel/)).toBeTruthy();
   });
@@ -231,20 +236,35 @@ describe('ManufacturingPanel — package button', () => {
     expect(buildPackage).not.toHaveBeenCalled();
   });
 
-  it('keeps the archive filename tied to the project name', async () => {
+  it('forwards the builder filename to the download unchanged', async () => {
     const base = successOutcome();
     if (!base.ok) {
       throw new Error('fixture must succeed');
     }
+    // A name the panel cannot possibly reconstruct on its own: it carries the
+    // digest of a Cyrillic project name. If the panel rebuilt or re-slugged the
+    // filename instead of forwarding it, this assertion would fail.
+    const builderName = packageFilename('Kitob javoni');
     buildPackage.mockResolvedValue({
       ok: true,
-      package: { ...base.package, filename: 'kitob-javoni-package.zip' },
+      package: { ...base.package, filename: builderName },
     });
     renderPanel({ projectName: 'Kitob javoni' });
 
     fireEvent.click(packageButton());
 
     await waitFor(() => expect(downloaded).toHaveLength(1));
-    expect(downloaded[0].name).toBe('kitob-javoni-package.zip');
+    expect(downloaded[0].name).toBe(builderName);
+    await waitFor(() =>
+      expect(
+        screen.getByText((content) => content.startsWith(`${builderName} yuklab olindi`)),
+      ).toBeTruthy(),
+    );
+  });
+
+  it('uses the current C1.1 archive naming shape', () => {
+    // Guards the fixture itself: a stale literal here would silently stop
+    // representing what the builder really returns.
+    expect(ARCHIVE_NAME).toMatch(/^stol-loyihasi-[0-9a-f]{12}-package\.zip$/);
   });
 });
