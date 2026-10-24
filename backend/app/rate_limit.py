@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import defaultdict, deque
+from enum import StrEnum
 from threading import Lock
 
 from .config import get_settings
@@ -154,6 +155,19 @@ class RedisRateLimiter(RateLimiter):
         except Exception:  # pragma: no cover - defensive
             pass
 
+    def ping(self) -> bool:
+        """Round-trip to the store, bounded by the client's socket timeout.
+
+        Returns ``False`` on any failure instead of raising: the caller reports
+        the store as unavailable and must never surface the exception text (it
+        can carry the host or an AUTH failure message).
+        """
+        try:
+            return bool(self.client.ping())
+        except Exception as exc:
+            logger.warning("Rate limit store ping failed: %s", type(exc).__name__)
+            return False
+
 
 _ADAPTER: dict[str, RateLimiter | None] = {"value": None}
 
@@ -200,3 +214,50 @@ def describe_backend() -> str:
     if isinstance(limiter, RedisRateLimiter):
         return "redis-shared"
     return "memory-process-local"
+
+
+class RateLimitStoreState(StrEnum):
+    """Outcome of the shared-store health probe.
+
+    Deliberately separate from ``describe_backend()``: the backend *name* is
+    configuration, this is a live observation. Reporting the name as if it were
+    the state is what let a dead Redis look healthy.
+    """
+
+    OK = "ok"
+    UNAVAILABLE = "unavailable"
+    NOT_REQUIRED = "not_required"
+    UNCONFIGURED = "unconfigured"
+
+
+def shared_store_state() -> RateLimitStoreState:
+    """Probe the shared rate-limit store, bounded by its socket timeout.
+
+    ``memory`` is per-process and has nothing to reach, so it reports
+    ``NOT_REQUIRED`` rather than a failure — development and test stay ready.
+    Only a configured Redis backend performs a round-trip.
+    """
+    try:
+        limiter = get_rate_limiter()
+    except Exception as exc:
+        # Misconfigured (e.g. redis selected without a URL). Never echo the
+        # exception text: it can contain the URL.
+        logger.warning("Rate limit backend unavailable: %s", type(exc).__name__)
+        return RateLimitStoreState.UNCONFIGURED
+
+    if isinstance(limiter, RedisRateLimiter):
+        return RateLimitStoreState.OK if limiter.ping() else RateLimitStoreState.UNAVAILABLE
+    return RateLimitStoreState.NOT_REQUIRED
+
+
+__all__ = [
+    "DEFAULT_SCOPE_LIMITS",
+    "MemoryRateLimiter",
+    "RateLimitStoreState",
+    "RedisRateLimiter",
+    "describe_backend",
+    "get_rate_limiter",
+    "reset_rate_limiter_cache",
+    "scope_limit",
+    "shared_store_state",
+]

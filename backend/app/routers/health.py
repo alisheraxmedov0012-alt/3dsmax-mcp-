@@ -19,6 +19,7 @@ from ..config import get_settings
 from ..database import get_db
 from ..error_tracking import is_active as error_tracking_active
 from ..metrics import snapshot as metrics_snapshot
+from ..rate_limit import RateLimitStoreState, shared_store_state
 from ..rate_limit import describe_backend as rate_limit_backend
 from ..services.heartbeat import worker_status
 from ..services.storage import storage_status
@@ -88,7 +89,13 @@ def readiness(response: Response, db: OrmSession = Depends(get_db)) -> dict:
     worker = worker_status(db)
     worker_ok = bool(worker.get("running"))
 
-    ready = database_ok and storage_ok and worker_ok
+    # A configured shared store must actually answer. `rate_limit_backend` below
+    # reports the *configuration* name; this is the live probe. With the memory
+    # backend there is nothing to reach, so it never fails readiness.
+    store_state = shared_store_state()
+    shared_store_ok = store_state is not RateLimitStoreState.UNAVAILABLE
+
+    ready = database_ok and storage_ok and worker_ok and shared_store_ok
     if not ready:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
 
@@ -99,11 +106,13 @@ def readiness(response: Response, db: OrmSession = Depends(get_db)) -> dict:
             "database": database_ok,
             "storage": storage_ok,
             "worker": worker_ok,
+            "rate_limit_store": shared_store_ok,
         },
         "environment": settings.environment,
         "database_backend": _db_backend(settings.database_url),
         "storage_backend": storage_info.get("backend"),
         "worker": worker,
         "rate_limit_backend": rate_limit_backend(),
+        "rate_limit_store": store_state.value,
         "error_tracking": error_tracking_active(),
     }
