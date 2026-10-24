@@ -129,6 +129,8 @@ def _prod_settings(**overrides) -> Settings:
         environment="production",
         secret_key="x" * 40,
         cookie_secure=True,
+        # SameSite=lax keeps the browser-side CSRF layer; "none" is refused.
+        cookie_samesite="lax",
         expose_dev_tokens=False,
         debug=False,
         cors_origins="https://app.example.com",
@@ -136,6 +138,10 @@ def _prod_settings(**overrides) -> Settings:
         # W10: production must run a real worker and persistent storage.
         job_backend="worker",
         storage_backend="local",
+        # W11: the in-process limiter is per-worker, so production needs a
+        # shared store.
+        rate_limit_backend="redis",
+        redis_url="redis://cache:6379/0",
         # W12: sandbox payment and console email adapters are not production-safe.
         payment_provider="none",
         email_backend="smtp",
@@ -185,6 +191,51 @@ def test_sqlite_blocks_production():
 
 def test_development_config_never_blocks():
     assert Settings(environment="development").production_problems() == []
+
+
+# --- A-1: the in-process limiter is not production-safe -------------------
+
+
+def test_memory_rate_limit_backend_blocks_production():
+    problems = _prod_settings(rate_limit_backend="memory").production_problems()
+    assert any("RATE_LIMIT_BACKEND" in p for p in problems)
+
+
+def test_redis_backend_requires_a_url_in_production():
+    problems = _prod_settings(rate_limit_backend="redis", redis_url="").production_problems()
+    assert any("REDIS_URL" in p for p in problems)
+
+
+def test_redis_backend_with_a_url_is_accepted():
+    assert _prod_settings(
+        rate_limit_backend="redis", redis_url="redis://cache:6379/0"
+    ).production_problems() == []
+
+
+@pytest.mark.parametrize("backend", ["memory", "redis"])
+def test_development_accepts_any_rate_limit_backend(backend):
+    # The guard is production-only: local runs keep working unchanged.
+    assert Settings(environment="development", rate_limit_backend=backend).production_problems() == []
+
+
+# --- A-2: SameSite=None is refused in production --------------------------
+
+
+@pytest.mark.parametrize("value", ["none", "None", " none "])
+def test_samesite_none_blocks_production(value):
+    problems = _prod_settings(cookie_samesite=value).production_problems()
+    assert any("COOKIE_SAMESITE" in p for p in problems)
+
+
+@pytest.mark.parametrize("value", ["lax", "strict", "Lax", "STRICT"])
+def test_secure_samesite_values_are_accepted(value):
+    assert _prod_settings(cookie_samesite=value).production_problems() == []
+
+
+def test_development_allows_samesite_none():
+    assert Settings(
+        environment="development", cookie_samesite="none"
+    ).production_problems() == []
 
 
 # --- rate limiting backends ----------------------------------------------

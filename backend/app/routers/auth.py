@@ -11,7 +11,7 @@ from ..config import get_settings
 from ..database import get_db
 from ..deps import get_current_user, require_csrf
 from ..errors import ApiError
-from ..guards import client_ip, ip_rate_limit
+from ..guards import client_ip, ip_rate_limit, user_rate_limit
 from ..models import OneTimeToken, User
 from ..models import Session as SessionModel
 from ..rate_limit import get_rate_limiter, scope_limit
@@ -201,6 +201,7 @@ def verify_email(payload: VerifyEmailRequest, db: OrmSession = Depends(get_db)) 
 @router.post("/resend-verification", response_model=MessageResponse)
 def resend_verification(
     _: None = Depends(require_csrf),
+    __: None = Depends(user_rate_limit("resend")),
     user: User = Depends(get_current_user),
     db: OrmSession = Depends(get_db),
 ) -> MessageResponse:

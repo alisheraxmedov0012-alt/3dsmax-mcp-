@@ -282,3 +282,98 @@ def test_valid_import_still_creates_projects_in_order(client):
     assert len(body["project_ids"]) == 2
     listed = client.get("/api/projects", headers=headers).json()
     assert {project["client_id"] for project in listed} == {"a", "b"}
+
+
+# ---------------------------------------------------------------------------
+# B-1 - duplicate client ids in one batch
+# ---------------------------------------------------------------------------
+
+
+def _project_counter(email: str) -> int:
+    """Read the stored ``projects`` usage counter directly."""
+    from sqlalchemy import select
+
+    from app.database import SessionLocal
+    from app.models import UsageCounter, User
+
+    with SessionLocal() as db:
+        user = db.execute(select(User).where(User.email == email)).scalar_one()
+        row = db.execute(
+            select(UsageCounter).where(
+                UsageCounter.user_id == user.id, UsageCounter.metric == "projects"
+            )
+        ).scalar_one_or_none()
+        return row.count if row else 0
+
+
+def test_duplicate_client_id_in_batch_returns_422(client):
+    headers = _headers(client, "dup@example.com")
+
+    response = _import(
+        client,
+        headers,
+        [_item("same", SCENE), _item("same", SCENE)],
+    )
+
+    assert response.status_code == 422
+    assert _error_code(response) == "import_duplicate_client_id"
+
+
+def test_duplicate_client_id_saves_nothing(client):
+    headers = _headers(client, "dup-nothing@example.com")
+
+    _import(client, headers, [_item("same", SCENE), _item("same", SCENE)])
+
+    assert client.get("/api/projects", headers=headers).json() == []
+
+
+def test_duplicate_client_id_does_not_consume_quota(client):
+    headers = _headers(client, "dup-quota@example.com")
+    before = _project_counter("dup-quota@example.com")
+
+    _import(client, headers, [_item("same", SCENE), _item("same", SCENE)])
+
+    assert _project_counter("dup-quota@example.com") == before
+    # A normal import afterwards still succeeds: the counter was not burned.
+    ok = _import(client, headers, [_item("fresh", SCENE)])
+    assert ok.status_code == 200
+    assert ok.json()["imported"] == 1
+
+
+def test_duplicate_client_id_keeps_an_existing_project_untouched(client):
+    headers = _headers(client, "dup-existing@example.com")
+    created = _import(client, headers, [_item("same", SCENE)])
+    assert created.status_code == 200
+    project_id = created.json()["project_ids"][0]
+
+    bad = _import(
+        client,
+        headers,
+        [_item("same", {"objects": [{"id": "changed"}]}), _item("same", SCENE)],
+    )
+    assert bad.status_code == 422
+
+    stored = client.get(f"/api/projects/{project_id}", headers=headers).json()
+    assert stored["scene"] == SCENE
+    assert stored["version"] == 1
+
+
+def test_distinct_client_ids_are_still_accepted(client):
+    headers = _headers(client, "distinct@example.com")
+
+    response = _import(client, headers, [_item("a", SCENE), _item("b", SCENE), _item("c", SCENE)])
+
+    assert response.status_code == 200
+    assert response.json()["imported"] == 3
+
+
+def test_duplicate_check_is_scoped_to_the_batch(client):
+    """An id already stored by the user may be imported again (idempotent)."""
+    headers = _headers(client, "reimport@example.com")
+    assert _import(client, headers, [_item("same", SCENE)]).status_code == 200
+
+    again = _import(client, headers, [_item("same", SCENE)])
+
+    assert again.status_code == 200
+    assert again.json()["imported"] == 0
+    assert again.json()["skipped"] == 1

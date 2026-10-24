@@ -152,3 +152,40 @@ def test_forgot_password_does_not_reveal_account_existence(client):
     existing = client.post("/api/auth/forgot-password", json={"email": "leo@example.com"})
     missing = client.post("/api/auth/forgot-password", json={"email": "ghost@example.com"})
     assert existing.json()["message"] == missing.json()["message"]
+
+
+# ---------------------------------------------------------------------------
+# A-3 — resend-verification rate limit
+# ---------------------------------------------------------------------------
+
+
+def test_resend_verification_is_rate_limited(client):
+    register(client, "resend-limit@example.com")
+    headers = auth_headers(client, "resend-limit@example.com")
+
+    # The built-in scope allows 3 sends per window.
+    for _ in range(3):
+        assert client.post("/api/auth/resend-verification", headers=headers).status_code == 200
+
+    blocked = client.post("/api/auth/resend-verification", headers=headers)
+
+    assert blocked.status_code == 429
+    assert blocked.json()["error"]["code"] == "rate_limited"
+    assert "Retry-After" in blocked.headers
+
+
+def test_resend_verification_still_requires_csrf(client):
+    register(client, "resend-csrf@example.com")
+
+    # Session cookie present, no CSRF header -> refused before any email work.
+    response = client.post("/api/auth/resend-verification")
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "csrf_failed"
+
+
+def test_resend_verification_scope_has_a_tight_default():
+    from app.rate_limit import DEFAULT_SCOPE_LIMITS
+
+    assert DEFAULT_SCOPE_LIMITS["resend"] == 3
+    assert DEFAULT_SCOPE_LIMITS["resend"] < DEFAULT_SCOPE_LIMITS["webhook"]

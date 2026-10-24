@@ -43,6 +43,8 @@ DEFAULT_SCOPE_LIMITS: dict[str, int] = {
     "forgot": 5,
     "reset": 5,
     "webhook": 60,
+    # Email delivery costs money and can be used to flood a mailbox.
+    "resend": 3,
 }
 
 

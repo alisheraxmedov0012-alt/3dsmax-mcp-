@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session as OrmSession
 
 from ..database import get_db
 from ..deps import get_current_user, require_csrf
+from ..errors import ApiError
 from ..guards import user_rate_limit
 from ..models import Project, User
 from ..schemas import (
@@ -125,6 +126,21 @@ def import_local_projects(
     # scene at position 3 cannot leave projects 1-2 half-imported.
     validated = [(item, validate_scene_payload(item.scene)) for item in payload.projects]
 
+    # A client id may appear once per batch. Two entries with the same id would
+    # both look "new" here and only collide at flush time, which used to surface
+    # as a 500 *after* the quota had already been committed. Rejecting up front
+    # keeps the response a documented 422 and leaves both the rows and the
+    # counter untouched.
+    seen_ids: set[str] = set()
+    for item, _scene in validated:
+        if item.client_id in seen_ids:
+            raise ApiError(
+                "import_duplicate_client_id",
+                f"Import ichida «{item.client_id}» identifikatori ikki marta uchraydi.",
+                status_code=422,
+            )
+        seen_ids.add(item.client_id)
+
     entries: list[tuple[LocalProjectImportItem, dict, Project | None]] = []
     for item, scene in validated:
         existing = db.execute(
@@ -135,10 +151,13 @@ def import_local_projects(
         entries.append((item, scene, existing))
 
     # Enforce the project limit once, for the number of genuinely new projects,
-    # so a mid-batch limit error cannot leave a partial import either.
+    # so a mid-batch limit error cannot leave a partial import either. The
+    # increment is not committed on its own: it lands in the same transaction as
+    # the project rows, so a later failure cannot burn quota for work that was
+    # never saved.
     new_count = sum(1 for _, _, existing in entries if existing is None)
     if new_count > 0:
-        enforce_limit(db, user, METRIC_PROJECTS, increment=new_count)
+        enforce_limit(db, user, METRIC_PROJECTS, increment=new_count, commit=False)
 
     imported = 0
     skipped = 0

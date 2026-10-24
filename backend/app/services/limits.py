@@ -60,11 +60,22 @@ def usage_snapshot(db: OrmSession, user: User) -> list[dict]:
     return snapshot
 
 
-def enforce_limit(db: OrmSession, user: User, metric: str, increment: int = 1) -> None:
+def enforce_limit(
+    db: OrmSession,
+    user: User,
+    metric: str,
+    increment: int = 1,
+    *,
+    commit: bool = True,
+) -> None:
     """Check and consume one unit of a metered action.
 
     Raises ``ApiError`` (code ``limit_reached``) when the configured limit would
     be exceeded. A ``None`` limit means "not configured" and does not block.
+
+    ``commit=False`` leaves the counter increment in the caller's transaction so
+    it can be committed together with the work it pays for. That keeps a failed
+    operation from consuming quota; the caller must commit (or roll back) itself.
     """
     if metric not in METRIC_TO_LIMIT_KEY:
         raise ApiError("unknown_metric", "Noma'lum limit ko'rsatkichi.", status_code=400)
@@ -81,7 +92,10 @@ def enforce_limit(db: OrmSession, user: User, metric: str, increment: int = 1) -
         )
 
     counter.count += increment
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
 
 
 __all__ = [

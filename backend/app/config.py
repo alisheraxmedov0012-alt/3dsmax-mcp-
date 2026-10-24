@@ -14,6 +14,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 #: active in production (they would let subscriptions activate without payment).
 SANDBOX_PAYMENT_PROVIDERS = frozenset({"fake", "fake-sandbox", "sandbox"})
 
+#: Cookie SameSite values that keep the browser-side CSRF layer intact.
+SAFE_SAMESITE_VALUES = frozenset({"lax", "strict"})
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -166,6 +169,22 @@ class Settings(BaseSettings):
             problems.append("Productionda SQLite emas, PostgreSQL ishlatilishi kerak.")
         if self.rate_limit_backend == "redis" and not self.redis_url:
             problems.append("APP_RATE_LIMIT_BACKEND=redis uchun APP_REDIS_URL kerak.")
+        # W11: the in-process limiter keeps a per-worker counter, so with more
+        # than one worker the effective limit becomes workers x limit. A
+        # production deployment must not rely on it.
+        if self.rate_limit_backend != "redis":
+            problems.append(
+                "Productionda APP_RATE_LIMIT_BACKEND=redis bo'lishi shart "
+                "(memory backend har bir worker uchun alohida hisob yuritadi)."
+            )
+        # Defence in depth: the CSRF token is the primary protection, but a
+        # SameSite=None cookie removes the browser-side second layer and is only
+        # meaningful for a cross-site frontend, which this app does not have.
+        if (self.cookie_samesite or "").strip().lower() not in SAFE_SAMESITE_VALUES:
+            problems.append(
+                "Productionda APP_COOKIE_SAMESITE 'lax' yoki 'strict' bo'lishi kerak "
+                "('none' cross-site cookie xavfini oshiradi)."
+            )
         # W10: a production deployment must not silently rely on the in-process
         # job runner or on volatile storage.
         if self.job_backend != "worker":
