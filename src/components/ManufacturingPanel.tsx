@@ -1,18 +1,21 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { downloadBlob } from '../export/downloadFile';
 import { FURNITURE_TYPE_LABELS } from '../geometry/furniture/types';
-import type { SceneObject } from '../scene/types';
+import type { SceneData, SceneObject } from '../scene/types';
 import { buildBom } from '../manufacturing/bom';
 import { buildCutList } from '../manufacturing/cutList';
 import {
   buildManufacturingArtifact,
   type ManufacturingArtifactKind,
 } from '../manufacturing/manufacturingExport';
+import { buildManufacturingPackage } from '../manufacturing/manufacturingPackage';
 import { createTechnicalDrawingSvg } from '../manufacturing/technicalDrawing';
 
 interface ManufacturingPanelProps {
   object: SceneObject | null;
   projectName: string;
+  /** The full scene; needed for the 3D export inside the document package. */
+  scene: SceneData;
 }
 
 type Status = 'idle' | 'ok' | 'error';
@@ -29,9 +32,12 @@ const EXPORT_BUTTONS: Array<{ kind: ManufacturingArtifactKind; label: string }> 
  * selected piece. Everything is read-only over the scene — a failure here can
  * never modify or lose the project.
  */
-export function ManufacturingPanel({ object, projectName }: ManufacturingPanelProps) {
+export function ManufacturingPanel({ object, projectName, scene }: ManufacturingPanelProps) {
   const [status, setStatus] = useState<Status>('idle');
   const [message, setMessage] = useState('');
+  const [packaging, setPackaging] = useState(false);
+  // A ref, not state: two clicks in the same tick would both see `packaging`.
+  const packageLock = useRef(false);
 
   const computed = useMemo(() => {
     if (!object) {
@@ -107,6 +113,41 @@ export function ManufacturingPanel({ object, projectName }: ManufacturingPanelPr
     }
   };
 
+  const handlePackage = async () => {
+    if (packageLock.current) {
+      return;
+    }
+    packageLock.current = true;
+    setPackaging(true);
+    setStatus('idle');
+    setMessage('Hujjatlar to‘plami tayyorlanmoqda…');
+
+    try {
+      const outcome = await buildManufacturingPackage({ scene, object, projectName });
+
+      if (!outcome.ok) {
+        // A failed build produced no bytes, so nothing can be downloaded.
+        setStatus('error');
+        setMessage(`To‘plamni tayyorlab bo‘lmadi: ${outcome.reason}`);
+        return;
+      }
+
+      downloadBlob(new Blob([outcome.package.bytes], { type: outcome.package.mimeType }), outcome.package.filename);
+      setStatus('ok');
+      setMessage(
+        `${outcome.package.filename} yuklab olindi (${outcome.package.entries.length} fayl, ` +
+          `${outcome.package.totalParts} detal, ${outcome.package.cutPieces} panel).`,
+      );
+    } catch (error) {
+      console.error('To‘plam xatosi:', error);
+      setStatus('error');
+      setMessage('To‘plamni tayyorlab bo‘lmadi. Loyiha o‘zgarmadi.');
+    } finally {
+      packageLock.current = false;
+      setPackaging(false);
+    }
+  };
+
   return (
     <section className="manufacturing">
       <h2 className="manufacturing__title">Ishlab chiqarishga tayyorlash</h2>
@@ -122,6 +163,22 @@ export function ManufacturingPanel({ object, projectName }: ManufacturingPanelPr
 
       {computed && !('error' in computed) && (
         <>
+          <div className="field">
+            <span className="field__label">Ishlab chiqarish hujjatlari</span>
+            <button
+              type="button"
+              className="visual-reset manufacturing__package-button"
+              onClick={handlePackage}
+              disabled={packaging}
+              data-testid="manufacturing-package"
+            >
+              {packaging ? 'To‘plam tayyorlanmoqda…' : 'Loyiha hujjatlarini ZIP formatida yuklab olish'}
+            </button>
+            <p className="visual__hint">
+              Bitta arxivda: model.glb, BOM.csv, cutlist.csv, drawing.svg, meta.json, README.txt.
+            </p>
+          </div>
+
           <div className="field">
             <span className="field__label">Texnik chizma</span>
             <button type="button" className="visual-reset" onClick={handleDrawing}>

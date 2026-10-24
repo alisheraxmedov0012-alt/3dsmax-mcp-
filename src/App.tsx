@@ -612,7 +612,11 @@ export default function App() {
         />
         <AiPromptPanel onApply={applyDesign} />
         <ImageReferencePanel onConfirm={handleImageReferenceConfirm} />
-        <ManufacturingPanel object={selectedObject} projectName={projectName} />
+        <ManufacturingPanel
+          object={selectedObject}
+          projectName={projectName}
+          scene={scene.data}
+        />
         <AccountPanel />
         <ServerPanel />
         <AssemblyPanel

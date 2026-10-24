@@ -288,6 +288,25 @@ input[type='color'] {
   overflow-y: auto;
 }
 
+.manufacturing__package-button {
+  width: 100%;
+  text-align: left;
+  line-height: 1.35;
+}
+
+.manufacturing__package-button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+@media (max-width: 720px) {
+  .manufacturing__package-button {
+    min-height: 44px;
+    padding: 10px 12px;
+    font-size: 0.86rem;
+  }
+}
+
 .server-panel {
   display: flex;
   flex-direction: column;
