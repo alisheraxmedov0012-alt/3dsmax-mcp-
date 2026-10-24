@@ -17,6 +17,9 @@ SANDBOX_PAYMENT_PROVIDERS = frozenset({"fake", "fake-sandbox", "sandbox"})
 #: Cookie SameSite values that keep the browser-side CSRF layer intact.
 SAFE_SAMESITE_VALUES = frozenset({"lax", "strict"})
 
+#: Schemes accepted for ``APP_REDIS_URL`` (plain and TLS).
+REDIS_URL_SCHEMES = ("redis://", "rediss://")
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -140,6 +143,11 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.environment.lower() == "production"
 
+    def redis_url_has_known_scheme(self) -> bool:
+        """True when the configured Redis URL uses a scheme redis-py accepts."""
+        url = (self.redis_url or "").strip().lower()
+        return any(url.startswith(scheme) for scheme in REDIS_URL_SCHEMES)
+
     def production_problems(self) -> list[str]:
         """Unsafe production configuration that must block startup.
 
@@ -169,6 +177,12 @@ class Settings(BaseSettings):
             problems.append("Productionda SQLite emas, PostgreSQL ishlatilishi kerak.")
         if self.rate_limit_backend == "redis" and not self.redis_url:
             problems.append("APP_RATE_LIMIT_BACKEND=redis uchun APP_REDIS_URL kerak.")
+        elif self.rate_limit_backend == "redis" and not self.redis_url_has_known_scheme():
+            # A misconfigured URL would only fail at the first request, deep in
+            # the limiter; catching it at startup keeps the deployment honest.
+            problems.append(
+                "APP_REDIS_URL 'redis://' yoki 'rediss://' bilan boshlanishi kerak."
+            )
         # W11: the in-process limiter keeps a per-worker counter, so with more
         # than one worker the effective limit becomes workers x limit. A
         # production deployment must not rely on it.

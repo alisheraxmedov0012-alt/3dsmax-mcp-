@@ -377,3 +377,79 @@ def test_duplicate_check_is_scoped_to_the_batch(client):
     assert again.status_code == 200
     assert again.json()["imported"] == 0
     assert again.json()["skipped"] == 1
+
+
+# ---------------------------------------------------------------------------
+# B-1 - transaction boundaries
+# ---------------------------------------------------------------------------
+
+
+def test_successful_import_counts_each_new_project_once(client):
+    headers = _headers(client, "quota-count@example.com")
+    before = _project_counter("quota-count@example.com")
+
+    response = _import(client, headers, [_item("a", SCENE), _item("b", SCENE)])
+
+    assert response.status_code == 200
+    assert response.json()["imported"] == 2
+    assert _project_counter("quota-count@example.com") == before + 2
+
+
+def test_idempotent_reimport_does_not_consume_quota(client):
+    headers = _headers(client, "quota-idem@example.com")
+    assert _import(client, headers, [_item("same", SCENE)]).status_code == 200
+    after_first = _project_counter("quota-idem@example.com")
+
+    again = _import(client, headers, [_item("same", SCENE)])
+
+    assert again.status_code == 200
+    assert again.json()["skipped"] == 1
+    assert _project_counter("quota-idem@example.com") == after_first
+
+
+def test_database_failure_during_import_rolls_everything_back(client, monkeypatch):
+    """Simulate a DB failure after the rows and the counter were staged.
+
+    The quota increment and the project rows share one transaction, so a commit
+    failure must leave neither behind. This is fault injection on the session,
+    not a mock of the code under test.
+    """
+    from sqlalchemy.orm import Session as OrmSession
+
+    headers = _headers(client, "db-fail@example.com")
+    before = _project_counter("db-fail@example.com")
+
+    original_commit = OrmSession.commit
+
+    def _boom(self):
+        raise RuntimeError("simulated commit failure")
+
+    monkeypatch.setattr(OrmSession, "commit", _boom)
+    try:
+        try:
+            client.post(
+                "/api/projects/import",
+                headers=headers,
+                json={"projects": [_item("a", SCENE), _item("b", SCENE)]},
+            )
+        except RuntimeError:
+            pass
+    finally:
+        monkeypatch.setattr(OrmSession, "commit", original_commit)
+
+    # No partial rows, and the quota was not burned.
+    assert client.get("/api/projects", headers=headers).json() == []
+    assert _project_counter("db-fail@example.com") == before
+
+    # The account still works afterwards.
+    ok = _import(client, headers, [_item("a", SCENE)])
+    assert ok.status_code == 200
+    assert ok.json()["imported"] == 1
+
+
+def test_duplicate_id_batch_leaves_no_partial_rows(client):
+    headers = _headers(client, "dup-partial@example.com")
+
+    _import(client, headers, [_item("a", SCENE), _item("b", SCENE), _item("a", SCENE)])
+
+    assert client.get("/api/projects", headers=headers).json() == []

@@ -1,6 +1,8 @@
 """Authentication tests: registration, login, sessions, verification, reset."""
 from __future__ import annotations
 
+import json
+
 from sqlalchemy import select
 
 from app.models import User
@@ -189,3 +191,42 @@ def test_resend_verification_scope_has_a_tight_default():
 
     assert DEFAULT_SCOPE_LIMITS["resend"] == 3
     assert DEFAULT_SCOPE_LIMITS["resend"] < DEFAULT_SCOPE_LIMITS["webhook"]
+
+
+def test_rate_limited_resend_does_not_send_another_email(client, monkeypatch):
+    """The limit must stop the work, not just the response."""
+    sent: list[str] = []
+
+    def _record(to: str, subject: str, body: str) -> bool:
+        sent.append(to)
+        return True
+
+    register(client, "resend-no-email@example.com")
+
+    # Registration sends its own verification mail, so start counting after it.
+    monkeypatch.setattr("app.routers.auth.deliver", _record)
+    headers = auth_headers(client, "resend-no-email@example.com")
+
+    for _ in range(3):
+        assert client.post("/api/auth/resend-verification", headers=headers).status_code == 200
+    assert len(sent) == 3
+
+    blocked = client.post("/api/auth/resend-verification", headers=headers)
+
+    assert blocked.status_code == 429
+    # The fourth request never reached the mail adapter.
+    assert len(sent) == 3
+
+
+def test_resend_verification_response_shape_is_unchanged(client, monkeypatch):
+    register(client, "resend-shape@example.com")
+    monkeypatch.setattr("app.routers.auth.deliver", lambda *a, **k: True)
+    headers = auth_headers(client, "resend-shape@example.com")
+
+    response = client.post("/api/auth/resend-verification", headers=headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["message"] == "Tasdiqlash xati yuborildi."
+    # The address is never echoed back, and no account state is disclosed.
+    assert "resend-shape@example.com" not in json.dumps(body)

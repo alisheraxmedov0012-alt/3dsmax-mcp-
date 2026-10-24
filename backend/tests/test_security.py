@@ -238,6 +238,37 @@ def test_development_allows_samesite_none():
     ).production_problems() == []
 
 
+def test_redis_url_with_an_unknown_scheme_blocks_production():
+    problems = _prod_settings(
+        rate_limit_backend="redis", redis_url="cache.internal:6379"
+    ).production_problems()
+    assert any("APP_REDIS_URL" in p for p in problems)
+
+
+def test_rediss_url_is_accepted():
+    assert _prod_settings(
+        rate_limit_backend="redis", redis_url="rediss://cache:6380/0"
+    ).production_problems() == []
+
+
+@pytest.mark.parametrize("value", ["bogus", "", "   ", "none;", "same-site"])
+def test_unknown_samesite_values_block_production(value):
+    problems = _prod_settings(cookie_samesite=value).production_problems()
+    assert any("COOKIE_SAMESITE" in p for p in problems)
+
+
+@pytest.mark.parametrize("value", ["Lax ", " STRICT  ", "lax"])
+def test_samesite_normalisation_matches_the_cookie_setter(value):
+    """Surrounding space and case are normalised, so these stay accepted."""
+    assert _prod_settings(cookie_samesite=value).production_problems() == []
+
+
+def test_rate_limit_backend_is_case_sensitive_like_the_loader():
+    """An unexpected spelling is not silently treated as the shared backend."""
+    problems = _prod_settings(rate_limit_backend="Redis").production_problems()
+    assert any("RATE_LIMIT_BACKEND" in p for p in problems)
+
+
 # --- rate limiting backends ----------------------------------------------
 
 
