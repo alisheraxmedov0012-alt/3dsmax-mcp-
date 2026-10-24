@@ -5,6 +5,8 @@ name: CI
 # PostgreSQL: the same suite plus PostgreSQL-only integration tests, run against
 #   a real ephemeral PostgreSQL service so cross-engine behaviour (FK
 #   enforcement, unique constraints, timestamptz, JSON, migrations) is verified.
+# Redis:    the `redis`-marked integration tests against a real Redis service
+#   (the other jobs skip that marker, so this is the only place they run).
 # No real secrets are required — placeholder values and the sandbox payment
 # adapter are used throughout.
 
@@ -123,3 +125,43 @@ jobs:
           python -m alembic upgrade head
       - name: Tests (PostgreSQL)
         run: python -m pytest
+
+  redis:
+    # RD-3: the Redis limiter and readiness probe against a real server. The
+    # backend/postgres jobs run without APP_TEST_REDIS_URL and therefore skip the
+    # `redis` marker; this job is where those tests actually execute.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      redis:
+        image: redis:7-alpine
+        # No persistence: this store only holds rate-limit counters.
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 6379:6379
+    env:
+      APP_ENVIRONMENT: test
+      APP_DATABASE_URL: sqlite:///./ci-redis.db
+      APP_TEST_REDIS_URL: redis://127.0.0.1:6379/0
+      APP_SECRET_KEY: ci-secret
+      APP_EXPOSE_DEV_TOKENS: "true"
+      APP_PAYMENT_PROVIDER: fake
+      APP_PAYMENT_WEBHOOK_SECRET: ci-webhook-secret
+      APP_RATE_LIMIT_ATTEMPTS: "1000"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements-dev.txt
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements-dev.txt
+      - name: Redis integration tests
+        run: python -m pytest -m redis -v
