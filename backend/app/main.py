@@ -11,7 +11,7 @@ from .database import Base, SessionLocal, engine
 from .error_tracking import init_error_tracking
 from .errors import install_error_handlers
 from .logging_config import configure_logging
-from .middleware import ObservabilityMiddleware
+from .middleware import BodySizeLimitMiddleware, ObservabilityMiddleware
 from .routers import (
     admin,
     ai,
@@ -57,6 +57,10 @@ app = FastAPI(
     redoc_url="/redoc" if _docs_enabled else None,
     openapi_url="/openapi.json" if _docs_enabled else None,
 )
+
+# Innermost user middleware: it must sit directly above ExceptionMiddleware so
+# its body-limit signal is not converted into a 500 before it can answer 413.
+app.add_middleware(BodySizeLimitMiddleware)
 
 # Observability/security headers middleware must wrap everything else.
 app.add_middleware(ObservabilityMiddleware)

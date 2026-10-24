@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -18,7 +19,7 @@ import uuid
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
-from starlette.types import ASGIApp
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .config import get_settings
 from .errors import error_response
@@ -58,6 +59,102 @@ def _declared_length(request: Request) -> int | None:
     if raw is None or not raw.isdigit():
         return None
     return int(raw)
+
+
+def _header(scope: dict, name: bytes) -> str:
+    for raw_name, raw_value in scope.get("headers", ()):
+        if raw_name.lower() == name:
+            return raw_value.decode("latin-1")
+    return ""
+
+
+def _body_limit_for_scope(scope: dict) -> int:
+    """Same limits as the declared-length check, resolved from a raw ASGI scope."""
+    settings = get_settings()
+    content_type = _header(scope, b"content-type").lower()
+    if content_type.startswith("multipart/form-data"):
+        return settings.storage_max_bytes + _MULTIPART_OVERHEAD
+    return settings.max_request_bytes
+
+
+class _BodyTooLarge(BaseException):
+    """Internal control-flow signal, handled by ``BodySizeLimitMiddleware``.
+
+    Derives from ``BaseException`` so Starlette's ``ExceptionMiddleware`` (which
+    catches ``Exception``) cannot turn it into a 500 before the limit middleware
+    has a chance to answer with 413.
+    """
+
+
+async def _send_payload_too_large(send: Send) -> None:
+    body = json.dumps(
+        {"error": {"code": "payload_too_large", "message": "So'rov hajmi juda katta."}},
+        ensure_ascii=False,
+    ).encode("utf-8")
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 413,
+            "headers": [
+                (b"content-type", b"application/json; charset=utf-8"),
+                (b"content-length", str(len(body)).encode("ascii")),
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": body, "more_body": False})
+
+
+class BodySizeLimitMiddleware:
+    """Caps the request body even when ``Content-Length`` is absent.
+
+    ``ObservabilityMiddleware`` can only reject a body whose declared length is
+    already too large. A chunked request - or any request that omits the header -
+    has no declared length, so the JSON parser would buffer the whole payload in
+    memory and the multipart parser would spool it to disk before any cap
+    applied.
+
+    This middleware counts the bytes the ASGI server actually hands over and
+    aborts as soon as the limit is passed, before the body can be fully
+    collected. It answers with the same ``payload_too_large`` body the
+    declared-length path produces, so clients see one consistent contract.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        limit = _body_limit_for_scope(scope)
+        received = 0
+
+        async def limited_receive() -> dict:
+            nonlocal received
+            message = await receive()
+            if message.get("type") == "http.request":
+                received += len(message.get("body", b""))
+                if received > limit:
+                    raise _BodyTooLarge
+            return message
+
+        started = False
+
+        async def tracking_send(message: dict) -> None:
+            nonlocal started
+            if message.get("type") == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            await self.app(scope, limited_receive, tracking_send)
+        except _BodyTooLarge:
+            if started:
+                # A response already began; re-raising is the only honest option.
+                raise
+            incr("http_requests_total", method=scope.get("method", "-"), status=413)
+            await _send_payload_too_large(send)
 
 
 class ObservabilityMiddleware(BaseHTTPMiddleware):
