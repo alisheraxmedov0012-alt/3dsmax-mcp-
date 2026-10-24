@@ -25,6 +25,7 @@ from ..guards import user_rate_limit
 from ..models import Project, User
 from ..schemas import (
     AdminUserResponse,
+    LocalProjectImportItem,
     LocalProjectImportRequest,
     LocalProjectImportResult,
     ProjectCreateRequest,
@@ -40,6 +41,7 @@ from ..services.projects import (
     list_owned_projects,
     project_to_dict,
     update_project,
+    validate_scene_payload,
 )
 
 router = APIRouter(prefix="/api", tags=["projects"])
@@ -116,41 +118,54 @@ def import_local_projects(
     user: User = Depends(get_current_user),
     db: OrmSession = Depends(get_db),
 ) -> LocalProjectImportResult:
-    imported = 0
-    skipped = 0
-    project_ids: list[str] = []
+    # Validate the whole batch before writing anything. Import used to store
+    # ``item.scene`` as-is, which bypassed every bound create/update enforce
+    # (object count, assemblies, depth, array length, size, NaN). Validating up
+    # front also makes the batch all-or-nothing for validation errors: a bad
+    # scene at position 3 cannot leave projects 1-2 half-imported.
+    validated = [(item, validate_scene_payload(item.scene)) for item in payload.projects]
 
-    for item in payload.projects:
+    entries: list[tuple[LocalProjectImportItem, dict, Project | None]] = []
+    for item, scene in validated:
         existing = db.execute(
             select(Project).where(
                 Project.user_id == user.id, Project.client_id == item.client_id
             )
         ).scalar_one_or_none()
+        entries.append((item, scene, existing))
 
+    # Enforce the project limit once, for the number of genuinely new projects,
+    # so a mid-batch limit error cannot leave a partial import either.
+    new_count = sum(1 for _, _, existing in entries if existing is None)
+    if new_count > 0:
+        enforce_limit(db, user, METRIC_PROJECTS, increment=new_count)
+
+    imported = 0
+    skipped = 0
+    project_ids: list[str] = []
+
+    for item, scene, existing in entries:
         if existing is not None:
             # Idempotent update; never duplicate.
             existing.name = item.name
-            existing.scene = item.scene
+            existing.scene = scene
             existing.version = existing.version + 1
             project_ids.append(existing.id)
             skipped += 1
             continue
 
-        # Enforce the project limit only for genuinely new projects.
-        enforce_limit(db, user, METRIC_PROJECTS, increment=1)
-
         project = Project(
             user_id=user.id,
             client_id=item.client_id,
             name=item.name,
-            scene=item.scene,
+            scene=scene,
         )
         db.add(project)
-        db.commit()
-        db.refresh(project)
+        db.flush()
         project_ids.append(project.id)
         imported += 1
 
+    db.commit()
     return LocalProjectImportResult(imported=imported, skipped=skipped, project_ids=project_ids)
 
 

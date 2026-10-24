@@ -12,6 +12,7 @@ cannot silently overwrite newer work. Successful updates bump the version.
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
@@ -43,6 +44,19 @@ def _check_size(scene: dict) -> None:
         )
 
 
+def validate_scene_payload(payload: Any) -> dict:
+    """Canonical scene validation for every path that stores a scene.
+
+    Create, update and import all go through this one function, so a scene
+    stored by any of them satisfies the same bounds (structure, size,
+    non-finite numbers). Keeping it here rather than in the router means a new
+    endpoint cannot accidentally store an unvalidated scene.
+    """
+    scene = extract_scene(payload)
+    _check_size(scene)
+    return scene
+
+
 def get_owned_project(db: OrmSession, user: User, project_id: str) -> Project:
     """Return the project only when it belongs to ``user``; else 404."""
     project = db.get(Project, project_id)
@@ -65,8 +79,7 @@ def list_owned_projects(db: OrmSession, user: User) -> list[Project]:
 
 def create_project(db: OrmSession, user: User, *, name: str, payload: dict) -> Project:
     """Create a project for ``user``, enforcing the plan's project limit."""
-    scene = extract_scene(payload)
-    _check_size(scene)
+    scene = validate_scene_payload(payload)
 
     # Enforce the server-side plan limit before inserting.
     enforce_limit(db, user, METRIC_PROJECTS, increment=1)
@@ -121,9 +134,7 @@ def update_project(
     if payload is not None:
         # Validate fully before mutating anything, so a bad payload leaves the
         # existing scene untouched.
-        scene = extract_scene(payload)
-        _check_size(scene)
-        project.scene = scene
+        project.scene = validate_scene_payload(payload)
 
     # Bump the version only for a successful update.
     project.version = project.version + 1
@@ -171,4 +182,5 @@ __all__ = [
     "list_owned_projects",
     "project_to_dict",
     "update_project",
+    "validate_scene_payload",
 ]

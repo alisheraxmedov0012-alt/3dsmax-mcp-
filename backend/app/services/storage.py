@@ -118,8 +118,12 @@ class LocalStorageAdapter:
     def _path(self, key: str) -> Path:
         # The key is server-generated, but resolve+check anyway so a tampered key
         # can never escape the storage root (path traversal / IDOR via key).
+        #
+        # ``is_relative_to`` compares path components, not string prefixes: a
+        # sibling directory such as ``<root>-evil`` shares the textual prefix with
+        # ``<root>`` and would pass ``str(...).startswith(...)``.
         candidate = (self._root / key).resolve()
-        if not str(candidate).startswith(str(self._root)):
+        if not candidate.is_relative_to(self._root):
             raise ApiError("file_key_invalid", "Fayl kaliti noto'g'ri.", status_code=400)
         return candidate
 
