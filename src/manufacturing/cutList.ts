@@ -11,6 +11,7 @@
  * project does not have.
  */
 import type { BomResult, BomRow } from './bom';
+import type { BomMaterialInfo } from './sheetMaterial';
 
 export interface CutListRow {
   /** Stable id shared with the BOM (e.g. "wardrobe-side"). */
@@ -22,6 +23,11 @@ export interface CutListRow {
   thicknessMm: number;
   /** Always taken from the BOM (measured geometry). */
   source: 'bom';
+  /**
+   * Board material for this piece, copied from the BOM. Null when the user
+   * assigned none — it is never filled in with a guess.
+   */
+  material: BomMaterialInfo | null;
   notes: string[];
 }
 
@@ -58,6 +64,7 @@ function toCutRow(row: BomRow): CutListRow | null {
     widthMm,
     thicknessMm,
     source: 'bom',
+    material: row.material,
     notes: [PANEL_NOTE],
   };
 }

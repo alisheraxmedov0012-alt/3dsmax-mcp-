@@ -25,6 +25,7 @@ import type { SceneData, SceneObject } from '../scene/types';
 import { buildBom, PANEL_MAX_THICKNESS_CM, type BomResult } from './bom';
 import { buildCutList, type CutListResult } from './cutList';
 import { bomToCsv, cutListToCsv } from './manufacturingExport';
+import { groupByMaterial, type MaterialGroup, type SheetIssue } from './sheetMaterial';
 import { createTechnicalDrawingSvg } from './technicalDrawing';
 
 /** Every entry the archive must contain, in a stable order. */
@@ -118,6 +119,10 @@ interface MetaFile {
   units: { scene: 'cm'; manufacturing: 'mm' };
   parameters: FurnitureParams;
   totals: { parts: number; cutPieces: number; panelAreaM2: number };
+  /** Material actually assigned by the user; empty when none was. */
+  materials: MaterialGroup[];
+  /** Material and thickness problems, so the shop sees them before cutting. */
+  issues: SheetIssue[];
   files: PackageEntryName[];
   limitations: string[];
 }
@@ -144,12 +149,49 @@ function buildMeta(
       cutPieces: cutList.totalPieces,
       panelAreaM2: cutList.panelAreaM2,
     },
+    materials: groupByMaterial(bom.rows),
+    issues: [...bom.issues],
     files: [...PACKAGE_ENTRIES],
     limitations: [...bom.limitations, ...cutList.limitations],
   };
   // No secrets are collected here: the meta only carries what the user sees in
   // the editor (name, type, dimensions) plus the export time.
   return JSON.stringify(meta, null, 2);
+}
+
+/**
+ * Material summary for the README.
+ *
+ * When nothing is assigned the section says so plainly instead of listing a
+ * default, so nobody mistakes an empty column for "standard board".
+ */
+function materialSection(bom: BomResult): string[] {
+  const groups = groupByMaterial(bom.rows);
+  const lines = [`Material`, ``];
+  if (groups.length === 0) {
+    lines.push(`  Material tanlanmagan — BOM va kesish royxatida material ustuni bosh.`);
+    return lines;
+  }
+  for (const group of groups) {
+    lines.push(
+      `  ${group.name}, ${group.thicknessMm} ${group.unit} — ${group.totalPieces} detal (${group.partIds.join(', ')})`,
+    );
+  }
+  const errors = bom.issues.filter((issue) => issue.level === 'error');
+  const warnings = bom.issues.filter((issue) => issue.level === 'warning');
+  if (errors.length > 0) {
+    lines.push(``, `  Xatoliklar`);
+    for (const issue of errors) {
+      lines.push(`    - ${issue.message}`);
+    }
+  }
+  if (warnings.length > 0) {
+    lines.push(``, `  Ogohlantirishlar`);
+    for (const issue of warnings) {
+      lines.push(`    - ${issue.message}`);
+    }
+  }
+  return lines;
 }
 
 function buildReadme(input: BuildPackageInput, bom: BomResult, cutList: CutListResult): string {
@@ -172,6 +214,7 @@ function buildReadme(input: BuildPackageInput, bom: BomResult, cutList: CutListR
     ``,
     `Jami: ${bom.totalParts} detal, ${cutList.totalPieces} panel, ${cutList.panelAreaM2} m2 panel yuzasi.`,
     ``,
+    ...materialSection(bom),
     `Muhim cheklovlar`,
     ...bom.limitations.map((line) => `  - ${line}`),
     ...cutList.limitations.map((line) => `  - ${line}`),
@@ -202,7 +245,7 @@ export async function buildManufacturingPackage(
     return { ok: false, reason: "Tanlangan obyekt sahnada topilmadi." };
   }
 
-  const bomOutcome = buildBom(object.type, object.params);
+  const bomOutcome = buildBom(object.type, object.params, object.sheetMaterials);
   if (!bomOutcome.ok) {
     return { ok: false, reason: bomOutcome.reason };
   }

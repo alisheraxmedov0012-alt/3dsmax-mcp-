@@ -8,6 +8,7 @@
 import { buildExportFilename } from '../export/exportNaming';
 import type { BomResult } from './bom';
 import type { CutListResult } from './cutList';
+import { groupByMaterial } from './sheetMaterial';
 
 export const BOM_JSON_FORMAT = '3d-studio-ai-bom';
 export const CUT_LIST_JSON_FORMAT = '3d-studio-ai-cutlist';
@@ -58,7 +59,7 @@ export function bomToCsv(bom: BomResult): string {
         entry.sizeMm.z,
         entry.thicknessMm,
         'geometry',
-        entry.material,
+        entry.material ? entry.material.name : null,
         entry.notes.join(' '),
       ]),
     );
@@ -67,7 +68,20 @@ export function bomToCsv(bom: BomResult): string {
   return lines.join('\n');
 }
 
-const CUT_HEADER = ['Nomi', 'partId', 'Soni', 'Uzunlik_mm', 'Kenglik_mm', 'Qalinlik_mm', 'Izohlar'];
+/**
+ * Cut list columns. `Material` is appended after the original seven so existing
+ * consumers that read by position keep working unchanged.
+ */
+const CUT_HEADER = [
+  'Nomi',
+  'partId',
+  'Soni',
+  'Uzunlik_mm',
+  'Kenglik_mm',
+  'Qalinlik_mm',
+  'Izohlar',
+  'Material',
+];
 
 /** Cut list as CSV (millimetres). */
 export function cutListToCsv(cutList: CutListResult): string {
@@ -82,10 +96,11 @@ export function cutListToCsv(cutList: CutListResult): string {
         entry.widthMm,
         entry.thicknessMm,
         entry.notes.join(' '),
+        entry.material ? entry.material.name : null,
       ]),
     );
   }
-  lines.push(row(['Jami', '', cutList.totalPieces, '', '', '', '']));
+  lines.push(row(['Jami', '', cutList.totalPieces, '', '', '', '', '']));
   return lines.join('\n');
 }
 
@@ -99,6 +114,8 @@ export function bomToJson(bom: BomResult): string {
       furnitureType: bom.type,
       totalParts: bom.totalParts,
       panelAreaM2: bom.panelAreaM2,
+      materials: groupByMaterial(bom.rows),
+      issues: bom.issues,
       limitations: bom.limitations,
       rows: bom.rows,
     },
@@ -116,6 +133,7 @@ export function cutListToJson(cutList: CutListResult): string {
       unit: cutList.unit,
       totalPieces: cutList.totalPieces,
       panelAreaM2: cutList.panelAreaM2,
+      materials: groupByMaterial(cutList.rows),
       limitations: cutList.limitations,
       rows: cutList.rows,
     },

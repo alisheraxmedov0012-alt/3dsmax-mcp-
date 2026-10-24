@@ -553,3 +553,129 @@ describe('buildManufacturingPackage — every furniture type', () => {
     }
   });
 });
+
+describe('C3 — materials in the package', () => {
+  const assignment = {
+    partId: 'wardrobe-door',
+    materialId: 'mdf' as const,
+    thicknessMm: 12,
+    thicknessSource: 'user' as const,
+  };
+
+  async function buildWithMaterial() {
+    const object = objectOf('wardrobe', 'w-mat');
+    const withMaterial = { ...object, sheetMaterials: [assignment] };
+    const result = await buildManufacturingPackage({
+      scene: sceneWith(withMaterial),
+      object: withMaterial,
+      projectName: 'Shkaf loyihasi',
+      generatedAt: FIXED_DATE,
+    });
+    if (!result.ok) throw new Error(result.reason);
+    return result;
+  }
+
+  it('reports the assigned material in meta.json', async () => {
+    const built = await buildWithMaterial();
+    const meta = JSON.parse(text(unzip(built.package.bytes), 'meta.json'));
+
+    expect(meta.materials).toHaveLength(1);
+    expect(meta.materials[0].materialId).toBe('mdf');
+    expect(meta.materials[0].name).toBe('MDF');
+    expect(meta.materials[0].thicknessMm).toBe(12);
+    expect(meta.materials[0].unit).toBe('mm');
+    expect(meta.materials[0].totalPieces).toBe(2);
+    expect(meta.materials[0].partIds).toEqual(['wardrobe-door']);
+    expect(Array.isArray(meta.issues)).toBe(true);
+  });
+
+  it('writes the material into BOM.csv and cutlist.csv', async () => {
+    const built = await buildWithMaterial();
+    const files = unzip(built.package.bytes);
+    const bom = text(files, 'BOM.csv').split('\n');
+    const cut = text(files, 'cutlist.csv').split('\n');
+
+    const bomDoor = bom.find((line) => line.startsWith('Eshik'));
+    expect(bomDoor).toContain('MDF');
+
+    // The cut list keeps its original seven columns and adds Material at the end.
+    expect(cut[0].split(',')[7]).toBe('Material');
+    const cutDoor = cut.find((line) => line.startsWith('Eshik'));
+    expect(cutDoor?.split(',')[7]).toBe('MDF');
+  });
+
+  it('describes the material in README.txt', async () => {
+    const built = await buildWithMaterial();
+    const readme = text(unzip(built.package.bytes), 'README.txt');
+    expect(readme).toContain('Material');
+    expect(readme).toContain('MDF, 12 mm — 2 detal (wardrobe-door)');
+  });
+
+  it('says plainly when nothing is assigned instead of implying a default', async () => {
+    const built = await build();
+    const files = unzip(built.package.bytes);
+    const readme = text(files, 'README.txt');
+    const meta = JSON.parse(text(files, 'meta.json'));
+    expect(readme).toContain('Material tanlanmagan');
+    expect(meta.materials).toEqual([]);
+    expect(readme).not.toContain('LDSP,');
+  });
+
+  it('flags a stale thickness in meta.json and the README', async () => {
+    // 18 mm was assigned while the door measures 12 mm.
+    const object = objectOf('wardrobe', 'w-stale');
+    const stale = { ...object, sheetMaterials: [{ ...assignment, thicknessMm: 18 }] };
+    const result = await buildManufacturingPackage({
+      scene: sceneWith(stale),
+      object: stale,
+      projectName: 'Shkaf',
+      generatedAt: FIXED_DATE,
+    });
+    if (!result.ok) throw new Error(result.reason);
+
+    const files = unzip(result.package.bytes);
+    const meta = JSON.parse(text(files, 'meta.json'));
+    const warning = meta.issues.find(
+      (issue: { level: string; partId: string | null }) =>
+        issue.level === 'warning' && issue.partId === 'wardrobe-door',
+    );
+    expect(warning?.message).toMatch(/mos kelmaydi/i);
+    expect(text(files, 'README.txt')).toContain('Ogohlantirishlar');
+  });
+
+  it('keeps the archive deterministic with materials attached', async () => {
+    const object = objectOf('wardrobe', 'w-det');
+    const withMaterial = { ...object, sheetMaterials: [assignment] };
+    const run = () =>
+      buildManufacturingPackage({
+        scene: sceneWith(withMaterial),
+        object: withMaterial,
+        projectName: 'Shkaf',
+        generatedAt: FIXED_DATE,
+      });
+
+    const first = await run();
+    await new Promise((resolve) => setTimeout(resolve, 2600));
+    const second = await run();
+    if (!first.ok || !second.ok) throw new Error('build failed');
+
+    expect(second.package.bytes).toEqual(first.package.bytes);
+    expect(second.package.filename).toBe(first.package.filename);
+  }, 20_000);
+
+  it('keeps the six entries and the drawing dimensions unchanged', async () => {
+    const built = await buildWithMaterial();
+    const files = unzip(built.package.bytes);
+    expect(Object.keys(files).sort()).toEqual(
+      ['BOM.csv', 'README.txt', 'cutlist.csv', 'drawing.svg', 'meta.json', 'model.glb'].sort(),
+    );
+
+    // C2 drawing: material does not alter the measured views or dimension text.
+    const svg = text(files, 'drawing.svg');
+    expect(svg).toContain('Old korinish');
+    expect(svg).toContain('Masshtab:');
+    const meta = JSON.parse(text(files, 'meta.json'));
+    expect(meta.totals.parts).toBe(11);
+    expect(meta.totals.cutPieces).toBe(11);
+  });
+});

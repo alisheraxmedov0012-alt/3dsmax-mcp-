@@ -6,6 +6,7 @@ import {
   type FurnitureType,
 } from '../geometry/furniture/types';
 import type { MaterialPresetId } from '../materials/types';
+import type { SheetMaterialEntry } from '../manufacturing/sheetMaterial';
 import { createDefaultSettings, type SceneSettings } from './sceneSettings';
 
 /**
@@ -129,6 +130,12 @@ export interface SceneObject {
   params: FurnitureParams;
   /** PBR material overrides (metalness/roughness). Base colour is `params.color`. */
   material: ObjectMaterial;
+  /**
+   * C3 board material per part group (what the piece is *made of*), independent
+   * of the PBR `material` above (how it *looks*). Optional so projects saved
+   * before C3 stay valid; absent means "no material assigned", not a default.
+   */
+  sheetMaterials?: SheetMaterialEntry[];
 }
 
 export interface ObjectMaterial {
