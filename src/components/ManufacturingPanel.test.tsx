@@ -195,7 +195,10 @@ describe('ManufacturingPanel — package button', () => {
     release(successOutcome());
 
     await waitFor(() => expect(downloaded).toHaveLength(1));
-    expect(packageButton().disabled).toBe(false);
+    // The download is recorded synchronously in the click handler, before React
+    // commits the state updates from the same handler, so the re-enable has to be
+    // awaited rather than read at this instant.
+    await waitFor(() => expect(packageButton().disabled).toBe(false));
     expect(buildPackage).toHaveBeenCalledTimes(1);
   });
 
