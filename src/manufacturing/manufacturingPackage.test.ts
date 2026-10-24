@@ -9,10 +9,10 @@ import {
   sceneForObject,
   type PackageOutcome,
 } from './manufacturingPackage';
-import { buildBom } from './bom';
+import { PANEL_MAX_THICKNESS_CM, buildBom } from './bom';
 import { buildCutList } from './cutList';
 import { createDefaultSettings } from '../scene/sceneSettings';
-import type { FurnitureType } from '../geometry/furniture/types';
+import { createFurnitureParams, type FurnitureType } from '../geometry/furniture/types';
 import {
   ROOM_DEFAULTS,
   SCENE_SCHEMA_VERSION,
@@ -360,6 +360,33 @@ describe('buildManufacturingPackage — isolation between projects', () => {
     expect(a.package.bytes).toEqual(b.package.bytes);
     expect(a.package.filename).toBe(b.package.filename);
   });
+
+  it('stays byte-identical across a real time gap', async () => {
+    const object = objectOf('wardrobe', 'w-gap');
+
+    // Two builds seconds apart. Without a pinned entry timestamp fflate stamps
+    // each entry with the wall clock (2-second DOS resolution), so the archives
+    // differ and this assertion is what catches that regression.
+    const first = await build(object);
+    await new Promise((resolve) => setTimeout(resolve, 2600));
+    const second = await build(object);
+
+    expect(second.package.bytes).toEqual(first.package.bytes);
+    expect(second.package.filename).toBe(first.package.filename);
+  }, 20_000);
+
+  it('keeps every entry timestamp at the export time, not the build time', async () => {
+    const built = await build();
+    const files = unzip(built.package.bytes);
+
+    // The archive is stamped with `generatedAt` (FIXED_DATE) rather than "now",
+    // which is what makes the bytes above reproducible.
+    expect(Object.keys(files).sort()).toEqual(
+      ['BOM.csv', 'README.txt', 'cutlist.csv', 'drawing.svg', 'meta.json', 'model.glb'].sort(),
+    );
+    const meta = JSON.parse(text(files, 'meta.json'));
+    expect(meta.exportedAt).toBe(FIXED_DATE.toISOString());
+  });
 });
 
 describe('packageFilename — no collisions between different projects', () => {
@@ -462,5 +489,67 @@ describe('packageFilename — the archive itself is unchanged', () => {
     expect(JSON.parse(text(files, 'meta.json')).project).toBe(projectName);
     expect(text(files, 'README.txt')).toContain(projectName);
     expect(built.package.filename).not.toContain(projectName);
+  });
+});
+
+describe('buildManufacturingPackage — every furniture type', () => {
+  // Pins the whole matrix so a geometry change cannot silently start (or stop)
+  // producing a production package for a type nobody re-checked.
+  const PANEL_TYPES = ['table', 'chair', 'armchair', 'bed', 'wardrobe', 'shelf', 'dresser'] as const;
+
+  it.each(PANEL_TYPES)('builds a complete package for %s', async (type) => {
+    const built = await build(objectOf(type, `${type}-all`), `Loyiha ${type}`);
+    const files = unzip(built.package.bytes);
+
+    expect(Object.keys(files).sort()).toEqual(
+      ['BOM.csv', 'README.txt', 'cutlist.csv', 'drawing.svg', 'meta.json', 'model.glb'].sort(),
+    );
+    expect(built.package.filename).toMatch(/^[a-z0-9-]+-[0-9a-f]{12}-package\.zip$/);
+    expect(built.package.cutPieces).toBeGreaterThan(0);
+    expect(JSON.parse(text(files, 'meta.json')).furniture.type).toBe(type);
+  });
+
+  it('refuses the sofa instead of inventing a cut list', async () => {
+    const sofa = objectOf('sofa', 'sofa-all');
+    const outcome = await buildManufacturingPackage({
+      scene: sceneWith(sofa),
+      object: sofa,
+      projectName: 'Divan',
+      generatedAt: FIXED_DATE,
+    });
+
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) {
+      throw new Error('a sofa must not produce a production package');
+    }
+    // The reason must explain the actual cause, not just "empty".
+    expect(outcome.reason).toContain('yupqa panel emas');
+    expect(outcome.reason).toContain('60 mm');
+    // Nothing is handed back that could be downloaded as a partial archive.
+    expect(outcome).not.toHaveProperty('package');
+  });
+
+  it('cannot cut a sofa because its parts are thicker than a board', () => {
+    // Why refusing is correct rather than a bug: the measured sofa parts are
+    // upholstery blocks, so no part qualifies as sheet goods.
+    const bom = buildBom('sofa', createFurnitureParams('sofa'));
+    if (!bom.ok) {
+      throw new Error(bom.reason);
+    }
+    expect(bom.bom.rows.every((row) => row.thicknessMm === null)).toBe(true);
+    const cut = buildCutList(bom.bom);
+    expect(cut.rows).toHaveLength(0);
+    // The board-eligible kinds are the seat and the backrest. Their smallest
+    // sides are 340 mm and 80 mm — both far past the 60 mm board limit, so they
+    // stay blocks. The legs are 50 mm but are posts, so the cut list never
+    // considered them in the first place.
+    const boardKinds = bom.bom.rows.filter((row) =>
+      ['seat', 'back', 'top', 'bottom', 'side', 'shelf', 'board', 'door', 'drawer', 'frame', 'headboard'].includes(row.kind),
+    );
+    expect(boardKinds.map((row) => row.partId)).toEqual(['sofa-seat', 'sofa-back']);
+    for (const row of boardKinds) {
+      const minSide = Math.min(row.sizeMm.x, row.sizeMm.y, row.sizeMm.z);
+      expect(minSide).toBeGreaterThan(PANEL_MAX_THICKNESS_CM * 10);
+    }
   });
 });

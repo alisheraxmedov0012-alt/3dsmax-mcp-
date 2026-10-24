@@ -22,7 +22,7 @@ import {
   type FurnitureType,
 } from '../geometry/furniture/types';
 import type { SceneData, SceneObject } from '../scene/types';
-import { buildBom, type BomResult } from './bom';
+import { buildBom, PANEL_MAX_THICKNESS_CM, type BomResult } from './bom';
 import { buildCutList, type CutListResult } from './cutList';
 import { bomToCsv, cutListToCsv } from './manufacturingExport';
 import { createTechnicalDrawingSvg } from './technicalDrawing';
@@ -210,9 +210,16 @@ export async function buildManufacturingPackage(
 
   const cutList = buildCutList(bom);
   if (cutList.rows.length === 0) {
+    // No part is thin enough to be cut from board, so there is nothing a
+    // workshop could saw. Refusing is the honest outcome: inventing cut rows for
+    // an upholstered block (a sofa seat is 34 cm thick) would hand the shop a
+    // cut list it cannot use.
     return {
       ok: false,
-      reason: "Kesish royxati bosh: bu detal uchun panel olchamlari aniqlanmadi.",
+      reason:
+        'Kesish royxati bosh: bu mebelning hech bir detali yupqa panel emas ' +
+        `(eng kichik tomoni ${PANEL_MAX_THICKNESS_CM * 10} mm dan qalin), ` +
+        'shuning uchun ishlab chiqarish paketi tuzilmadi.',
     };
   }
 
@@ -259,8 +266,11 @@ export async function buildManufacturingPackage(
   let bytes: Uint8Array<ArrayBuffer>;
   try {
     // Level 6 keeps the archive small without spending time on the GLB's
-    // already-compressed binary chunks.
-    bytes = zipSync(files, { level: 6 }) as Uint8Array<ArrayBuffer>;
+    // already-compressed binary chunks. `mtime` pins every entry's DOS timestamp
+    // to the export time already recorded in meta.json, so the same input
+    // produces byte-identical archives; fflate would otherwise stamp each entry
+    // with the wall clock and two runs would differ by their build time.
+    bytes = zipSync(files, { level: 6, mtime: exportedAt }) as Uint8Array<ArrayBuffer>;
   } catch (error) {
     return {
       ok: false,
