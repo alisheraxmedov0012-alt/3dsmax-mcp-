@@ -113,15 +113,15 @@ describe('buildManufacturingPackage — archive contents', () => {
   it('names the archive after the project', async () => {
     const { package: built } = await build(objectOf(), 'Stol loyihasi');
 
-    expect(built.filename).toBe('stol-loyihasi-package.zip');
+    expect(built.filename).toMatch(/^stol-loyihasi-[0-9a-f]{12}-package\.zip$/);
     expect(built.mimeType).toBe(PACKAGE_MIME_TYPE);
     expect(built.mimeType).toBe('application/zip');
   });
 
   it('falls back to a safe name when the project name is blank', () => {
-    expect(packageFilename('')).toBe('model-package.zip');
-    expect(packageFilename('   ')).toBe('model-package.zip');
-    expect(packageFilename('Шкаф 2026')).toBe('2026-package.zip');
+    expect(packageFilename('')).toMatch(/^model-[0-9a-f]{12}-package\.zip$/);
+    expect(packageFilename('   ')).toMatch(/^model-[0-9a-f]{12}-package\.zip$/);
+    expect(packageFilename('Шкаф 2026')).toMatch(/^2026-[0-9a-f]{12}-package\.zip$/);
   });
 
   it('reports the byte size of every entry', async () => {
@@ -336,8 +336,8 @@ describe('buildManufacturingPackage — isolation between projects', () => {
     const firstMeta = JSON.parse(text(unzip(first.package.bytes), 'meta.json'));
     const secondMeta = JSON.parse(text(unzip(second.package.bytes), 'meta.json'));
 
-    expect(first.package.filename).toBe('birinchi-loyiha-package.zip');
-    expect(second.package.filename).toBe('ikkinchi-loyiha-package.zip');
+    expect(first.package.filename).toMatch(/^birinchi-loyiha-[0-9a-f]{12}-package\.zip$/);
+    expect(second.package.filename).toMatch(/^ikkinchi-loyiha-[0-9a-f]{12}-package\.zip$/);
     expect(firstMeta.project).toBe('Birinchi loyiha');
     expect(secondMeta.project).toBe('Ikkinchi loyiha');
     expect(firstMeta.furniture.type).toBe('table');
@@ -359,5 +359,108 @@ describe('buildManufacturingPackage — isolation between projects', () => {
 
     expect(a.package.bytes).toEqual(b.package.bytes);
     expect(a.package.filename).toBe(b.package.filename);
+  });
+});
+
+describe('packageFilename — no collisions between different projects', () => {
+  // The exact names that collided before C1.1: the slug dropped the Cyrillic
+  // text, so several different projects produced the same download name.
+  const CYRILLIC = ['Ошхона шкаф', 'Кухня', 'Шкаф 2026', 'Ошхона шкаф 2026'];
+  const MIXED = ['Kitchen Table', 'Kitchen-Table', 'kitchen table', 'KITCHEN TABLE'];
+  const DEGENERATE = ['123', '456', '!!!', '???', '', '   ', '--'];
+
+  const all = [...CYRILLIC, ...MIXED, ...DEGENERATE];
+
+  function expectSafeFilename(name: string): void {
+    // ASCII lowercase, digits and single dashes only: no path separator, no
+    // control character, no leading dot, no "..".
+    expect(name).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*\.zip$/);
+    expect(name).not.toContain('/');
+    expect(name).not.toContain('\\');
+    expect(name).not.toContain('..');
+    expect(name.length).toBeLessThanOrEqual(80);
+  }
+
+  it('gives every different project name its own filename', () => {
+    const filenames = all.map(packageFilename);
+    expect(new Set(filenames).size).toBe(all.length);
+  });
+
+  it('separates Cyrillic names that slug to the same fallback', () => {
+    // Both slug to "model"; only the digest tells them apart.
+    expect(packageFilename('Ошхона шкаф')).not.toBe(packageFilename('Кухня'));
+    expect(packageFilename('Ошхона шкаф')).toMatch(/^model-/);
+    expect(packageFilename('Кухня')).toMatch(/^model-/);
+  });
+
+  it('separates names that differ only by a trailing number', () => {
+    // Both slug to "2026" and collide without the digest.
+    expect(packageFilename('Шкаф 2026')).not.toBe(packageFilename('Ошхона шкаф 2026'));
+  });
+
+  it('separates a Latin name from a Cyrillic name with the same slug', () => {
+    expect(packageFilename('Model')).not.toBe(packageFilename('Ошхона шкаф'));
+    expect(packageFilename('2026')).not.toBe(packageFilename('Шкаф 2026'));
+  });
+
+  it('separates names that differ only in separators or case', () => {
+    expect(packageFilename('Kitchen Table')).not.toBe(packageFilename('Kitchen-Table'));
+    expect(packageFilename('Kitchen Table')).not.toBe(packageFilename('KITCHEN TABLE'));
+  });
+
+  it('separates punctuation-only and blank names', () => {
+    expect(packageFilename('!!!')).not.toBe(packageFilename('???'));
+    expect(packageFilename('')).not.toBe(packageFilename('   '));
+    expect(packageFilename('!!!')).not.toBe(packageFilename(''));
+  });
+
+  it('is deterministic for the same project name', () => {
+    for (const name of all) {
+      expect(packageFilename(name)).toBe(packageFilename(name));
+    }
+    expect(packageFilename('Stol loyihasi')).toBe(packageFilename('Stol loyihasi'));
+  });
+
+  it('always produces a filesystem-safe ASCII name', () => {
+    for (const name of all) {
+      expectSafeFilename(packageFilename(name));
+    }
+  });
+
+  it('strips path separators, control characters and traversal sequences', () => {
+    for (const name of ['../../etc/passwd', 'a/b\\c', 'a\u0000b', '..', '../..']) {
+      expectSafeFilename(packageFilename(name));
+    }
+    expect(packageFilename('../../etc/passwd')).toMatch(/^etc-passwd-/);
+  });
+
+  it('keeps the slug readable and bounded for very long names', () => {
+    const long = packageFilename('a'.repeat(500));
+    expect(long).toMatch(/^a{48}-[0-9a-f]{12}-package\.zip$/);
+    expectSafeFilename(long);
+  });
+
+  it('keeps the plain slug prefix for ordinary Latin names', () => {
+    // Regression guard: the readable part must not be lost for everyday names.
+    expect(packageFilename('Yotoqxona Shkafi')).toMatch(/^yotoqxona-shkafi-/);
+    expect(packageFilename('Kitchen Table')).toMatch(/^kitchen-table-/);
+    expect(packageFilename('Stol loyihasi')).toMatch(/^stol-loyihasi-/);
+    expect(packageFilename('Kitchen Table')).toMatch(/-package\.zip$/);
+  });
+});
+
+describe('packageFilename — the archive itself is unchanged', () => {
+  it('keeps the six entry names and the real project name inside', async () => {
+    const projectName = 'Ошхона шкаф';
+    const built = await build(objectOf('wardrobe'), projectName);
+    const files = unzip(built.package.bytes);
+
+    expect(Object.keys(files).sort()).toEqual(
+      ['BOM.csv', 'README.txt', 'cutlist.csv', 'drawing.svg', 'meta.json', 'model.glb'].sort(),
+    );
+    // Only the download filename may change; the documents keep the real name.
+    expect(JSON.parse(text(files, 'meta.json')).project).toBe(projectName);
+    expect(text(files, 'README.txt')).toContain(projectName);
+    expect(built.package.filename).not.toContain(projectName);
   });
 });

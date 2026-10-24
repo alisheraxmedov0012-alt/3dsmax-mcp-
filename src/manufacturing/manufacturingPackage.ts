@@ -15,7 +15,7 @@
  */
 import { zipSync, strToU8 } from 'fflate';
 import { exportSceneToGlb } from '../export/sceneExport';
-import { slugifyName } from '../export/exportNaming';
+import { nameDigest, slugifyName } from '../export/exportNaming';
 import {
   FURNITURE_TYPE_LABELS,
   type FurnitureParams,
@@ -80,13 +80,18 @@ export const PACKAGE_MIME_TYPE = 'application/zip';
 const DATE_ONLY = (date: Date): string => date.toISOString().slice(0, 10);
 
 /**
- * `{slug}-package.zip`, e.g. `stol-loyihasi-package.zip`.
+ * `{slug}-{digest}-package.zip`, e.g. `stol-loyihasi-1a2b3c4d5e6f-package.zip`.
+ *
+ * The digest makes the name unique per project: the slug alone cannot, because
+ * {@link slugifyName} drops non-ASCII characters (`Ошхона шкаф` and `Кухня` both
+ * slug to `model`). Only the filename changes — the project's real name is kept
+ * verbatim inside `meta.json` and `README.txt`.
  *
  * The `-package` suffix keeps the archive distinguishable from the single-format
  * downloads (`…-bom.csv`, `…-cutlist.csv`) that share the same name slug.
  */
 export function packageFilename(projectName: string): string {
-  return `${slugifyName(projectName, 'model')}-package.zip`;
+  return `${slugifyName(projectName, 'model')}-${nameDigest(projectName)}-package.zip`;
 }
 
 /**
