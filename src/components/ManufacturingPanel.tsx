@@ -11,6 +11,7 @@ import {
 import { buildManufacturingPackage } from '../manufacturing/manufacturingPackage';
 import { createTechnicalDrawingSvg } from '../manufacturing/technicalDrawing';
 import { validateManufacturing, type ValidationLevel } from '../manufacturing/validation';
+import { groupByMaterial } from '../manufacturing/sheetMaterial';
 
 interface ManufacturingPanelProps {
   object: SceneObject | null;
@@ -43,8 +44,10 @@ export function ManufacturingPanel({ object, projectName, scene }: Manufacturing
   const [status, setStatus] = useState<Status>('idle');
   const [message, setMessage] = useState('');
   const [packaging, setPackaging] = useState(false);
-  // A ref, not state: two clicks in the same tick would both see `packaging`.
+  const [pdfBusy, setPdfBusy] = useState(false);
+  // Refs, not state: two clicks in the same tick would both see the state value.
   const packageLock = useRef(false);
+  const pdfLock = useRef(false);
 
   const computed = useMemo(() => {
     if (!object) {
@@ -97,6 +100,74 @@ export function ManufacturingPanel({ object, projectName, scene }: Manufacturing
       console.error('Chizma xatosi:', error);
       setStatus('error');
       setMessage('Chizma yaratilmadi. Loyiha o‘zgarmadi.');
+    }
+  };
+
+  /**
+   * Build the PDF from the very data already shown in this panel.
+   *
+   * Nothing is recomputed from the scene: the BOM, cut list, materials,
+   * validation report and drawing come from `computed`, so the PDF cannot drift
+   * from what the user is looking at.
+   */
+  const handlePdf = async () => {
+    if (pdfLock.current || !computed || 'error' in computed) {
+      return;
+    }
+    pdfLock.current = true;
+    setPdfBusy(true);
+    setStatus('idle');
+    setMessage('PDF hujjati tayyorlanmoqda…');
+
+    try {
+      // Same generator and options as the "Chizma (SVG)" action, so the PDF
+      // embeds the drawing the user can also download on its own.
+      const drawing = createTechnicalDrawingSvg(object.type, object.params, {
+        title: projectName.trim() !== '' ? projectName : FURNITURE_TYPE_LABELS[object.type],
+        date: new Date().toISOString().slice(0, 10),
+      });
+      if (!drawing.ok) {
+        setStatus('error');
+        setMessage(`PDF yaratilmadi: ${drawing.reason}`);
+        return;
+      }
+
+      // Loaded on demand: pdf-lib and the embedded fonts are only worth their
+      // weight when someone actually exports a PDF, so they stay out of the
+      // initial bundle.
+      const { buildManufacturingPdf } = await import('../manufacturing/pdfDocument');
+      const outcome = await buildManufacturingPdf({
+        type: object.type,
+        params: object.params,
+        projectName,
+        bom: computed.bom,
+        cutList: computed.cutList,
+        materials: groupByMaterial(computed.bom.rows),
+        validation: computed.validation,
+        drawing: { svg: drawing.svg, scale: drawing.scale },
+        overall: drawing.overall,
+        generatedAt: new Date(),
+      });
+
+      if (!outcome.ok) {
+        // No bytes were produced, so there is nothing that could be corrupt.
+        setStatus('error');
+        setMessage(`PDF yaratilmadi: ${outcome.reason}`);
+        return;
+      }
+
+      downloadBlob(new Blob([outcome.bytes], { type: 'application/pdf' }), outcome.filename);
+      setStatus('ok');
+      setMessage(
+        `${outcome.filename} yuklab olindi (${outcome.pageCount} sahifa, ${computed.validation.counts.error} xatolik).`,
+      );
+    } catch (error) {
+      console.error('PDF xatosi:', error);
+      setStatus('error');
+      setMessage('PDF yaratilmadi. Loyiha o‘zgarmadi.');
+    } finally {
+      pdfLock.current = false;
+      setPdfBusy(false);
     }
   };
 
@@ -220,6 +291,25 @@ export function ManufacturingPanel({ object, projectName, scene }: Manufacturing
                 <li key={line}>{line}</li>
               ))}
             </ul>
+          </div>
+
+          <div className="field">
+            <span className="field__label">PDF hujjat</span>
+            <button
+              type="button"
+              className="visual-reset manufacturing__package-button"
+              onClick={handlePdf}
+              disabled={pdfBusy}
+              data-testid="manufacturing-pdf"
+            >
+              {pdfBusy
+                ? 'PDF tayyorlanmoqda…'
+                : 'Ishlab chiqarish hujjatlarini PDF formatida yuklab olish'}
+            </button>
+            <p className="visual__hint">
+              Bitta hujjatda: texnik chizma, BOM, kesish ro‘yxati, materiallar va tekshiruv
+              natijasi.
+            </p>
           </div>
 
           <div className="field">

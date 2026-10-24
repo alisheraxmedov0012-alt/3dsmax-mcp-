@@ -54,14 +54,16 @@ class TestFileReader {
 beforeAll(() => {
   vi.stubGlobal('FileReader', TestFileReader);
   // jsdom has no object-URL implementation; downloads are recorded instead.
-  vi.stubGlobal('URL', {
-    ...URL,
-    createObjectURL: (blob: Blob) => {
-      downloaded.push({ name: '', type: blob.type, size: blob.size });
-      return 'blob:test';
-    },
-    revokeObjectURL: () => undefined,
-  });
+  // The real URL constructor is kept (pdf-lib uses `new URL` internally), so the
+  // statics are patched in place and restored afterwards rather than replacing
+  // the global with a plain object.
+  (URL as unknown as { createObjectURL: (blob: Blob) => string }).createObjectURL = (
+    blob: Blob,
+  ) => {
+    downloaded.push({ name: '', type: blob.type, size: blob.size });
+    return 'blob:test';
+  };
+  (URL as unknown as { revokeObjectURL: (url: string) => void }).revokeObjectURL = () => undefined;
   // Intercept the anchor click so nothing navigates.
   HTMLAnchorElement.prototype.click = function click(this: HTMLAnchorElement) {
     const last = downloaded[downloaded.length - 1];
@@ -323,5 +325,73 @@ describe('C4 — validation report in the panel', () => {
     const section = screen.getByTestId('manufacturing-validation');
     expect(section.textContent).toContain('Xatolik');
     expect(section.textContent).toMatch(/noldan katta/i);
+  });
+});
+
+describe('C5 — PDF export action', () => {
+  function pdfButton(): HTMLButtonElement {
+    return screen.getByTestId('manufacturing-pdf') as HTMLButtonElement;
+  }
+
+  it('offers a PDF action next to the existing exports', () => {
+    renderPanel();
+    expect(pdfButton()).toBeTruthy();
+    expect(pdfButton().textContent).toContain('PDF');
+    expect(pdfButton().disabled).toBe(false);
+    // The C1 ZIP action is still there.
+    expect(screen.getByTestId('manufacturing-package')).toBeTruthy();
+  });
+
+  it('downloads a real PDF with the application/pdf type', async () => {
+    renderPanel({ projectName: 'Stol loyihasi' });
+
+    fireEvent.click(pdfButton());
+
+    await waitFor(() => expect(downloaded).toHaveLength(1), { timeout: 15000 });
+    expect(downloaded[0].type).toBe('application/pdf');
+    expect(downloaded[0].name).toMatch(/^stol-loyihasi-[0-9a-f]{12}-hujjatlar\.pdf$/);
+    // A real document, not an empty blob.
+    expect(downloaded[0].size).toBeGreaterThan(1000);
+  }, 20000);
+
+  it('reports success only after the document was produced', async () => {
+    renderPanel();
+
+    fireEvent.click(pdfButton());
+
+    await waitFor(() => expect(downloaded).toHaveLength(1), { timeout: 15000 });
+    await waitFor(() => expect(screen.getByText(/hujjatlar\.pdf yuklab olindi/)).toBeTruthy());
+    expect(screen.getByText(/sahifa/)).toBeTruthy();
+  }, 20000);
+
+  it('shows a busy state while generating and blocks duplicate clicks', async () => {
+    renderPanel();
+
+    fireEvent.click(pdfButton());
+    // The label switches immediately; a second click is swallowed by the lock.
+    expect(pdfButton().disabled).toBe(true);
+    fireEvent.click(pdfButton());
+    fireEvent.click(pdfButton());
+
+    await waitFor(() => expect(downloaded).toHaveLength(1), { timeout: 15000 });
+    expect(downloaded).toHaveLength(1);
+    await waitFor(() => expect(pdfButton().disabled).toBe(false));
+  }, 20000);
+
+  it('does not download anything when the model cannot be measured', async () => {
+    renderPanel({ object: { ...objectOf(), params: { ...objectOf().params, widthCm: Number.NaN } } });
+
+    // The panel cannot even build the BOM, so the export controls are not shown.
+    expect(screen.queryByTestId('manufacturing-pdf')).toBeNull();
+    expect(downloaded).toHaveLength(0);
+  });
+
+  it('keeps the existing single-format exports working', async () => {
+    renderPanel();
+    fireEvent.click(screen.getByText('BOM (CSV)'));
+    await waitFor(() => expect(downloaded).toHaveLength(1));
+    expect(downloaded[0].type).toBe('text/csv');
+    // No PDF was produced by the CSV path.
+    expect(downloaded[0].name).not.toContain('.pdf');
   });
 });
