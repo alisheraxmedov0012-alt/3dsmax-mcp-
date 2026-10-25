@@ -9,7 +9,7 @@ import { FurniturePanel } from './components/FurniturePanel';
 import { ExportControls, type ExportStatus } from './components/ExportControls';
 import { LightingPanel } from './components/LightingPanel';
 import { MaterialPanel } from './components/MaterialPanel';
-import { ManufacturingPanel } from './components/ManufacturingPanel';
+import { LazyManufacturingPanel } from './components/LazyManufacturingPanel';
 import { ObjectPanel } from './components/ObjectPanel';
 import { ProjectsPanel, type ProjectsStatus } from './components/ProjectsPanel';
 import { RenderExportPanel, type RenderStatus } from './components/RenderExportPanel';
@@ -652,7 +652,9 @@ export default function App() {
         />
         <AiPromptPanel onApply={applyDesign} />
         <ImageReferencePanel onConfirm={handleImageReferenceConfirm} />
-        <ManufacturingPanel
+        {/* C8.3: the manufacturing document stack is not needed for the first
+            screen, so it loads in its own chunk instead of the entry bundle. */}
+        <LazyManufacturingPanel
           object={selectedObject}
           projectName={projectName}
           scene={scene.data}
