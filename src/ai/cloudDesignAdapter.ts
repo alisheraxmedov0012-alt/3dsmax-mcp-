@@ -6,7 +6,9 @@ import {
   type AiFurnitureType,
 } from '../api/client';
 import type { FurnitureParams } from '../geometry/furniture';
+import type { MaterialPresetId } from '../materials/types';
 import { specToFurnitureParams } from './designSpec';
+import { presetIdForMaterialKind } from './materialKind';
 import type { ProposalConfidence } from './types';
 
 /**
@@ -25,6 +27,12 @@ export interface AppliedDesign {
   kind: 'applied';
   furniture: AiFurnitureType;
   params: FurnitureParams;
+  /**
+   * PBR preset resolved from the AI's `material_kind`, or `null` when the AI
+   * named no material (or one this build has no preset for). `null` means "keep
+   * the default material".
+   */
+  materialPresetId: MaterialPresetId | null;
   confidence: ProposalConfidence;
   notes: string[];
   warnings: string[];
@@ -147,6 +155,7 @@ export async function generateDesignFromCloud(text: string): Promise<CloudDesign
     kind: 'applied',
     furniture: built.type as AiFurnitureType,
     params: built.params,
+    materialPresetId: presetIdForMaterialKind(built.materialKind),
     confidence: spec.confidence,
     notes: [...spec.notes, ...built.notes],
     warnings: [...spec.warnings, ...built.warnings],

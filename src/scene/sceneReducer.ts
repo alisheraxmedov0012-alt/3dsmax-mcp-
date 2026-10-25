@@ -10,7 +10,7 @@ import {
   type SheetMaterialEntry,
 } from '../manufacturing/sheetMaterial';
 import { MAX_SHEET_MATERIALS_PER_OBJECT } from './types';
-import { PBR_LIMITS, type NumericRange } from '../materials/types';
+import { PBR_LIMITS, type MaterialPresetId, type NumericRange } from '../materials/types';
 import { validateRoomConfig, validateSceneObject } from './sceneValidation';
 import {
   nearestWall,
@@ -56,7 +56,17 @@ export type SceneAction =
   | { type: 'ADD_ROOM_OPENING'; opening: RoomOpening }
   | { type: 'REMOVE_ROOM_OPENING'; id: string }
   | { type: 'ADD_TABLE'; id: string }
-  | { type: 'ADD_FURNITURE'; furnitureType: FurnitureType; id: string; params?: FurnitureParams }
+  | {
+      type: 'ADD_FURNITURE';
+      furnitureType: FurnitureType;
+      id: string;
+      params?: FurnitureParams;
+      /**
+       * PBR preset applied as part of creation (A3.4 F3), so the object is never
+       * briefly rendered with the wrong material. Unknown ids are ignored.
+       */
+      materialPresetId?: MaterialPresetId | null;
+    }
   | { type: 'SELECT'; id: string | null }
   | {
       type: 'UPDATE_TRANSFORM';
@@ -276,6 +286,21 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
         if (validated) {
           object.params = validated;
         }
+      }
+      // A3.4 F3: the preset is part of creation, not a second step. Only the PBR
+      // channels come from the preset; the base colour stays whatever the caller
+      // supplied (the AI's colour or the type default), because adopting a
+      // preset's colour remains an explicit APPLY_MATERIAL_PRESET action.
+      if (action.materialPresetId && MATERIAL_PRESET_IDS.has(action.materialPresetId)) {
+        const preset = getMaterialPreset(action.materialPresetId);
+        object.material = {
+          materialId: preset.id,
+          metalness: preset.metalness,
+          roughness: preset.roughness,
+          opacity: preset.opacity,
+          textureScale: preset.textureScale,
+          normalStrength: preset.normalStrength,
+        };
       }
       return {
         data: {

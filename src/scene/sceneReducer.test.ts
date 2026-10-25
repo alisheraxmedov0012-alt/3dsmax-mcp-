@@ -241,6 +241,85 @@ describe('sceneReducer', () => {
     expect(added?.params.color).not.toBe('nope');
   });
 
+  // A3.4 F3 — the AI's material preset is applied as part of creation.
+  it('applies a material preset while adding furniture (one atomic action)', () => {
+    const state = sceneReducer(initialState(), {
+      type: 'ADD_FURNITURE',
+      furnitureType: 'table',
+      id: 'ai-wood',
+      params: { widthCm: 180, heightCm: 75, depthCm: 60, color: '#a9744f' },
+      materialPresetId: 'wood-oak',
+    });
+    const added = findSceneObject(state, 'ai-wood');
+    expect(added?.material.materialId).toBe('wood-oak');
+    expect(added?.material.roughness).toBeCloseTo(0.65, 5);
+    expect(added?.material.normalStrength).toBeGreaterThan(0);
+    // The caller's colour is kept; adopting a preset colour stays explicit.
+    expect(added?.params.color).toBe('#a9744f');
+  });
+
+  it('keeps the default material when no preset is supplied', () => {
+    const state = sceneReducer(initialState(), {
+      type: 'ADD_FURNITURE',
+      furnitureType: 'table',
+      id: 'plain',
+      params: { widthCm: 160, heightCm: 74, depthCm: 55, color: '#8b5a2b' },
+    });
+    const added = findSceneObject(state, 'plain');
+    // Unchanged from before A3.4 F3: same defaults a plain add has always had.
+    expect(added?.material.materialId).toBeUndefined();
+    expect(added?.material.metalness).toBe(0.05);
+    expect(added?.material.roughness).toBe(0.6);
+    expect(added?.params.color).toBe('#8b5a2b');
+  });
+
+  it('ignores an unknown material preset on creation', () => {
+    const state = sceneReducer(initialState(), {
+      type: 'ADD_FURNITURE',
+      furnitureType: 'table',
+      id: 'unknown-preset',
+      materialPresetId: 'not-a-preset',
+    });
+    const added = findSceneObject(state, 'unknown-preset');
+    expect(added?.material.materialId).toBeUndefined();
+    expect(added?.material.roughness).toBe(0.6);
+  });
+
+  it('agrees with APPLY_MATERIAL_PRESET for the same preset', () => {
+    const created = sceneReducer(initialState(), {
+      type: 'ADD_FURNITURE',
+      furnitureType: 'table',
+      id: 'same',
+      materialPresetId: 'metal-steel',
+    });
+    const viaCreate = findSceneObject(created, 'same');
+
+    const applied = sceneReducer(created, {
+      type: 'APPLY_MATERIAL_PRESET',
+      id: 'same',
+      presetId: 'metal-steel',
+    });
+    const viaApply = findSceneObject(applied, 'same');
+
+    // Both routes must produce the same PBR channels: no conflicting state.
+    expect(viaApply?.material).toEqual(viaCreate?.material);
+  });
+
+  it('still allows a later preset change after creation with a preset', () => {
+    let state = sceneReducer(initialState(), {
+      type: 'ADD_FURNITURE',
+      furnitureType: 'table',
+      id: 'switch',
+      materialPresetId: 'wood-oak',
+    });
+    state = sceneReducer(state, {
+      type: 'APPLY_MATERIAL_PRESET',
+      id: 'switch',
+      presetId: 'glass-clear',
+    });
+    expect(findSceneObject(state, 'switch')?.material.materialId).toBe('glass-clear');
+  });
+
   it('applies transform/visibility/delete to any furniture type', () => {
     let state = sceneReducer(initialState(), {
       type: 'ADD_FURNITURE',

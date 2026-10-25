@@ -59,6 +59,11 @@ const DETAIL_LABELS: Record<string, string> = {
 export interface BuiltFurnitureSpec {
   type: FurnitureType;
   params: FurnitureParams;
+  /**
+   * The AI's `material_kind`, passed through unchanged (or `null`). Resolving it
+   * to a PBR preset is a separate step — see `presetIdForMaterialKind`.
+   */
+  materialKind: string | null;
   notes: string[];
   warnings: string[];
 }
@@ -105,6 +110,7 @@ export function buildFurnitureSpec(
   dimensions: AiDesignDimensions | null | undefined,
   details: AiDesignDetails | null | undefined,
   color?: string | null,
+  materialKind?: string | null,
 ): BuiltFurnitureSpec | null {
   const params = createFurnitureParams(type);
   const notes: string[] = [];
@@ -162,7 +168,7 @@ export function buildFurnitureSpec(
     return null;
   }
 
-  return { type, params: validated, notes, warnings };
+  return { type, params: validated, materialKind: materialKind ?? null, notes, warnings };
 }
 
 /** True when the spec's type has a builder in the geometry layer. */

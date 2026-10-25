@@ -114,7 +114,7 @@ describe('A3.3 panel — a timeout leaves the waiting state', () => {
     const status = screen.getByRole('status').textContent ?? '';
     expect(status).toMatch(/vaqtida javob bermadi/i);
     // A table prompt may still use the offline analyzer, and it is labelled.
-    expect(onApply).toHaveBeenCalledWith('table', expect.anything());
+    expect(onApply).toHaveBeenCalledWith('table', expect.anything(), null);
     expect(screen.getByRole('status').textContent).toMatch(/Mahalliy tahlil ishlatildi/);
     vi.unstubAllEnvs();
   });
@@ -186,7 +186,7 @@ describe('A3.3 panel — server refusals are shown, not papered over', () => {
 
     await waitFor(() => expect(screen.getByRole('status')).toBeTruthy());
     expect(screen.getByRole('status').textContent).toMatch(/sozlanmagan/i);
-    expect(onApply).toHaveBeenCalledWith('table', expect.anything());
+    expect(onApply).toHaveBeenCalledWith('table', expect.anything(), null);
   });
 
   it('reports a provider outage and falls back for a table', async () => {
@@ -199,7 +199,7 @@ describe('A3.3 panel — server refusals are shown, not papered over', () => {
 
     await waitFor(() => expect(screen.getByRole('status')).toBeTruthy());
     expect(screen.getByRole('status').textContent).toMatch(/provayderi javob bermadi/i);
-    expect(onApply).toHaveBeenCalledWith('table', expect.anything());
+    expect(onApply).toHaveBeenCalledWith('table', expect.anything(), null);
   });
 
   it('reports the platform ceiling rather than retrying quietly', async () => {
@@ -215,7 +215,7 @@ describe('A3.3 panel — server refusals are shown, not papered over', () => {
 
     await waitFor(() => expect(screen.getByRole('status')).toBeTruthy());
     expect(screen.getByRole('status').textContent).toMatch(/umumiy chegaraga yetdi/i);
-    expect(onApply).toHaveBeenCalledWith('table', expect.anything());
+    expect(onApply).toHaveBeenCalledWith('table', expect.anything(), null);
   });
 });
 
@@ -259,7 +259,7 @@ describe('A3.3 panel — the offline fallback refuses prompts it cannot answer',
     await submit('180x60x75 sm, yog‘och rangli');
 
     await waitFor(() => expect(screen.getByRole('status')).toBeTruthy());
-    expect(onApply).toHaveBeenCalledWith('table', expect.anything());
+    expect(onApply).toHaveBeenCalledWith('table', expect.anything(), null);
   });
 });
 
@@ -271,7 +271,7 @@ describe('A3.3 panel — the success path is unchanged', () => {
     await submit('180x60x75 sm stol');
 
     await waitFor(() => expect(screen.getByRole('status')).toBeTruthy());
-    expect(onApply).toHaveBeenCalledWith('table', expect.anything());
+    expect(onApply).toHaveBeenCalledWith('table', expect.anything(), null);
     expect(screen.getByRole('status').textContent).toMatch(/qo‘llanildi|qo'llanildi/);
     expect(button().textContent).toBe(IDLE_LABEL);
   });
@@ -284,5 +284,37 @@ describe('A3.3 panel — the success path is unchanged', () => {
 
     await waitFor(() => expect(screen.getByRole('status')).toBeTruthy());
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+describe('A3.4 F3 — the AI material reaches the model', () => {
+  it('passes the PBR preset for a named material kind to the caller', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(specResponse({ material_kind: 'wood' })));
+    const { onApply } = renderPanel();
+
+    await submit('yog‘och stol');
+
+    await waitFor(() => expect(onApply).toHaveBeenCalled());
+    expect(onApply).toHaveBeenCalledWith('table', expect.anything(), 'wood-oak');
+  });
+
+  it('passes null when the AI names no material, so the default is kept', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(specResponse({ material_kind: null })));
+    const { onApply } = renderPanel();
+
+    await submit('180x60x75 sm stol');
+
+    await waitFor(() => expect(onApply).toHaveBeenCalled());
+    expect(onApply).toHaveBeenCalledWith('table', expect.anything(), null);
+  });
+
+  it('passes null for an unknown material kind instead of guessing', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(specResponse({ material_kind: 'carbon-fibre' })));
+    const { onApply } = renderPanel();
+
+    await submit('180x60x75 sm stol');
+
+    await waitFor(() => expect(onApply).toHaveBeenCalled());
+    expect(onApply).toHaveBeenCalledWith('table', expect.anything(), null);
   });
 });

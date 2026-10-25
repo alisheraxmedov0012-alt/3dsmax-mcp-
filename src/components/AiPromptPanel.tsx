@@ -2,14 +2,20 @@ import { useState } from 'react';
 import type { FurnitureParams, FurnitureType } from '../geometry/furniture';
 import { localTableAdapter, unsupportedObjectsIn } from '../ai/localTableAdapter';
 import { generateDesignFromCloud } from '../ai/cloudDesignAdapter';
+import type { MaterialPresetId } from '../materials/types';
 import { AiAdapterError, type ProposalConfidence } from '../ai/types';
 
 interface AiPromptPanelProps {
   /**
-   * Called with the type and parameters of a validated result. The panel never
-   * edits an existing object: the caller creates a new one.
+   * Called with the type, parameters and — when the AI named one — the PBR
+   * material preset of a validated result. The panel never edits an existing
+   * object: the caller creates a new one.
    */
-  onApply: (type: FurnitureType, params: FurnitureParams) => void;
+  onApply: (
+    type: FurnitureType,
+    params: FurnitureParams,
+    materialPresetId: MaterialPresetId | null,
+  ) => void;
 }
 
 type PromptStatus = 'idle' | 'working' | 'done' | 'error';
@@ -49,7 +55,8 @@ export function AiPromptPanel({ onApply }: AiPromptPanelProps) {
     }
 
     const proposal = await localTableAdapter.generate({ text });
-    onApply('table', proposal.params);
+    // The offline analyzer names no material, so the object keeps its default.
+    onApply('table', proposal.params, null);
     setStatus('done');
     setMessage(
       `${reason} Mahalliy tahlil ishlatildi (ishonch: ${CONFIDENCE_LABEL[proposal.confidence]}).`,
@@ -91,7 +98,7 @@ export function AiPromptPanel({ onApply }: AiPromptPanelProps) {
       const outcome = await generateDesignFromCloud(text);
 
       if (outcome.kind === 'applied') {
-        onApply(outcome.furniture as FurnitureType, outcome.params);
+        onApply(outcome.furniture as FurnitureType, outcome.params, outcome.materialPresetId);
         setStatus('done');
         setMessage(
           `AI (${outcome.provider}) natijasi qo'llanildi: ${outcome.furniture} ` +

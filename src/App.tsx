@@ -60,6 +60,7 @@ import {
   type Vec3,
 } from './scene/types';
 import type { SceneViewer } from './viewer/SceneViewer';
+import type { MaterialPresetId } from './materials/types';
 import type {
   LightingPresetChoice,
   QualityPresetId,
@@ -212,10 +213,22 @@ export default function App() {
     dispatch({ type: 'ADD_FURNITURE', furnitureType: type, id: createSceneObjectId(), params });
   };
 
-  const applyDesign = (type: FurnitureType, params: FurnitureParams) => {
+  const applyDesign = (
+    type: FurnitureType,
+    params: FurnitureParams,
+    materialPresetId: MaterialPresetId | null = null,
+  ) => {
     // W13: a generated design creates a NEW object. It never overwrites the
     // current selection, so an AI prompt cannot silently destroy existing work.
-    dispatch({ type: 'ADD_FURNITURE', furnitureType: type, id: createSceneObjectId(), params });
+    // The material preset travels with the creation, so the object never exists
+    // for a moment with the wrong material.
+    dispatch({
+      type: 'ADD_FURNITURE',
+      furnitureType: type,
+      id: createSceneObjectId(),
+      params,
+      materialPresetId,
+    });
     setValues(furnitureParamsToFieldValues(type, params));
   };
 

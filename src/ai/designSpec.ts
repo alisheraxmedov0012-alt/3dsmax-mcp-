@@ -47,6 +47,7 @@ export function specToFurnitureParams(spec: AiDesignSpec): BuiltFurnitureSpec | 
     spec.dimensions,
     spec.details ?? null,
     spec.color,
+    spec.material_kind,
   );
 }
 
