@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { TABLE_COLORS } from '../geometry/tableParams';
 import {
   FURNITURE_FIELDS,
@@ -7,6 +7,8 @@ import {
   type FurnitureType,
 } from '../geometry/furniture/types';
 import type { FurnitureErrors } from '../geometry/furniture/params';
+import { buildFurniture } from '../geometry/furniture/buildFurniture';
+import { envelopeMm, measurePartBoxes } from '../manufacturing/partBoxes';
 import type { SceneObject } from '../scene/types';
 
 interface FurniturePanelProps {
@@ -38,6 +40,30 @@ export function FurniturePanel({
 }: FurniturePanelProps) {
   const [addType, setAddType] = useState<FurnitureType>('table');
   const colorIsValid = /^#[0-9a-fA-F]{6}$/.test(values.color ?? '');
+
+  /**
+   * The finished piece's measured bounding box, derived from the *committed*
+   * params — the same model the 3D view renders and the documents describe, not
+   * the half-typed field values. Some parameters drive only part of the
+   * construction (a bed's frame height, a dresser's carcass depth), so this is
+   * the only value that answers "how big is it really?".
+   */
+  const overall = useMemo(() => {
+    if (!object) {
+      return null;
+    }
+    try {
+      const built = buildFurniture(object.type, object.params);
+      try {
+        return envelopeMm(measurePartBoxes(built.group));
+      } finally {
+        built.dispose();
+      }
+    } catch (error) {
+      console.error('Umumiy olchamni hisoblash xatosi:', error);
+      return null;
+    }
+  }, [object]);
 
   return (
     <aside className="panel">
@@ -112,9 +138,26 @@ export function FurniturePanel({
                     {errors[key]}
                   </span>
                 )}
+                {spec.hint && !errors[key] && (
+                  <p className="visual__hint" data-testid={`${key}-hint`}>
+                    {spec.hint}
+                  </p>
+                )}
               </div>
             );
           })}
+
+          {/* The measured envelope, not the parametric values above it. Shown
+              because some parameters cover only part of the construction. */}
+          {overall && (
+            <div className="field" data-testid="furniture-overall">
+              <span className="field__label">Umumiy tashqi o‘lcham</span>
+              <p className="visual__hint" data-testid="furniture-overall-value">
+                W {overall.widthMm} × H {overall.heightMm} × D {overall.depthMm} mm — geometriyadan
+                o‘lchandi.
+              </p>
+            </div>
+          )}
 
           <div className="field">
             <span className="field__label">Rang</span>

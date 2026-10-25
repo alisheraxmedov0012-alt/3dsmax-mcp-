@@ -88,6 +88,16 @@ export interface FurnitureFieldSpec {
   label: string;
   range: NumericRange;
   integer?: boolean;
+  /**
+   * Helper text for a field whose value is *not* the finished overall size.
+   *
+   * Some parameters drive only part of the construction — a bed's `heightCm` is
+   * the frame height (the headboard stands above it), and a dresser's `depthCm`
+   * is the carcass depth (the drawer fronts add to it). Without a note, a user
+   * reasonably reads "Chuqurlik 45" as a 45 cm deep piece and is surprised by
+   * the measured envelope.
+   */
+  hint?: string;
 }
 
 const R = (min: number, max: number, step = 1): NumericRange => ({ min, max, step });
@@ -127,7 +137,12 @@ export const FURNITURE_FIELDS: Record<FurnitureType, readonly FurnitureFieldSpec
   bed: [
     { key: 'widthCm', label: 'Kenglik (sm)', range: R(80, 220, 5) },
     { key: 'depthCm', label: 'Uzunlik (sm)', range: R(150, 220, 5) },
-    { key: 'heightCm', label: 'Karkas balandligi (sm)', range: R(20, 60) },
+    {
+      key: 'heightCm',
+      label: 'Karkas balandligi (sm)',
+      range: R(20, 60),
+      hint: "Bu faqat karkas balandligi. Bosh qismi ustiga chiqadi, shuning uchun umumiy balandlik kattaroq bo‘ladi — aniq qiymat uchun pastdagi umumiy o‘lchamga qarang.",
+    },
     { key: 'mattressHeightCm', label: 'Matras qalinligi (sm)', range: R(10, 40) },
     { key: 'headboardHeightCm', label: 'Bosh qismi balandligi (sm)', range: R(30, 150) },
   ],
@@ -149,7 +164,12 @@ export const FURNITURE_FIELDS: Record<FurnitureType, readonly FurnitureFieldSpec
   dresser: [
     { key: 'widthCm', label: 'Kenglik (sm)', range: R(40, 200, 5) },
     { key: 'heightCm', label: 'Balandlik (sm)', range: R(40, 140, 5) },
-    { key: 'depthCm', label: 'Chuqurlik (sm)', range: R(30, 80) },
+    {
+      key: 'depthCm',
+      label: 'Korpus chuqurligi (sm)',
+      range: R(30, 80),
+      hint: 'Bu korpus chuqurligi. Tortma va eshik oldlari tashqariga chiqadi, shuning uchun umumiy chuqurlik kattaroq bo‘ladi.',
+    },
     { key: 'drawerCount', label: 'Tortmalar soni', range: R(1, 6), integer: true },
     { key: 'doorCount', label: 'Eshiklar soni', range: R(0, 2), integer: true },
     { key: 'legHeightCm', label: 'Oyoq balandligi (sm)', range: R(0, 30) },

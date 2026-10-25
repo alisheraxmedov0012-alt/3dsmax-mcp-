@@ -21,7 +21,6 @@
  * hidden lines, material data or manufacturing standards. It is a preliminary
  * drawing — a correct draft is not a statement that the piece is ready to build.
  */
-import * as THREE from 'three';
 import { buildFurniture } from '../geometry/furniture/buildFurniture';
 import { validateFurnitureParams } from '../geometry/furniture/params';
 import {
@@ -30,6 +29,12 @@ import {
   type FurnitureType,
 } from '../geometry/furniture/types';
 import { convertLength, roundLength } from './units';
+import { envelopeMm, measurePartBoxes, type PartBox } from './partBoxes';
+
+// Re-exported so existing consumers (`validation.ts`, tests) keep one import
+// path; the implementation now lives in `partBoxes.ts` because the parameters
+// panel needs the same measurement without pulling in the SVG generator.
+export { measurePartBoxes, type PartBox } from './partBoxes';
 
 export type DrawingView = 'front' | 'side' | 'top';
 
@@ -38,16 +43,6 @@ export const DRAWING_VIEW_LABELS: Record<DrawingView, string> = {
   side: 'Yon korinish',
   top: 'Yuqoridan korinish',
 };
-
-export interface PartBox {
-  partId: string;
-  minX: number;
-  minY: number;
-  minZ: number;
-  maxX: number;
-  maxY: number;
-  maxZ: number;
-}
 
 export interface TechnicalDrawingOptions {
   /** Title shown in the title block (model/project name). */
@@ -139,36 +134,6 @@ function escapeXml(value: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
-}
-
-/** Local AABB of every mesh (the group is built fresh, so this is local space). */
-export function measurePartBoxes(group: THREE.Object3D): PartBox[] {
-  const boxes: PartBox[] = [];
-  group.updateMatrixWorld(true);
-  group.traverse((child) => {
-    const mesh = child as THREE.Mesh;
-    if (mesh.isMesh !== true) {
-      return;
-    }
-    const box = new THREE.Box3().setFromObject(mesh);
-    if (box.isEmpty()) {
-      return;
-    }
-    const { min, max } = box;
-    if (![min.x, min.y, min.z, max.x, max.y, max.z].every((v) => Number.isFinite(v))) {
-      return;
-    }
-    boxes.push({
-      partId: mesh.name,
-      minX: min.x,
-      minY: min.y,
-      minZ: min.z,
-      maxX: max.x,
-      maxY: max.y,
-      maxZ: max.z,
-    });
-  });
-  return boxes;
 }
 
 interface Span {
@@ -492,18 +457,17 @@ export function createTechnicalDrawingSvg(
     );
   }
 
-  const overallWidthMm = roundLength(
-    convertLength(frontBounds.hMax - frontBounds.hMin, 'cm', 'mm'),
-    'mm',
-  );
-  const overallHeightMm = roundLength(
-    convertLength(frontBounds.vMax - frontBounds.vMin, 'cm', 'mm'),
-    'mm',
-  );
-  const overallDepthMm = roundLength(
-    convertLength(sideBounds.hMax - sideBounds.hMin, 'cm', 'mm'),
-    'mm',
-  );
+  // One source of truth for the overall size: the same union-of-boxes envelope
+  // the parameters panel shows, so the drawing header and the panel can never
+  // quote different numbers.
+  const envelope = envelopeMm(boxes) ?? {
+    widthMm: roundLength(convertLength(frontBounds.hMax - frontBounds.hMin, 'cm', 'mm'), 'mm'),
+    heightMm: roundLength(convertLength(frontBounds.vMax - frontBounds.vMin, 'cm', 'mm'), 'mm'),
+    depthMm: roundLength(convertLength(sideBounds.hMax - sideBounds.hMin, 'cm', 'mm'), 'mm'),
+  };
+  const overallWidthMm = envelope.widthMm;
+  const overallHeightMm = envelope.heightMm;
+  const overallDepthMm = envelope.depthMm;
 
   const title =
     options.title && options.title.trim() !== '' ? options.title : FURNITURE_TYPE_LABELS[type];
