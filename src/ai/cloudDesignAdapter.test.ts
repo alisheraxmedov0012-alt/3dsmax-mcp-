@@ -106,7 +106,15 @@ describe('generateDesignFromCloud', () => {
 
     const outcome = await generateDesignFromCloud('nonsense');
 
-    expect(outcome.kind).toBe('unavailable');
+    // A3.3 narrowed this from `unavailable` to `rejected`: a 422 means the request
+    // itself was refused, so the caller must show the reason instead of quietly
+    // substituting the offline analyzer (which would "succeed" on a request the
+    // server rejected). The original guarantee — nothing is applied — still holds.
+    expect(outcome.kind).toBe('rejected');
+    if (outcome.kind !== 'rejected') return;
+    expect(outcome.code).toBe('ai_invalid_output');
+    expect(outcome.status).toBe(422);
+    expect(outcome.message).toBe('bad');
   });
 
   it('applies a wardrobe spec with its own type and details', async () => {

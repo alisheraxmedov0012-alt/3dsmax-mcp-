@@ -104,6 +104,17 @@ function findColor(text: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Furniture words in `text` that this offline analyzer cannot build.
+ *
+ * The analyzer only knows tables. Exported so a caller can refuse to substitute a
+ * table for, say, a wardrobe prompt: warning about it and then applying a table
+ * anyway reads as success for a request that was not answered.
+ */
+export function unsupportedObjectsIn(text: string): string[] {
+  return findUnsupportedObjects(text.toLowerCase());
+}
+
 function findUnsupportedObjects(text: string): string[] {
   return UNSUPPORTED_OBJECTS.filter((keyword) => {
     const word = escapeKeyword(keyword);

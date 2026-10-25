@@ -13,6 +13,27 @@ const DEFAULT_BASE_URL = 'http://localhost:8000';
 export const API_BASE_URL: string =
   (import.meta.env?.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') || DEFAULT_BASE_URL;
 
+/**
+ * How long an AI request may take before the client gives up.
+ *
+ * A provider call is the slowest thing the app does and may involve two network
+ * attempts plus one JSON repair, so a short limit would abort healthy requests.
+ * Thirty seconds is generous for that path while still guaranteeing the UI leaves
+ * its waiting state. Overridable for slow self-hosted models.
+ *
+ * This only stops the *client* waiting. Aborting a `fetch` does not cancel work
+ * the server or the provider has already started.
+ */
+export const DEFAULT_AI_TIMEOUT_MS = 30_000;
+
+function resolveAiTimeoutMs(): number {
+  const raw = import.meta.env?.VITE_AI_TIMEOUT_MS;
+  const parsed = raw === undefined ? Number.NaN : Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_AI_TIMEOUT_MS;
+}
+
+export const AI_TIMEOUT_MS: number = resolveAiTimeoutMs();
+
 export interface ApiErrorShape {
   code: string;
   message: string;
@@ -86,10 +107,14 @@ interface RequestOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: unknown;
   csrfToken?: string | null;
+  /** Give up after this many milliseconds. Omitted means "wait indefinitely". */
+  timeoutMs?: number;
+  /** Caller-owned cancellation, if the caller wants to cancel the request. */
+  signal?: AbortSignal;
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, csrfToken } = options;
+  const { method = 'GET', body, csrfToken, timeoutMs, signal } = options;
 
   const headers: Record<string, string> = {};
   if (body !== undefined) {
@@ -99,6 +124,28 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     headers['X-CSRF-Token'] = csrfToken;
   }
 
+  // The timeout and the caller's cancellation both abort the same fetch, so the
+  // two are tracked separately: an abort we caused is a timeout, an abort the
+  // caller caused is a cancellation. Reporting one as the other would tell the
+  // user the wrong thing about their own request.
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer =
+    timeoutMs !== undefined && timeoutMs > 0
+      ? setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+        }, timeoutMs)
+      : null;
+  const forwardAbort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) {
+      controller.abort();
+    } else {
+      signal.addEventListener('abort', forwardAbort, { once: true });
+    }
+  }
+
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
@@ -106,13 +153,30 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       headers,
       credentials: 'include',
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal,
     });
   } catch {
+    if (timedOut) {
+      throw new ApiRequestError(
+        'timeout',
+        `So'rov ${Math.round((timeoutMs ?? 0) / 1000)} soniyada javob bermadi. ` +
+          "Iltimos, qaytadan urinib ko'ring.",
+        0,
+      );
+    }
+    if (signal?.aborted) {
+      throw new ApiRequestError('cancelled', "So'rov bekor qilindi.", 0);
+    }
     throw new ApiRequestError(
       'network_error',
       "Serverga ulanib bo'lmadi. Iltimos, keyinroq qayta urinib ko'ring.",
       0,
     );
+  } finally {
+    if (timer !== null) {
+      clearTimeout(timer);
+    }
+    signal?.removeEventListener('abort', forwardAbort);
   }
 
   if (response.status === 204) {
@@ -495,9 +559,12 @@ export const api = {
 
   // AI design generation (W1). Authenticated compute endpoint; requires a session
   // cookie but no CSRF token (it does not mutate user-visible state).
-  aiDesign: (text: string, imageFileName?: string) =>
+  aiDesign: (text: string, imageFileName?: string, signal?: AbortSignal) =>
     request<AiDesignResponse>('/api/ai/design', {
       method: 'POST',
       body: { text, image_filename: imageFileName ?? null },
+      // The only endpoint with a deadline: a provider call is slow enough to hang.
+      timeoutMs: AI_TIMEOUT_MS,
+      signal,
     }),
 };

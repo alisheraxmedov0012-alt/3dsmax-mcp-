@@ -1,4 +1,10 @@
-import { api, describeError, type AiDesignResponse, type AiFurnitureType } from '../api/client';
+import {
+  ApiRequestError,
+  api,
+  describeError,
+  type AiDesignResponse,
+  type AiFurnitureType,
+} from '../api/client';
 import type { FurnitureParams } from '../geometry/furniture';
 import { specToFurnitureParams } from './designSpec';
 import type { ProposalConfidence } from './types';
@@ -31,12 +37,63 @@ export interface UnsupportedDesign {
   message: string;
 }
 
+/**
+ * The service could not answer *right now* — a transport failure, a deadline, a
+ * throttle or a provider outage. The request itself was well formed, so the
+ * caller may offer the offline analyzer instead.
+ */
 export interface UnavailableDesign {
   kind: 'unavailable';
   reason: string;
+  /** Machine-readable cause: `timeout`, `network_error`, `busy`, `provider`, ... */
+  code: string;
 }
 
-export type CloudDesignOutcome = AppliedDesign | UnsupportedDesign | UnavailableDesign;
+/**
+ * The request was refused on its own merits: the allowance is spent, or the input
+ * is invalid/unsupported. Falling back to the offline analyzer here would hide the
+ * real reason, so the caller must show `message` and must not apply anything.
+ */
+export interface RejectedDesign {
+  kind: 'rejected';
+  message: string;
+  code: string;
+  /** HTTP status, or 0 for a transport-level refusal. */
+  status: number;
+}
+
+export type CloudDesignOutcome =
+  | AppliedDesign
+  | UnsupportedDesign
+  | UnavailableDesign
+  | RejectedDesign;
+
+/**
+ * Whether a failed request is worth retrying with the offline analyzer.
+ *
+ * The split is about *why* the cloud could not answer, not about HTTP in general:
+ *
+ * - the service is unavailable for reasons that have nothing to do with this
+ *   request (deadline, transport, throttle, provider outage, unconfigured) → the
+ *   local analyzer is a legitimate substitute;
+ * - the request was refused on its own merits (quota spent, input invalid) →
+ *   substituting a different engine would conceal the reason the user needs to
+ *   act on.
+ */
+function isServiceUnavailable(error: unknown): boolean {
+  if (!(error instanceof ApiRequestError)) {
+    // An unexpected client-side failure is treated as "try the offline path".
+    return true;
+  }
+  if (error.status === 0) {
+    // timeout / network / cancelled
+    return true;
+  }
+  if (error.status === 429) {
+    return true;
+  }
+  return error.status >= 500;
+}
 
 function unsupportedMessage(furniture: AiFurnitureType): string {
   return `"${furniture}" turini bu versiya qura olmaydi — model o'zgartirilmadi.`;
@@ -54,7 +111,17 @@ export async function generateDesignFromCloud(text: string): Promise<CloudDesign
   try {
     response = await api.aiDesign(text);
   } catch (error) {
-    return { kind: 'unavailable', reason: describeError(error) };
+    const message = describeError(error);
+    if (isServiceUnavailable(error)) {
+      const code = error instanceof ApiRequestError ? error.code : 'unknown';
+      return { kind: 'unavailable', reason: message, code };
+    }
+    return {
+      kind: 'rejected',
+      message,
+      code: error instanceof ApiRequestError ? error.code : 'unknown',
+      status: error instanceof ApiRequestError ? error.status : 0,
+    };
   }
 
   const spec = response.spec;

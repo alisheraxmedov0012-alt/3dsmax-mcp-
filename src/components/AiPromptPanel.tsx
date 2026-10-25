@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { FurnitureParams, FurnitureType } from '../geometry/furniture';
-import { localTableAdapter } from '../ai/localTableAdapter';
+import { localTableAdapter, unsupportedObjectsIn } from '../ai/localTableAdapter';
 import { generateDesignFromCloud } from '../ai/cloudDesignAdapter';
 import { AiAdapterError, type ProposalConfidence } from '../ai/types';
 
@@ -29,15 +29,53 @@ export function AiPromptPanel({ onApply }: AiPromptPanelProps) {
   const [message, setMessage] = useState('');
   const [details, setDetails] = useState<string[]>([]);
 
-  const runLocalFallback = async (reason: string) => {
+  /**
+   * Use the offline analyzer, but only when it can actually answer the prompt.
+   *
+   * It only builds tables. If the prompt names another furniture type, applying a
+   * table anyway would report success for a request that was never understood, so
+   * the fallback declines and the caller shows the reason instead.
+   */
+  const runLocalFallback = async (reason: string): Promise<boolean> => {
+    const unsupported = unsupportedObjectsIn(text);
+    if (unsupported.length > 0) {
+      setStatus('error');
+      setMessage(
+        `${reason} Mahalliy tahlil faqat stolni quradi, shuning uchun "${unsupported[0]}" ` +
+          "uchun natija yaratilmadi. Iltimos, qaytadan urinib ko'ring.",
+      );
+      setDetails([]);
+      return false;
+    }
+
     const proposal = await localTableAdapter.generate({ text });
-    // The offline fallback only understands tables; it is used exactly as before.
     onApply('table', proposal.params);
     setStatus('done');
     setMessage(
       `${reason} Mahalliy tahlil ishlatildi (ishonch: ${CONFIDENCE_LABEL[proposal.confidence]}).`,
     );
     setDetails([...proposal.notes, ...proposal.warnings]);
+    return true;
+  };
+
+  /** Turn a failure code into something the reader can act on. */
+  const describeUnavailable = (code: string, reason: string): string => {
+    if (code === 'timeout') {
+      return "AI xizmati o'z vaqtida javob bermadi.";
+    }
+    if (code === 'busy' || code === 'too_many_parallel_jobs') {
+      return "AI xizmati band. Birozdan so'ng qayta urinib ko'ring.";
+    }
+    if (code === 'ai_capacity_reached') {
+      return "AI xizmati bugungi umumiy chegaraga yetdi.";
+    }
+    if (code === 'ai_unconfigured') {
+      return 'Serverda AI provayderi sozlanmagan.';
+    }
+    if (code === 'ai_provider_error') {
+      return 'AI provayderi javob bermadi.';
+    }
+    return reason;
   };
 
   const handleGenerate = async () => {
@@ -69,9 +107,21 @@ export function AiPromptPanel({ onApply }: AiPromptPanelProps) {
         return;
       }
 
-      // Cloud unavailable (not signed in, unconfigured, invalid output, network):
-      // fall back to the offline analyzer with a clear message.
-      await runLocalFallback(`Server AI xizmatidan foydalanib bo'lmadi (${outcome.reason}).`);
+      if (outcome.kind === 'rejected') {
+        // The server refused this request on its own merits (allowance spent,
+        // input invalid). Switching engines would hide what the reader must fix.
+        setStatus('error');
+        setMessage(outcome.message);
+        setDetails([]);
+        return;
+      }
+
+      // The service is unavailable right now (deadline, transport, throttle,
+      // provider outage). The offline analyzer may stand in — if it can build this
+      // prompt at all.
+      await runLocalFallback(
+        `${describeUnavailable(outcome.code, outcome.reason)} Server AI xizmatidan foydalanib bo'lmadi.`,
+      );
     } catch (error) {
       setStatus('error');
       setMessage(
@@ -125,9 +175,10 @@ export function AiPromptPanel({ onApply }: AiPromptPanelProps) {
       )}
 
       <p className="ai__hint">
-        Serverda AI provayderi sozlangan bo'lsa u ishlatiladi; aks holda (yoki
-        tizimga kirmagan bo'lsangiz) matn tahlili mahalliy (oflayn) qoidaga
-        asoslangan holda bajariladi.
+        Serverda AI provayderi sozlangan bo‘lsa u ishlatiladi. Provayder javob
+        bermasa, matn tahlili mahalliy (oflayn) qoidaga asoslangan holda
+        bajariladi — lekin u faqat stolni quradi. Boshqa mebel turi so‘ralsa,
+        natija yaratilmaydi va sabab ko‘rsatiladi.
       </p>
     </section>
   );
