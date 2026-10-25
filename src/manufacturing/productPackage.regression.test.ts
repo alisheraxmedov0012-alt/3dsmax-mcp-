@@ -179,6 +179,10 @@ describe('C8 regression — C4 validation vocabulary', () => {
     'dimension-relation-invalid',
     'geometry-bounds-invalid',
     'geometry-overlap-suspected',
+    // C8.6.1: an in-range parameter pushed a panel past the board rule, so it
+    // cannot appear in the cut list. Intentional addition, tested in
+    // `capacityValidation.test.ts`.
+    'panel-too-thick-for-cutlist',
     'material-assignment-stale',
   ]);
   const LEVELS = new Set<ValidationLevel>(['error', 'warning', 'info']);

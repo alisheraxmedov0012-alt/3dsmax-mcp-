@@ -28,7 +28,8 @@ import {
   type FurnitureParams,
   type FurnitureType,
 } from '../geometry/furniture/types';
-import { buildBom } from './bom';
+import { PANEL_MAX_THICKNESS_CM, buildBom, type BomResult } from './bom';
+import { PANEL_KINDS } from './parts';
 import { measurePartBoxes, type PartBox } from './technicalDrawing';
 import type { SheetIssueCode, SheetMaterialEntry } from './sheetMaterial';
 
@@ -42,6 +43,7 @@ export type ValidationCode =
   | 'dimension-relation-invalid'
   | 'geometry-bounds-invalid'
   | 'geometry-overlap-suspected'
+  | 'panel-too-thick-for-cutlist'
   | 'material-assignment-stale'
   // C3 codes are reused verbatim so the same condition never gets two names.
   | SheetIssueCode;
@@ -188,6 +190,45 @@ export function validateDimensions(type: FurnitureType, params: FurnitureParams)
     }
   }
 
+  return issues;
+}
+
+/**
+ * Parts shaped like a panel that are too thick to be cut from sheet goods.
+ *
+ * `PANEL_MAX_THICKNESS_CM` is the project's board boundary, not a trade standard
+ * (see `sheetMaterial.ts`). A part past it is a block: it drops out of the cut
+ * list, and with no cut list the C1/C5/C8 documents cannot be produced. That is a
+ * manufacturing consequence of the *model*, so it is reported here rather than
+ * being discovered when an export is refused. It is a warning, not an error: the
+ * piece is physically buildable, it simply is not sheet goods.
+ */
+export function panelThicknessIssues(bom: BomResult): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  for (const row of bom.rows) {
+    if (row.thicknessMm !== null) {
+      continue;
+    }
+    if (!PANEL_KINDS.includes(row.kind)) {
+      continue;
+    }
+    const smallestCm = Math.min(row.sizeMm.x, row.sizeMm.y, row.sizeMm.z) / 10;
+    if (smallestCm <= PANEL_MAX_THICKNESS_CM) {
+      continue;
+    }
+    issues.push(
+      issue(
+        'warning',
+        'panel-too-thick-for-cutlist',
+        row.partId,
+        `"${row.name}" panel shaklida, lekin eng kichik tomoni ${smallestCm} sm — ` +
+          `list materiali chegarasi ${PANEL_MAX_THICKNESS_CM} sm dan qalin. ` +
+          `Shuning uchun u kesish ro'yxatiga kirmaydi va kesish rejasi tuzilmaydi.`,
+        SOURCE_BOUNDS,
+        { partId: row.partId, thicknessCm: smallestCm, limitCm: PANEL_MAX_THICKNESS_CM },
+      ),
+    );
+  }
   return issues;
 }
 
@@ -440,6 +481,8 @@ export function validateManufacturing(
           dimensionIssues.push(overlap);
         }
       }
+
+      dimensionIssues.push(...panelThicknessIssues(bomOutcome.bom));
 
       const materialIssues = validateMaterials(
         bomOutcome.bom.rows,

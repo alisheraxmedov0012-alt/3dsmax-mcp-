@@ -2,23 +2,28 @@
  * Dresser / chest-of-drawers builder (W2): corpus, legs, drawer fronts and
  * optional doors.
  * Params: widthCm, heightCm, depthCm, drawerCount, doorCount, legHeightCm.
+ *
+ * The carcass/front layout lives in `capacity.ts` so the parameter validator can
+ * reject a drawer count that would overlap, using the same arithmetic.
  */
 import { PartBuilder, clampValue, type BuiltFurniture, type PartMaterialOptions } from './parts';
+import { DRESSER_FRONT_THICKNESS_CM, DRESSER_WALL_CM, drawerLayout } from './capacity';
 import type { FurnitureParams } from './types';
 
-const WALL_CM = 2;
-const FRONT_THICKNESS_CM = 2;
+const WALL_CM = DRESSER_WALL_CM;
+const FRONT_THICKNESS_CM = DRESSER_FRONT_THICKNESS_CM;
 
 export function buildDresser(
   params: FurnitureParams,
   material: PartMaterialOptions = {},
 ): BuiltFurniture {
   const builder = new PartBuilder('dresser', params.color, material);
-  const { widthCm, heightCm, depthCm } = params;
+  const { widthCm, depthCm } = params;
 
-  const legHeight = clampValue(params.legHeightCm, 0, Math.max(heightCm - 10, 0), 10);
-  const bodyHeight = Math.max(heightCm - legHeight, 10);
-  const bodyBottom = legHeight;
+  const layout = drawerLayout(params);
+  const legHeight = layout.legHeightCm;
+  const bodyHeight = layout.bodyHeightCm;
+  const bodyBottom = layout.bodyBottomCm;
 
   // Legs.
   const insetX = Math.max(widthCm / 2 - WALL_CM - 1, 0);
@@ -44,17 +49,17 @@ export function buildDresser(
     [0, bodyBottom + bodyHeight / 2, 0],
   );
 
-  const drawerCount = Math.round(clampValue(params.drawerCount, 1, 6, 3));
+  const drawerCount = layout.drawerCount;
   const doorCount = Math.round(clampValue(params.doorCount, 0, 2, 0));
   const frontZ = depthCm / 2 + FRONT_THICKNESS_CM / 2;
-  const innerWidth = Math.max(widthCm - 2 * WALL_CM, WALL_CM);
-  const frontHeight = Math.max(bodyHeight - WALL_CM, WALL_CM);
+  const innerWidth = layout.innerWidthCm;
+  const frontHeight = layout.frontHeightCm;
 
   if (doorCount === 0) {
     // Full-width drawer stack.
-    const drawerHeight = Math.max(frontHeight / drawerCount - 1, WALL_CM);
+    const drawerHeight = layout.drawerHeightCm;
     for (let i = 0; i < drawerCount; i += 1) {
-      const y = bodyBottom + WALL_CM / 2 + drawerHeight / 2 + i * (frontHeight / drawerCount);
+      const y = bodyBottom + WALL_CM / 2 + drawerHeight / 2 + i * layout.pitchCm;
       builder.box(
         `dresser-drawer-${i + 1}`,
         [innerWidth, drawerHeight, FRONT_THICKNESS_CM],
@@ -74,10 +79,10 @@ export function buildDresser(
         [doorX0 + i * (doorZoneWidth / doorCount), bodyBottom + bodyHeight / 2, frontZ],
       );
     }
-    const drawerHeight = Math.max(frontHeight / drawerCount - 1, WALL_CM);
+    const drawerHeight = layout.drawerHeightCm;
     const drawerX = innerWidth / 2 - drawerZoneWidth / 2;
     for (let i = 0; i < drawerCount; i += 1) {
-      const y = bodyBottom + WALL_CM / 2 + drawerHeight / 2 + i * (frontHeight / drawerCount);
+      const y = bodyBottom + WALL_CM / 2 + drawerHeight / 2 + i * layout.pitchCm;
       builder.box(
         `dresser-drawer-${i + 1}`,
         [drawerZoneWidth, drawerHeight, FRONT_THICKNESS_CM],

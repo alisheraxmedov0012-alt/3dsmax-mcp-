@@ -45,6 +45,7 @@ import { validateManufacturing, type ValidationReport } from './validation';
 import { createTechnicalDrawingSvg } from './technicalDrawing';
 import { validateFurnitureParams } from '../geometry/furniture/params';
 import {
+  FURNITURE_FIELDS,
   FURNITURE_TYPE_LABELS,
   type FurnitureParams,
   type FurnitureType,
@@ -389,11 +390,26 @@ function checkCutting(
   cutList: CutListResult | null,
   plan: CuttingPlan | null,
   requested: boolean,
+  thicknessBlocks: readonly string[] = [],
 ): ReadinessCheck {
   const label = 'Material sarfi va kesish rejasi (C7)';
   if (!cutList || cutList.rows.length === 0) {
-    // A model with no thin panels (a sofa) has nothing to nest. Saying "pass"
-    // here would claim a layout that cannot exist.
+    // No cut list. Two different situations end up here and must not be conflated:
+    //
+    // - the piece is not sheet goods by construction (a sofa's 8 cm back), so
+    //   nesting genuinely cannot apply — `not_applicable`;
+    // - a parameter chose a thickness past the board rule, so the part dropped out
+    //   of the cut list. That is fixable by the user and must be named — `fail`.
+    if (thicknessBlocks.length > 0) {
+      return {
+        id: 'cutting',
+        label,
+        status: 'fail',
+        detail: `${thicknessBlocks.join(' ')} Kesish rejasi tuzilmadi, shuning uchun paketda list sxemasi bo‘lmaydi.`,
+      };
+    }
+    // Genuinely nothing to nest. Saying "pass" here would claim a layout that
+    // cannot exist.
     return {
       id: 'cutting',
       label,
@@ -459,6 +475,44 @@ function checkCutting(
 }
 
 /**
+ * Thickness exclusions a user could undo by changing a parameter.
+ *
+ * A part drops out of the cut list when it is thicker than the board rule. That is
+ * only actionable when some declared parameter *is* that thickness (a table's
+ * `topThicknessCm`); otherwise the thickness is inherent to how the type is built
+ * (a sofa's upholstered back) and no edit would bring it back into the cut list.
+ *
+ * Returns the human-readable messages for the actionable cases only, so
+ * `not_applicable` keeps its meaning: the feature cannot apply to this furniture,
+ * not "the user picked a value the pipeline rejects".
+ */
+function parameterDrivenThicknessBlocks(
+  type: FurnitureType,
+  params: FurnitureParams,
+  validation: ValidationReport,
+): string[] {
+  const specs = FURNITURE_FIELDS[type] ?? [];
+  const messages: string[] = [];
+  for (const entry of validation.issues) {
+    if (entry.code !== 'panel-too-thick-for-cutlist') {
+      continue;
+    }
+    const thickness = entry.details?.thicknessCm;
+    if (typeof thickness !== 'number') {
+      continue;
+    }
+    const fromParameter = specs.some((spec) => {
+      const value = (params as unknown as Record<string, unknown>)[spec.key];
+      return typeof value === 'number' && Math.abs(value - thickness) < 1e-6;
+    });
+    if (fromParameter) {
+      messages.push(entry.message);
+    }
+  }
+  return messages;
+}
+
+/**
  * Structural readiness: run the existing pipelines and judge their output.
  *
  * Pure and synchronous. Every branch that cannot verify something says so
@@ -520,7 +574,14 @@ export function assessProductReadiness(input: ProductReadinessInput): ReadinessR
   }
   // "Requested" means the caller supplied a layout or the settings to make one.
   const cuttingRequested = Boolean(input.cuttingPlan) || Boolean(input.cuttingSettings);
-  checks.push(checkCutting(cutList, cuttingPlan, cuttingRequested));
+  checks.push(
+    checkCutting(
+      cutList,
+      cuttingPlan,
+      cuttingRequested,
+      parameterDrivenThicknessBlocks(input.type, input.params, validation),
+    ),
+  );
 
   return summarizeReadiness(
     checks,

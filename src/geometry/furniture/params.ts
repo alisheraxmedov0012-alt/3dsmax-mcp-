@@ -22,6 +22,7 @@ import {
   type FurnitureParams,
   type FurnitureType,
 } from './types';
+import { drawerFitProblem, shelfFitProblem } from './capacity';
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
@@ -99,6 +100,23 @@ export function relationErrors(type: FurnitureType, p: FurnitureParams): Furnitu
   if (type === 'dresser') {
     if ((p.legHeightCm ?? 0) >= p.heightCm) {
       errors.legHeightCm = "Oyoq balandligi umumiy balandlikdan kichik bo'lishi kerak.";
+    }
+  }
+
+  // Fit checks: a count that cannot physically fit inside the opening would make
+  // the builder stack parts on top of each other. The arithmetic lives in
+  // `capacity.ts` and is shared with the builders, so a combination rejected here
+  // is exactly one that would have produced overlapping geometry.
+  if (type === 'shelf') {
+    const problem = shelfFitProblem(p);
+    if (problem !== null) {
+      errors.shelfCount = problem;
+    }
+  }
+  if (type === 'dresser') {
+    const problem = drawerFitProblem(p);
+    if (problem !== null) {
+      errors.drawerCount = problem;
     }
   }
   return errors;
