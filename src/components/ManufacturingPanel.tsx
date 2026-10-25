@@ -18,8 +18,10 @@ import {
   type AssemblyPlan,
 } from '../manufacturing/assemblyInstructions';
 import type { CuttingPlan } from '../manufacturing/cuttingPlan';
+import type { PngPreset } from '../export/sceneImage';
 import { AssemblyInstructionsPanel } from './AssemblyInstructionsPanel';
 import { CuttingPlanPanel } from './CuttingPlanPanel';
+import { ProductPackagePanel } from './ProductPackagePanel';
 import { SheetMaterialPanel } from './SheetMaterialPanel';
 
 interface ManufacturingPanelProps {
@@ -35,6 +37,8 @@ interface ManufacturingPanelProps {
   ) => void;
   /** C3.1: remove one part's manufacturing material. */
   onRemoveSheetMaterial?: (partId: string) => void;
+  /** C8: capture the live 3D view for the product panel (owned by the app). */
+  onCapturePreview?: (preset: PngPreset) => Promise<Blob | null>;
 }
 
 type Status = 'idle' | 'ok' | 'error';
@@ -63,6 +67,7 @@ export function ManufacturingPanel({
   scene,
   onAssignSheetMaterial,
   onRemoveSheetMaterial,
+  onCapturePreview,
 }: ManufacturingPanelProps) {
   const [status, setStatus] = useState<Status>('idle');
   const [message, setMessage] = useState('');
@@ -413,6 +418,16 @@ export function ManufacturingPanel({
             onPlanChange={(plan) =>
               setCuttingState(plan ? { objectId: object.id, plan } : null)
             }
+          />
+
+          {/* C8: readiness + one bundle. The cutting layout is the one C7 holds,
+              so the package and the section above cannot disagree. */}
+          <ProductPackagePanel
+            object={object}
+            scene={scene}
+            projectName={projectName}
+            cuttingPlan={cuttingPlan}
+            onCapturePreview={onCapturePreview}
           />
 
           {/* C3.1: assign manufacturing material per generated part. Parts come

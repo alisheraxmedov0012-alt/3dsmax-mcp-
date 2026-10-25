@@ -472,6 +472,137 @@ input[type='color'] {
   overflow-wrap: anywhere;
 }
 
+/* C8 product package. One column at every width: the check rows, the action
+   buttons and the English description all wrap instead of scrolling sideways. */
+.product {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.product__status,
+.product__checks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.product__status {
+  font-size: 0.74rem;
+  color: #c3ccd6;
+}
+
+.product__verdict {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  border: 1px solid #3a424c;
+  color: #e6ecf2;
+}
+
+/* Status is never colour-only: the row also prints the status word. */
+.product__verdict--pass,
+.product__check--pass .product__check-status {
+  border-color: #4c7a5a;
+  color: #8fd0a4;
+}
+
+.product__verdict--warning,
+.product__check--warning .product__check-status {
+  border-color: #7a6436;
+  color: #d6a35c;
+}
+
+.product__verdict--fail,
+.product__check--fail .product__check-status {
+  border-color: #8a4141;
+  color: #e09a9a;
+}
+
+.product__verdict--na,
+.product__check--na .product__check-status {
+  border-color: #3a424c;
+  color: #9aa6b2;
+}
+
+.product__check {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  padding: 4px 6px;
+  border-left: 2px solid #3a424c;
+  background: #1b1f24;
+  border-radius: 3px;
+  font-size: 0.72rem;
+}
+
+.product__check-label {
+  font-weight: 600;
+  color: #e6ecf2;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.product__check-status {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.product__check-detail {
+  grid-column: 1 / -1;
+  color: #9aa6b2;
+  overflow-wrap: anywhere;
+}
+
+.product__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.product__preview {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.product__preview img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  background: #1b1f24;
+}
+
+.product__description {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  border-top: 1px solid #2b323a;
+  padding-top: 8px;
+}
+
+.product__description-name {
+  margin: 0;
+  font-size: 0.76rem;
+  color: #e6ecf2;
+}
+
+.product__description .manufacturing__list {
+  font-size: 0.7rem;
+  overflow-wrap: anywhere;
+}
+
 .server-panel {
   display: flex;
   flex-direction: column;

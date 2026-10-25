@@ -23,7 +23,7 @@ import { exportSceneToFormat } from './export/sceneFileExport';
 import { parseSceneJson } from './export/sceneJson';
 import { ExportError } from './export/exportTypes';
 import type { ExportFormatId } from './export/exportFormats';
-import { exportScenePng, type PngPreset } from './export/sceneImage';
+import { exportScenePng, resolvePngSize, type PngPreset } from './export/sceneImage';
 import {
   createFurnitureParams,
   furnitureParamsToFieldValues,
@@ -540,6 +540,20 @@ export default function App() {
     }
   };
 
+  /**
+   * C8: hand the live 3D view to the product panel. Returns null rather than
+   * throwing when the renderer is not ready, so the panel can say so instead of
+   * showing a broken image.
+   */
+  const handleCapturePreview = async (preset: PngPreset): Promise<Blob | null> => {
+    const viewer = viewerRef.current;
+    if (!viewer) {
+      return null;
+    }
+    const size = resolvePngSize(preset);
+    return viewer.capturePng(size.width, size.height);
+  };
+
   const handleExportPng = async () => {
     if (renderStatus === 'working') {
       return;
@@ -644,6 +658,7 @@ export default function App() {
           scene={scene.data}
           onAssignSheetMaterial={handleAssignSheetMaterial}
           onRemoveSheetMaterial={handleRemoveSheetMaterial}
+          onCapturePreview={handleCapturePreview}
         />
         <AccountPanel />
         <ServerPanel />
