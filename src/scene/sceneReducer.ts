@@ -4,6 +4,12 @@ import {
   type FurnitureType,
 } from '../geometry/furniture';
 import { getMaterialPreset, MATERIAL_PRESET_IDS } from '../materials/presets';
+import {
+  isKnownSheetMaterial,
+  validateSheetThickness,
+  type SheetMaterialEntry,
+} from '../manufacturing/sheetMaterial';
+import { MAX_SHEET_MATERIALS_PER_OBJECT } from './types';
 import { PBR_LIMITS, type NumericRange } from '../materials/types';
 import { validateRoomConfig, validateSceneObject } from './sceneValidation';
 import {
@@ -62,6 +68,16 @@ export type SceneAction =
   | { type: 'RENAME_OBJECT'; id: string; name: string }
   | { type: 'UPDATE_PARAMS'; id: string; params: FurnitureParams }
   | { type: 'UPDATE_MATERIAL'; id: string; material: Partial<ObjectMaterial> }
+  | {
+      type: 'SET_SHEET_MATERIAL';
+      id: string;
+      assignment: {
+        partId: string;
+        materialId: SheetMaterialEntry['materialId'];
+        thicknessMm: number;
+      };
+    }
+  | { type: 'REMOVE_SHEET_MATERIAL'; id: string; partId: string }
   | { type: 'APPLY_MATERIAL_PRESET'; id: string; presetId: string }
   | { type: 'RESET_MATERIAL'; id: string }
   | { type: 'TOGGLE_VISIBILITY'; id: string }
@@ -320,6 +336,59 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
         ...object,
         material: mergeMaterial(object.material, action.material),
       }));
+
+    case 'SET_SHEET_MATERIAL': {
+      const { assignment } = action;
+      // The reducer is the last gate before state: an invalid thickness or an
+      // unknown material must never reach storage, whatever the UI did.
+      if (!isKnownSheetMaterial(assignment.materialId)) {
+        return state;
+      }
+      const thickness = validateSheetThickness(assignment.thicknessMm);
+      if (!thickness.ok) {
+        return state;
+      }
+      const partId = assignment.partId.trim();
+      if (partId === '') {
+        return state;
+      }
+      return replaceObject(state, action.id, (object) => {
+        const current = object.sheetMaterials ?? [];
+        const existing = current.findIndex((entry) => entry.partId === partId);
+        const next: SheetMaterialEntry = {
+          partId,
+          materialId: assignment.materialId,
+          thicknessMm: thickness.thicknessMm,
+          thicknessSource: 'user',
+        };
+        if (existing >= 0) {
+          const updated = [...current];
+          updated[existing] = next;
+          return { ...object, sheetMaterials: updated };
+        }
+        if (current.length >= MAX_SHEET_MATERIALS_PER_OBJECT) {
+          return object;
+        }
+        return { ...object, sheetMaterials: [...current, next] };
+      });
+    }
+
+    case 'REMOVE_SHEET_MATERIAL': {
+      return replaceObject(state, action.id, (object) => {
+        const current = object.sheetMaterials;
+        if (!current || !current.some((entry) => entry.partId === action.partId)) {
+          return object;
+        }
+        const remaining = current.filter((entry) => entry.partId !== action.partId);
+        // Drop the field entirely when nothing is left, so the object returns to
+        // its pre-assignment shape rather than carrying an empty array.
+        if (remaining.length === 0) {
+          const { sheetMaterials: _removed, ...rest } = object;
+          return rest;
+        }
+        return { ...object, sheetMaterials: remaining };
+      });
+    }
 
     case 'APPLY_MATERIAL_PRESET': {
       const preset = getMaterialPreset(action.presetId);

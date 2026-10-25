@@ -18,6 +18,7 @@ import { SceneHierarchyPanel } from './components/SceneHierarchyPanel';
 import { SceneSettingsPanel } from './components/SceneSettingsPanel';
 import { ViewerCanvas } from './components/ViewerCanvas';
 import { downloadBlob } from './export/downloadFile';
+import type { SheetMaterialId } from './manufacturing/sheetMaterial';
 import { exportSceneToFormat } from './export/sceneFileExport';
 import { parseSceneJson } from './export/sceneJson';
 import { ExportError } from './export/exportTypes';
@@ -291,6 +292,31 @@ export default function App() {
   const handleMaterial = (patch: Partial<ObjectMaterial>) => {
     if (selectedObject) {
       dispatch({ type: 'UPDATE_MATERIAL', id: selectedObject.id, material: patch });
+    }
+  };
+
+  /**
+   * Manufacturing material (C3.1) is stored on the object's `sheetMaterials`,
+   * next to — not instead of — the PBR `material` above. The reducer validates
+   * again, so an invalid thickness cannot reach state from here either.
+   */
+  const handleAssignSheetMaterial = (
+    partId: string,
+    materialId: SheetMaterialId,
+    thicknessMm: number,
+  ) => {
+    if (selectedObject) {
+      dispatch({
+        type: 'SET_SHEET_MATERIAL',
+        id: selectedObject.id,
+        assignment: { partId, materialId, thicknessMm },
+      });
+    }
+  };
+
+  const handleRemoveSheetMaterial = (partId: string) => {
+    if (selectedObject) {
+      dispatch({ type: 'REMOVE_SHEET_MATERIAL', id: selectedObject.id, partId });
     }
   };
 
@@ -616,6 +642,8 @@ export default function App() {
           object={selectedObject}
           projectName={projectName}
           scene={scene.data}
+          onAssignSheetMaterial={handleAssignSheetMaterial}
+          onRemoveSheetMaterial={handleRemoveSheetMaterial}
         />
         <AccountPanel />
         <ServerPanel />

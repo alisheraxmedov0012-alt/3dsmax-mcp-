@@ -13,9 +13,16 @@ import { validateSceneSettings } from './sceneSettings';
 import { MATERIAL_PRESET_IDS } from '../materials/presets';
 import { PBR_LIMITS } from '../materials/types';
 import {
+  isKnownSheetMaterial,
+  validateSheetThickness,
+  type SheetMaterialEntry,
+  type ThicknessSource,
+} from '../manufacturing/sheetMaterial';
+import {
   MATERIAL_DEFAULTS,
   MATERIAL_LIMITS,
   MAX_ASSEMBLIES_PER_SCENE,
+  MAX_SHEET_MATERIALS_PER_OBJECT,
   MAX_OPENINGS_PER_ROOM,
   OBJECT_LIMITS,
   OBJECT_NAME_MAX_LENGTH,
@@ -75,6 +82,56 @@ function normalizeName(value: unknown, fallback: string): string {
   }
   const trimmed = value.trim();
   return trimmed === '' ? fallback : trimmed.slice(0, OBJECT_NAME_MAX_LENGTH);
+}
+
+/**
+ * Validate stored manufacturing-material assignments.
+ *
+ * This is the only place a saved assignment is read back, so it is where a
+ * corrupted or hand-edited record must be stopped: an entry survives only when
+ * its partId is a non-empty string, its material is in the catalogue and its
+ * thickness passes the C3 rule. Anything else is dropped rather than repaired —
+ * inventing a thickness here would put a number in the BOM that the user never
+ * entered.
+ *
+ * Absent or empty input yields `undefined`, not `[]`, so an object that never had
+ * assignments keeps its exact previous shape on re-save.
+ */
+export function normalizeSheetMaterials(value: unknown): SheetMaterialEntry[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const seen = new Set<string>();
+  const entries: SheetMaterialEntry[] = [];
+  for (const raw of value) {
+    if (entries.length >= MAX_SHEET_MATERIALS_PER_OBJECT) {
+      break;
+    }
+    if (!isRecord(raw)) {
+      continue;
+    }
+    const partId = typeof raw.partId === 'string' ? raw.partId.trim() : '';
+    if (partId === '' || seen.has(partId)) {
+      // Duplicate partIds are ambiguous; the first one wins, like duplicate ids.
+      continue;
+    }
+    if (!isKnownSheetMaterial(raw.materialId)) {
+      continue;
+    }
+    const thickness = validateSheetThickness(raw.thicknessMm);
+    if (!thickness.ok) {
+      continue;
+    }
+    const source: ThicknessSource = raw.thicknessSource === 'default' ? 'default' : 'user';
+    seen.add(partId);
+    entries.push({
+      partId,
+      materialId: raw.materialId,
+      thicknessMm: thickness.thicknessMm,
+      thicknessSource: source,
+    });
+  }
+  return entries.length > 0 ? entries : undefined;
 }
 
 /** Clamps a material value into 0–1, falling back when non-finite. */
@@ -225,6 +282,9 @@ export function validateSceneObject(value: unknown): SceneObject | null {
     visible: typeof value.visible === 'boolean' ? value.visible : true,
     params,
     material: normalizeMaterial(value.material),
+    // Manufacturing material (C3) travels with the object so assignments survive
+    // save/load; it is a different field from the PBR `material` above.
+    sheetMaterials: normalizeSheetMaterials(value.sheetMaterials),
   };
 }
 

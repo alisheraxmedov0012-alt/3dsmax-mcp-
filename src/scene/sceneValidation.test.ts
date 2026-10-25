@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   migrateLegacyParamsToScene,
+  normalizeSheetMaterials,
   validateRoomConfig,
   validateSceneData,
   validateSceneObject,
@@ -343,5 +344,111 @@ describe('W14 — scene assemblies', () => {
     expect(result.scene).not.toBeNull();
     expect(result.scene).not.toHaveProperty('assemblies');
     expect(result.droppedAssemblies).toBe(0);
+  });
+});
+
+describe('C3.1 — manufacturing material persistence', () => {
+  const base = () => {
+    const object = createFurnitureSceneObject('wardrobe', 'w-1');
+    return { ...object, params: object.params } as Record<string, unknown>;
+  };
+
+  it('keeps a valid assignment through validation (save/load)', () => {
+    const stored = {
+      ...base(),
+      sheetMaterials: [{ partId: 'wardrobe-door', materialId: 'mdf', thicknessMm: 18, thicknessSource: 'user' }],
+    };
+    const validated = validateSceneObject(stored);
+    expect(validated?.sheetMaterials).toEqual([
+      { partId: 'wardrobe-door', materialId: 'mdf', thicknessMm: 18, thicknessSource: 'user' },
+    ]);
+  });
+
+  it('leaves an object without assignments exactly as it was', () => {
+    const validated = validateSceneObject(base());
+    expect(validated?.sheetMaterials).toBeUndefined();
+  });
+
+  it('drops an entry with an unknown material instead of repairing it', () => {
+    const stored = {
+      ...base(),
+      sheetMaterials: [
+        { partId: 'wardrobe-door', materialId: 'unobtainium', thicknessMm: 18 },
+        { partId: 'wardrobe-side', materialId: 'ldsp', thicknessMm: 18 },
+      ],
+    };
+    const validated = validateSceneObject(stored);
+    // Only the valid entry survives; no default material is substituted.
+    expect(validated?.sheetMaterials).toEqual([
+      { partId: 'wardrobe-side', materialId: 'ldsp', thicknessMm: 18, thicknessSource: 'user' },
+    ]);
+  });
+
+  it('drops an entry with an invalid thickness', () => {
+    for (const bad of [0, -3, 61, Number.NaN, 'abc', null]) {
+      const stored = {
+        ...base(),
+        sheetMaterials: [{ partId: 'wardrobe-door', materialId: 'mdf', thicknessMm: bad }],
+      };
+      expect(validateSceneObject(stored)?.sheetMaterials, `thickness ${String(bad)}`).toBeUndefined();
+    }
+  });
+
+  it('drops empty and duplicate partIds', () => {
+    const stored = {
+      ...base(),
+      sheetMaterials: [
+        { partId: '  ', materialId: 'mdf', thicknessMm: 18 },
+        { partId: 'wardrobe-door', materialId: 'mdf', thicknessMm: 18 },
+        { partId: 'wardrobe-door', materialId: 'ldsp', thicknessMm: 20 },
+      ],
+    };
+    const validated = validateSceneObject(stored);
+    expect(validated?.sheetMaterials).toEqual([
+      { partId: 'wardrobe-door', materialId: 'mdf', thicknessMm: 18, thicknessSource: 'user' },
+    ]);
+  });
+
+  it('normalises a rounded thickness through the shared C3 rule', () => {
+    const stored = {
+      ...base(),
+      sheetMaterials: [{ partId: 'wardrobe-door', materialId: 'mdf', thicknessMm: 18.34 }],
+    };
+    expect(validateSceneObject(stored)?.sheetMaterials?.[0].thicknessMm).toBe(18.3);
+  });
+
+  it('ignores a non-array payload', () => {
+    const stored = { ...base(), sheetMaterials: 'nope' };
+    expect(validateSceneObject(stored)?.sheetMaterials).toBeUndefined();
+    expect(normalizeSheetMaterials(null)).toBeUndefined();
+    expect(normalizeSheetMaterials([1, 2])).toBeUndefined();
+  });
+
+  it('caps the number of stored assignments', () => {
+    const many = Array.from({ length: 60 }, (_, index) => ({
+      partId: `part-${index}`,
+      materialId: 'ldsp',
+      thicknessMm: 18,
+    }));
+    const entries = normalizeSheetMaterials(many);
+    expect(entries).toHaveLength(40);
+  });
+
+  it('survives a full scene round trip', () => {
+    const object = createFurnitureSceneObject('wardrobe', 'w-1');
+    const scene = {
+      schemaVersion: SCENE_SCHEMA_VERSION,
+      room: { ...ROOM_DEFAULTS },
+      objects: [
+        {
+          ...object,
+          sheetMaterials: [
+            { partId: 'wardrobe-door', materialId: 'mdf', thicknessMm: 12, thicknessSource: 'user' },
+          ],
+        },
+      ],
+    };
+    const result = validateSceneData(scene);
+    expect(result.scene?.objects[0].sheetMaterials?.[0].materialId).toBe('mdf');
   });
 });

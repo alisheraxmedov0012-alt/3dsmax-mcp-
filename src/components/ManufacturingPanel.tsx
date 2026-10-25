@@ -11,13 +11,22 @@ import {
 import { buildManufacturingPackage } from '../manufacturing/manufacturingPackage';
 import { createTechnicalDrawingSvg } from '../manufacturing/technicalDrawing';
 import { validateManufacturing, type ValidationLevel } from '../manufacturing/validation';
-import { groupByMaterial } from '../manufacturing/sheetMaterial';
+import { groupByMaterial, type SheetMaterialId } from '../manufacturing/sheetMaterial';
+import { SheetMaterialPanel } from './SheetMaterialPanel';
 
 interface ManufacturingPanelProps {
   object: SceneObject | null;
   projectName: string;
   /** The full scene; needed for the 3D export inside the document package. */
   scene: SceneData;
+  /** C3.1: save one part's manufacturing material. */
+  onAssignSheetMaterial?: (
+    partId: string,
+    materialId: SheetMaterialId,
+    thicknessMm: number,
+  ) => void;
+  /** C3.1: remove one part's manufacturing material. */
+  onRemoveSheetMaterial?: (partId: string) => void;
 }
 
 type Status = 'idle' | 'ok' | 'error';
@@ -40,7 +49,13 @@ const EXPORT_BUTTONS: Array<{ kind: ManufacturingArtifactKind; label: string }> 
  * selected piece. Everything is read-only over the scene — a failure here can
  * never modify or lose the project.
  */
-export function ManufacturingPanel({ object, projectName, scene }: ManufacturingPanelProps) {
+export function ManufacturingPanel({
+  object,
+  projectName,
+  scene,
+  onAssignSheetMaterial,
+  onRemoveSheetMaterial,
+}: ManufacturingPanelProps) {
   const [status, setStatus] = useState<Status>('idle');
   const [message, setMessage] = useState('');
   const [packaging, setPackaging] = useState(false);
@@ -319,6 +334,17 @@ export function ManufacturingPanel({ object, projectName, scene }: Manufacturing
             </button>
             <p className="visual__hint">Old, yon va yuqoridan ko‘rinishlar; o‘lchamlar mm.</p>
           </div>
+
+          {/* C3.1: assign manufacturing material per generated part. Parts come
+              from the BOM, so an assignment can only target a real part. */}
+          {onAssignSheetMaterial && onRemoveSheetMaterial && (
+            <SheetMaterialPanel
+              object={object}
+              parts={computed.bom.rows.map((row) => ({ partId: row.partId, name: row.name }))}
+              onAssign={onAssignSheetMaterial}
+              onRemove={onRemoveSheetMaterial}
+            />
+          )}
 
           <div className="field">
             <span className="field__label">

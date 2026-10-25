@@ -306,6 +306,17 @@ input[type='color'] {
   color: #d6a35c;
 }
 
+/* C3.1 material assignment: a compact vertical form so each control keeps a
+   full-width hit area on narrow screens. */
+.sheet-material {
+  display: grid;
+  gap: 4px;
+}
+
+.sheet-material .field__label {
+  margin-top: 4px;
+}
+
 .manufacturing__package-button {
   width: 100%;
   text-align: left;

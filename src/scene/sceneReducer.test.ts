@@ -606,3 +606,149 @@ describe('scene objects integrate with geometry', () => {
     expect(after.selectedId).toBe('ai-generated-1');
   });
 });
+
+describe('C3.1 — manufacturing material assignment', () => {
+  function withTable() {
+    const state = initialState();
+    return { state, id: state.data.objects[0].id };
+  }
+
+  it('assigns a material to one part without touching the PBR material', () => {
+    const { state, id } = withTable();
+    const before = state.data.objects[0].material;
+
+    const next = sceneReducer(state, {
+      type: 'SET_SHEET_MATERIAL',
+      id,
+      assignment: { partId: 'table-top', materialId: 'ldsp', thicknessMm: 40 },
+    });
+
+    const object = findSceneObject(next, id);
+    expect(object?.sheetMaterials).toHaveLength(1);
+    expect(object?.sheetMaterials?.[0]).toEqual({
+      partId: 'table-top',
+      materialId: 'ldsp',
+      thicknessMm: 40,
+      thicknessSource: 'user',
+    });
+    // Appearance is a different field and must be untouched.
+    expect(object?.material).toEqual(before);
+  });
+
+  it('edits an existing assignment in place instead of duplicating it', () => {
+    const { state, id } = withTable();
+    const first = sceneReducer(state, {
+      type: 'SET_SHEET_MATERIAL',
+      id,
+      assignment: { partId: 'table-top', materialId: 'ldsp', thicknessMm: 40 },
+    });
+    const second = sceneReducer(first, {
+      type: 'SET_SHEET_MATERIAL',
+      id,
+      assignment: { partId: 'table-top', materialId: 'mdf', thicknessMm: 18 },
+    });
+
+    const object = findSceneObject(second, id);
+    expect(object?.sheetMaterials).toHaveLength(1);
+    expect(object?.sheetMaterials?.[0].materialId).toBe('mdf');
+    expect(object?.sheetMaterials?.[0].thicknessMm).toBe(18);
+  });
+
+  it('keeps several parts independent', () => {
+    const { state, id } = withTable();
+    let next = sceneReducer(state, {
+      type: 'SET_SHEET_MATERIAL',
+      id,
+      assignment: { partId: 'table-top', materialId: 'ldsp', thicknessMm: 40 },
+    });
+    next = sceneReducer(next, {
+      type: 'SET_SHEET_MATERIAL',
+      id,
+      assignment: { partId: 'table-leg', materialId: 'massiv', thicknessMm: 50 },
+    });
+
+    const entries = findSceneObject(next, id)?.sheetMaterials ?? [];
+    expect(entries).toHaveLength(2);
+    expect(entries.find((entry) => entry.partId === 'table-leg')?.materialId).toBe('massiv');
+    // Updating the second must not have disturbed the first.
+    expect(entries.find((entry) => entry.partId === 'table-top')?.thicknessMm).toBe(40);
+  });
+
+  it('removes an assignment and drops the field when the last one goes', () => {
+    const { state, id } = withTable();
+    const assigned = sceneReducer(state, {
+      type: 'SET_SHEET_MATERIAL',
+      id,
+      assignment: { partId: 'table-top', materialId: 'ldsp', thicknessMm: 40 },
+    });
+    const removed = sceneReducer(assigned, { type: 'REMOVE_SHEET_MATERIAL', id, partId: 'table-top' });
+
+    const object = findSceneObject(removed, id);
+    expect(object?.sheetMaterials).toBeUndefined();
+  });
+
+  it('rejects an invalid thickness at the state boundary', () => {
+    const { state, id } = withTable();
+    for (const bad of [0, -5, Number.NaN, Number.POSITIVE_INFINITY, 61, 1000]) {
+      const next = sceneReducer(state, {
+        type: 'SET_SHEET_MATERIAL',
+        id,
+        assignment: { partId: 'table-top', materialId: 'ldsp', thicknessMm: bad },
+      });
+      expect(findSceneObject(next, id)?.sheetMaterials, `thickness ${bad}`).toBeUndefined();
+    }
+  });
+
+  it('rejects an unknown material id', () => {
+    const { state, id } = withTable();
+    const next = sceneReducer(state, {
+      type: 'SET_SHEET_MATERIAL',
+      id,
+      assignment: { partId: 'table-top', materialId: 'unobtainium' as never, thicknessMm: 18 },
+    });
+    expect(findSceneObject(next, id)?.sheetMaterials).toBeUndefined();
+  });
+
+  it('accepts the exact boundary thickness', () => {
+    const { state, id } = withTable();
+    const next = sceneReducer(state, {
+      type: 'SET_SHEET_MATERIAL',
+      id,
+      assignment: { partId: 'table-top', materialId: 'ldsp', thicknessMm: 60 },
+    });
+    expect(findSceneObject(next, id)?.sheetMaterials?.[0].thicknessMm).toBe(60);
+  });
+
+  it('does not modify the object when the thickness is rejected', () => {
+    const { state, id } = withTable();
+    const next = sceneReducer(state, {
+      type: 'SET_SHEET_MATERIAL',
+      id,
+      assignment: { partId: 'table-top', materialId: 'ldsp', thicknessMm: 0 },
+    });
+    // The same object reference: a rejected write must not churn state.
+    expect(findSceneObject(next, id)).toBe(findSceneObject(state, id));
+  });
+
+  it('survives a furniture parameter change (assignments are keyed by partId)', () => {
+    const { state, id } = withTable();
+    const assigned = sceneReducer(state, {
+      type: 'SET_SHEET_MATERIAL',
+      id,
+      assignment: { partId: 'table-top', materialId: 'ldsp', thicknessMm: 40 },
+    });
+    const object = findSceneObject(assigned, id);
+    if (!object) throw new Error('object missing');
+
+    const resized = sceneReducer(assigned, {
+      type: 'UPDATE_PARAMS',
+      id,
+      params: { ...object.params, widthCm: 180 },
+    });
+
+    // The part still exists, so its assignment is preserved.
+    expect(findSceneObject(resized, id)?.sheetMaterials).toEqual([
+      { partId: 'table-top', materialId: 'ldsp', thicknessMm: 40, thicknessSource: 'user' },
+    ]);
+  });
+});

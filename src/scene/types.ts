@@ -61,6 +61,14 @@ export const OPENING_LIMITS = {
   sillCm: { min: 0, max: 300, step: 5 },
 } satisfies Record<'offsetCm' | 'widthCm' | 'heightCm' | 'sillCm', NumericRange>;
 
+/**
+ * Max manufacturing-material assignments per object.
+ *
+ * A safety cap like the room/assembly limits: a workshop piece has a handful of
+ * part groups, so anything beyond this indicates corrupted stored data.
+ */
+export const MAX_SHEET_MATERIALS_PER_OBJECT = 40;
+
 export const MAX_OPENINGS_PER_ROOM = 12;
 
 /**
