@@ -588,6 +588,17 @@ input[type='color'] {
   overflow-wrap: anywhere;
 }
 
+/* C8.6.2: the machine-readable reason, spelled out. Sits under the detail so the
+   five cutting outcomes are distinguishable without reading the prose. */
+.product__check-reason {
+  grid-column: 1 / -1;
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #8f9aa6;
+  overflow-wrap: anywhere;
+}
+
 .product__actions {
   display: flex;
   flex-wrap: wrap;

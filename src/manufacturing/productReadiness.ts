@@ -84,6 +84,42 @@ export type ReadinessCheckId =
   | 'pdf'
   | 'c1-package';
 
+/**
+ * Machine-readable reason for the cutting check.
+ *
+ * The five outcomes the audit asked to keep apart, so no caller has to infer them
+ * from prose:
+ *
+ * - `not-sheet-goods`      — this furniture type builds no panel-shaped parts at
+ *                            all (a sofa), so nesting cannot apply.
+ * - `parameter-excludes-panels` — a panel-shaped part exists but a parameter put
+ *                            it past the board rule, so it left the cut list.
+ * - `no-material`          — a board material has not been assigned yet.
+ * - `not-computed`         — no layout was requested, so there is nothing to show.
+ * - `layout-failed`        — a layout was requested and could not be produced.
+ * - `partially-placed`     — a layout exists but some pieces did not fit.
+ * - `complete`             — every piece was placed.
+ */
+export type CuttingReason =
+  | 'not-sheet-goods'
+  | 'parameter-excludes-panels'
+  | 'no-material'
+  | 'not-computed'
+  | 'layout-failed'
+  | 'partially-placed'
+  | 'complete';
+
+/** Short human label per cutting reason, for the panel. */
+export const CUTTING_REASON_LABELS: Record<CuttingReason, string> = {
+  'not-sheet-goods': 'Bu tur list materialidan qurilmaydi',
+  'parameter-excludes-panels': "Parametr panelni list chegarasidan chiqargan",
+  'no-material': "Material tanlanmagan",
+  'not-computed': 'Kesish rejasi hali hisoblanmagan',
+  'layout-failed': 'Kesish rejasi tuzilmadi',
+  'partially-placed': "Ayrim detallar listga sig'madi",
+  complete: "To'liq joylashtirildi",
+};
+
 export interface ReadinessCheck {
   id: ReadinessCheckId;
   /** Short human label, in the app's language. */
@@ -91,6 +127,12 @@ export interface ReadinessCheck {
   status: ReadinessStatus;
   /** What was observed, stated concretely (counts, ids, byte sizes). */
   detail: string;
+  /**
+   * C8.6.2: why the cutting check reached its status. Optional and only set on
+   * the cutting check, so existing consumers that read `status`/`detail` are
+   * unaffected.
+   */
+  reason?: CuttingReason;
 }
 
 export interface ReadinessResult {
@@ -405,6 +447,7 @@ function checkCutting(
         id: 'cutting',
         label,
         status: 'fail',
+        reason: 'parameter-excludes-panels',
         detail: `${thicknessBlocks.join(' ')} Kesish rejasi tuzilmadi, shuning uchun paketda list sxemasi bo‘lmaydi.`,
       };
     }
@@ -414,6 +457,7 @@ function checkCutting(
       id: 'cutting',
       label,
       status: 'not_applicable',
+      reason: 'not-sheet-goods',
       detail: 'Panel detali yo‘q — kesish rejasi bu modelga qo‘llanmaydi.',
     };
   }
@@ -422,6 +466,7 @@ function checkCutting(
       id: 'cutting',
       label,
       status: 'warning',
+      reason: 'not-computed',
       detail: 'Kesish rejasi hali hisoblanmagan — paketda list sxemasi bo‘lmaydi.',
     };
   }
@@ -430,6 +475,7 @@ function checkCutting(
       id: 'cutting',
       label,
       status: 'warning',
+      reason: 'not-computed',
       detail: 'Kesish rejasi hisoblanmadi (natija berilmagan).',
     };
   }
@@ -445,6 +491,7 @@ function checkCutting(
         id: 'cutting',
         label,
         status: 'warning',
+        reason: 'no-material',
         detail:
           'Material tayinlanmagani uchun kesish rejasi tuzilmadi — material tanlangandan keyin hisoblanadi.',
       };
@@ -453,6 +500,7 @@ function checkCutting(
       id: 'cutting',
       label,
       status: 'fail',
+      reason: 'layout-failed',
       detail:
         plan.issues.find((issue) => issue.level === 'error')?.message ??
         'Hech bir detal listga joylashtirilmadi.',
@@ -463,6 +511,7 @@ function checkCutting(
       id: 'cutting',
       label,
       status: 'warning',
+      reason: 'partially-placed',
       detail: `${plan.summary.placedCount}/${plan.summary.pieceCount} detal joylashtirildi, ${plan.summary.unplacedCount} detal listga sig‘madi.`,
     };
   }
@@ -470,6 +519,7 @@ function checkCutting(
     id: 'cutting',
     label,
     status: 'pass',
+    reason: 'complete',
     detail: `${plan.summary.sheetCount} list, ${plan.summary.placedCount} detal, chiqindi ${plan.summary.wastePercent}%.`,
   };
 }

@@ -228,6 +228,16 @@ describe('C8 panel — downloads and description', () => {
     expect(cutting).toMatch(/Ogohlantirish/);
     expect(cutting).toMatch(/hisoblanmagan/i);
   });
+
+  it('spells out the machine-readable cutting reason', async () => {
+    renderPanel({ cuttingPlan: null });
+    fireEvent.click(checkButton());
+    await waitFor(() => expect(screen.getByTestId('product-verdict')).toBeTruthy());
+    // C8.6.2: the panel explains *why* the layout is missing, not just that it is.
+    const reason = screen.getByTestId('product-reason-cutting').textContent ?? '';
+    expect(reason).toMatch(/Sabab:/);
+    expect(reason).toMatch(/hisoblanmagan/i);
+  });
 });
 
 describe('C8 panel — 3D preview', () => {

@@ -4,6 +4,7 @@
  */
 import { SEAT_THICKNESS_CM, CHAIR_LEG_THICKNESS_CM } from './buildChair';
 import { PartBuilder, clampValue, type BuiltFurniture, type PartMaterialOptions } from './parts';
+import { gateParam } from './contract';
 import type { FurnitureParams } from './types';
 
 const BACK_THICKNESS_CM = 4;
@@ -16,7 +17,12 @@ export function buildArmchair(
   const builder = new PartBuilder('armchair', params.color, material);
   const { widthCm, depthCm, heightCm } = params;
 
-  const seatHeight = clampValue(params.seatHeightCm, 20, heightCm - 5, heightCm * 0.5);
+  const seatHeight = clampValue(
+    gateParam('armchair', 'seatHeightCm', params.seatHeightCm),
+    20,
+    heightCm - 5,
+    heightCm * 0.5,
+  );
   const legHeight = Math.max(seatHeight - SEAT_THICKNESS_CM, 1);
 
   builder.box(
@@ -42,7 +48,7 @@ export function buildArmchair(
   // Keep the backrest within the declared total height (see buildChair).
   const available = Math.max(heightCm - seatHeight, 6);
   const backHeight = Math.min(
-    clampValue(params.backHeightCm, 6, available, available),
+    clampValue(gateParam('armchair', 'backHeightCm', params.backHeightCm), 6, available, available),
     Math.max(heightCm - seatHeight, 1),
   );
   builder.box(
@@ -51,7 +57,12 @@ export function buildArmchair(
     [0, seatHeight + backHeight / 2, -(depthCm / 2 - BACK_THICKNESS_CM / 2)],
   );
 
-  const armHeight = clampValue(params.armHeightCm, seatHeight + 2, heightCm, heightCm - 5);
+  const armHeight = clampValue(
+    gateParam('armchair', 'armHeightCm', params.armHeightCm),
+    seatHeight + 2,
+    heightCm,
+    heightCm - 5,
+  );
   const armLength = Math.max(depthCm - BACK_THICKNESS_CM, 5);
   const armY = armHeight / 2;
   const armZ = BACK_THICKNESS_CM / 2;

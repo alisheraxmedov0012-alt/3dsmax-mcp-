@@ -4,6 +4,7 @@
  * mattressHeightCm, headboardHeightCm.
  */
 import { PartBuilder, clampValue, type BuiltFurniture, type PartMaterialOptions } from './parts';
+import { declaredDefault, gateParam } from './contract';
 import type { FurnitureParams } from './types';
 
 const FRAME_THICKNESS_CM = 6;
@@ -17,7 +18,14 @@ export function buildBed(
   const builder = new PartBuilder('bed', params.color, material);
   const { widthCm, depthCm, heightCm } = params;
 
-  const frameTop = clampValue(heightCm, FRAME_THICKNESS_CM + 4, 120, 40);
+  // `gateParam` keeps a directly-called builder inside the declared range; the
+  // geometric bounds after it are unchanged.
+  const frameTop = clampValue(
+    gateParam('bed', 'heightCm', heightCm),
+    FRAME_THICKNESS_CM + 4,
+    120,
+    declaredDefault('bed', 'heightCm'),
+  );
   const legHeight = Math.max(frameTop - FRAME_THICKNESS_CM, 1);
   // Inset legs so their outer faces stay flush with the frame edge (a bigger
   // offset made them stick out by 1 cm beyond the declared width/depth).
@@ -46,7 +54,12 @@ export function buildBed(
   );
 
   // Mattress (inset slightly from the frame).
-  const mattressHeight = clampValue(params.mattressHeightCm, 8, 40, 20);
+  const mattressHeight = clampValue(
+    gateParam('bed', 'mattressHeightCm', params.mattressHeightCm),
+    8,
+    40,
+    declaredDefault('bed', 'mattressHeightCm'),
+  );
   const mattressWidth = Math.max(widthCm - 4, 10);
   const mattressDepth = Math.max(depthCm - 4, 10);
   builder.box(
@@ -56,7 +69,12 @@ export function buildBed(
   );
 
   // Headboard at the back, from the floor.
-  const headboardHeight = clampValue(params.headboardHeightCm, 20, 200, frameTop + 50);
+  const headboardHeight = clampValue(
+    gateParam('bed', 'headboardHeightCm', params.headboardHeightCm),
+    20,
+    200,
+    frameTop + 50,
+  );
   builder.box(
     'bed-headboard',
     [widthCm, headboardHeight, HEADBOARD_THICKNESS_CM],

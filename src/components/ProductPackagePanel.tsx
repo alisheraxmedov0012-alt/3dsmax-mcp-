@@ -21,6 +21,7 @@ import { downloadBlob } from '../export/downloadFile';
 import type { SceneData, SceneObject } from '../scene/types';
 import type { SheetMaterialEntry } from '../manufacturing/sheetMaterial';
 import {
+  CUTTING_REASON_LABELS,
   READINESS_STATUS_LABELS,
   assessProductReadiness,
   combineReadiness,
@@ -350,6 +351,11 @@ export function ProductPackagePanel({
                 <span className="product__check-label">{check.label}</span>
                 <span className="product__check-status">{statusLabel(check.status)}</span>
                 <span className="product__check-detail">{check.detail}</span>
+                {check.reason && (
+                  <span className="product__check-reason" data-testid={`product-reason-${check.id}`}>
+                    Sabab: {CUTTING_REASON_LABELS[check.reason]}
+                  </span>
+                )}
               </li>
             ))}
           </ul>

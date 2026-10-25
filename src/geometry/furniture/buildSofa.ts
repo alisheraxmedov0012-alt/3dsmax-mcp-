@@ -3,6 +3,7 @@
  * Params: widthCm, depthCm, heightCm, seatHeightCm, backHeightCm, armHeightCm.
  */
 import { PartBuilder, clampValue, type BuiltFurniture, type PartMaterialOptions } from './parts';
+import { gateParam } from './contract';
 import type { FurnitureParams } from './types';
 
 const SEAT_THICKNESS_CM = 8;
@@ -18,7 +19,12 @@ export function buildSofa(
   const builder = new PartBuilder('sofa', params.color, material);
   const { widthCm, depthCm, heightCm } = params;
 
-  const seatTop = clampValue(params.seatHeightCm, 25, heightCm - 10, heightCm * 0.5);
+  const seatTop = clampValue(
+    gateParam('sofa', 'seatHeightCm', params.seatHeightCm),
+    25,
+    heightCm - 10,
+    heightCm * 0.5,
+  );
   const seatThickness = Math.min(SEAT_THICKNESS_CM, Math.max(seatTop - LEG_HEIGHT_CM, 2));
 
   // Legs.
@@ -43,7 +49,12 @@ export function buildSofa(
 
   // Backrest.
   const available = Math.max(heightCm - seatTop, 8);
-  const backHeight = clampValue(params.backHeightCm, 8, available, available);
+  const backHeight = clampValue(
+    gateParam('sofa', 'backHeightCm', params.backHeightCm),
+    8,
+    available,
+    available,
+  );
   builder.box(
     'sofa-back',
     [widthCm, backHeight, BACK_THICKNESS_CM],
@@ -51,7 +62,12 @@ export function buildSofa(
   );
 
   // Arms.
-  const armTop = clampValue(params.armHeightCm, seatTop + 4, heightCm, heightCm - 5);
+  const armTop = clampValue(
+    gateParam('sofa', 'armHeightCm', params.armHeightCm),
+    seatTop + 4,
+    heightCm,
+    heightCm - 5,
+  );
   const armHeight = Math.max(armTop - LEG_HEIGHT_CM, 4);
   const armLength = Math.max(depthCm - BACK_THICKNESS_CM, 8);
   const armZ = BACK_THICKNESS_CM / 2;

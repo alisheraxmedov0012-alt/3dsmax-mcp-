@@ -528,10 +528,15 @@ export default function App() {
       setProjectName(result.name);
       setSavedSignature(sceneSignature(result.name, result.scene));
       setExportStatus('success');
+      // Say when stored values had to be adjusted: the project is not the file.
+      const adjusted =
+        result.normalizedObjects > 0
+          ? ` ${result.normalizedObjects} obyektning parametri ruxsat etilgan oraliqqa keltirildi.`
+          : '';
       setExportMessage(
         result.droppedObjects > 0
-          ? `Import qilindi; ${result.droppedObjects} yaroqsiz obyekt o'tkazib yuborildi.`
-          : 'JSON loyiha import qilindi.',
+          ? `Import qilindi; ${result.droppedObjects} yaroqsiz obyekt o'tkazib yuborildi.${adjusted}`
+          : `JSON loyiha import qilindi.${adjusted}`,
       );
     } catch (error) {
       setExportStatus('error');

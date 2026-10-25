@@ -4,6 +4,7 @@
  * Params: widthCm, heightCm, depthCm, wallThicknessCm, shelfCount, doorCount.
  */
 import { PartBuilder, clampValue, safeSize, type BuiltFurniture, type PartMaterialOptions } from './parts';
+import { gateParam } from './contract';
 import type { FurnitureParams } from './types';
 
 export function buildWardrobe(
@@ -13,7 +14,12 @@ export function buildWardrobe(
   const builder = new PartBuilder('wardrobe', params.color, material);
   const { widthCm, heightCm, depthCm } = params;
 
-  const wall = clampValue(params.wallThicknessCm, 1, Math.min(widthCm, heightCm, depthCm) / 3, 2);
+  const wall = clampValue(
+    gateParam('wardrobe', 'wallThicknessCm', params.wallThicknessCm),
+    1,
+    Math.min(widthCm, heightCm, depthCm) / 3,
+    2,
+  );
   const innerWidth = Math.max(widthCm - 2 * wall, wall);
   const innerHeight = Math.max(heightCm - 2 * wall, wall);
 
@@ -38,7 +44,9 @@ export function buildWardrobe(
   );
 
   // Internal shelves, evenly spaced.
-  const shelfCount = Math.round(clampValue(params.shelfCount, 0, 8, 4));
+  const shelfCount = Math.round(
+    clampValue(gateParam('wardrobe', 'shelfCount', params.shelfCount), 0, 8, 4),
+  );
   if (shelfCount > 0) {
     const usable = Math.max(innerHeight, wall);
     const gap = usable / (shelfCount + 1);
@@ -53,7 +61,9 @@ export function buildWardrobe(
   }
 
   // Front doors, evenly split across the opening.
-  const doorCount = Math.round(clampValue(params.doorCount, 1, 4, 2));
+  const doorCount = Math.round(
+    clampValue(gateParam('wardrobe', 'doorCount', params.doorCount), 1, 4, 2),
+  );
   const doorWidth = Math.max(innerWidth / doorCount - 1, wall);
   const doorHeight = Math.max(innerHeight - 1, wall);
   const doorZ = depthCm / 2 - safeSize(wall * 0.6, 0.5) / 2;

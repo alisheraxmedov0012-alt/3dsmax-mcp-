@@ -3,6 +3,7 @@
  * Params: widthCm (seat), depthCm (seat), heightCm (total), seatHeightCm, backHeightCm.
  */
 import { PartBuilder, clampValue, type BuiltFurniture, type PartMaterialOptions } from './parts';
+import { gateParam } from './contract';
 import type { FurnitureParams } from './types';
 
 export const SEAT_THICKNESS_CM = 4;
@@ -16,7 +17,13 @@ export function buildChair(
   const builder = new PartBuilder('chair', params.color, material);
   const { widthCm, depthCm, heightCm } = params;
 
-  const seatHeight = clampValue(params.seatHeightCm, 20, heightCm - 5, heightCm * 0.5);
+  // Declared range first, then the geometric bounds (which depend on heightCm).
+  const seatHeight = clampValue(
+    gateParam('chair', 'seatHeightCm', params.seatHeightCm),
+    20,
+    heightCm - 5,
+    heightCm * 0.5,
+  );
   const legHeight = Math.max(seatHeight - SEAT_THICKNESS_CM, 1);
 
   builder.box(
@@ -43,7 +50,7 @@ export function buildChair(
   // is left above the seat, cap it instead of forcing a minimum that overflows.
   const available = Math.max(heightCm - seatHeight, 6);
   const backHeight = Math.min(
-    clampValue(params.backHeightCm, 6, available, available),
+    clampValue(gateParam('chair', 'backHeightCm', params.backHeightCm), 6, available, available),
     Math.max(heightCm - seatHeight, 1),
   );
   builder.box(

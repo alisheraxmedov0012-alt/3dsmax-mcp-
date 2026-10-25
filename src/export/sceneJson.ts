@@ -72,7 +72,18 @@ export type SceneJsonErrorCode =
   | 'invalid_scene';
 
 export type SceneJsonParseResult =
-  | { ok: true; scene: SceneData; name: string; droppedObjects: number }
+  | {
+      ok: true;
+      scene: SceneData;
+      name: string;
+      droppedObjects: number;
+      /**
+       * C8.6.2: objects whose stored parameters were adjusted to fit the field
+       * contract. Always present (0 when nothing changed) so callers can branch on
+       * it without an undefined check; existing callers are unaffected.
+       */
+      normalizedObjects: number;
+    }
   | { ok: false; code: SceneJsonErrorCode; message: string };
 
 const MESSAGES: Record<SceneJsonErrorCode, string> = {
@@ -131,5 +142,6 @@ export function parseSceneJson(text: string): SceneJsonParseResult {
     scene: result.scene,
     name,
     droppedObjects: result.droppedObjects,
+    normalizedObjects: result.normalizations?.length ?? 0,
   };
 }

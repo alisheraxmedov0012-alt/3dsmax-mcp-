@@ -170,11 +170,43 @@ export function parseFurnitureValues(
 }
 
 /**
- * Validate stored (unknown) params for a type. Base dimensions and colour must be
- * present and in range; other channels fall back to their default when missing or
- * unusable. Returns `null` when the object is not representable.
+ * One channel that was present in the stored data but could not be kept as
+ * written, so the model will use something else.
  */
-export function validateFurnitureParams(type: FurnitureType, raw: unknown): FurnitureParams | null {
+export interface ParamNormalization {
+  key: FurnitureNumericKey;
+  /** The stored value, stringified for display. */
+  stored: string;
+  /** The value the validated params actually carry, or null when the channel was
+   *  dropped and the builder's own fallback applies. */
+  applied: number | null;
+  reason: 'out-of-range' | 'not-integer' | 'not-finite';
+}
+
+export interface DetailedFurnitureParams {
+  params: FurnitureParams;
+  /** Channels that were adjusted. Empty when the stored data was used verbatim. */
+  normalized: ParamNormalization[];
+}
+
+/**
+ * Validate stored params and report what had to be adjusted.
+ *
+ * `validateFurnitureParams` answers "is this representable?" and says nothing
+ * about the route it took, which is how a stored `topThicknessCm: 1000` could
+ * become a different piece without a trace. This variant returns the same params
+ * plus the list of channels that were rewritten, so a caller can tell the user.
+ *
+ * Base dimensions and colour are still all-or-nothing: an unrepresentable object
+ * returns `null` from both entry points. Only *optional* channels produce a
+ * normalization entry, because those are the ones that are silently replaced —
+ * an optional value that is missing entirely is not a normalization (older scenes
+ * legitimately omit channels), it is just absent.
+ */
+export function validateFurnitureParamsDetailed(
+  type: FurnitureType,
+  raw: unknown,
+): DetailedFurnitureParams | null {
   if (!isFurnitureType(type) || typeof raw !== 'object' || raw === null) {
     return null;
   }
@@ -222,20 +254,66 @@ export function validateFurnitureParams(type: FurnitureType, raw: unknown): Furn
   }
   params.color = color.trim().toLowerCase();
 
+  const normalized: ParamNormalization[] = [];
   for (const spec of FURNITURE_FIELDS[type]) {
     if (BASE_DIMENSIONS.includes(spec.key)) {
       continue;
     }
-    const value = readNumber(spec);
-    if (value !== null && value >= spec.range.min && value <= spec.range.max) {
-      params[spec.key] = value;
+    // Absent is not "normalized": older scenes omit optional channels on purpose.
+    if (!(spec.key in record)) {
+      continue;
     }
+    const storedRaw = record[spec.key];
+    const numeric =
+      typeof storedRaw === 'number'
+        ? storedRaw
+        : typeof storedRaw === 'string'
+          ? Number(storedRaw.trim())
+          : Number.NaN;
+
+    // Classify explicitly rather than inferring from `readNumber`, which collapses
+    // "not a number" and "not an integer" into the same null.
+    const reason: ParamNormalization['reason'] | null = !Number.isFinite(numeric)
+      ? 'not-finite'
+      : spec.integer && !Number.isInteger(numeric)
+        ? 'not-integer'
+        : numeric < spec.range.min || numeric > spec.range.max
+          ? 'out-of-range'
+          : null;
+
+    if (reason === null) {
+      params[spec.key] = numeric;
+      continue;
+    }
+    normalized.push({
+      key: spec.key,
+      stored: typeof storedRaw === 'string' ? storedRaw : String(storedRaw),
+      applied: null,
+      reason,
+    });
   }
 
   if (Object.keys(relationErrors(type, params)).length > 0) {
     return null;
   }
-  return params;
+
+  // Report the value that survived, now that `params` is final.
+  for (const entry of normalized) {
+    const value = params[entry.key];
+    entry.applied = typeof value === 'number' ? value : null;
+  }
+  return { params, normalized };
+}
+
+/**
+ * Validate stored (unknown) params for a type.
+ *
+ * Thin wrapper over {@link validateFurnitureParamsDetailed} so there is one
+ * implementation and the two entry points cannot disagree. Existing callers keep
+ * the old contract: the validated params, or `null` when not representable.
+ */
+export function validateFurnitureParams(type: FurnitureType, raw: unknown): FurnitureParams | null {
+  return validateFurnitureParamsDetailed(type, raw)?.params ?? null;
 }
 
 /**

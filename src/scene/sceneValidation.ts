@@ -7,7 +7,8 @@ import {
 import {
   FURNITURE_DEFAULT_NAMES,
   isFurnitureType,
-  validateFurnitureParams,
+  validateFurnitureParamsDetailed,
+  type ParamNormalization,
 } from '../geometry/furniture';
 import { validateSceneSettings } from './sceneSettings';
 import { MATERIAL_PRESET_IDS } from '../materials/presets';
@@ -51,6 +52,12 @@ export interface SceneValidationResult {
   droppedObjects: number;
   /** W14: number of stored assemblies that were invalid and therefore dropped. */
   droppedAssemblies?: number;
+  /**
+   * C8.6.2: stored parameter channels that were rewritten to fit the field
+   * contract, per object. Omitted when nothing was adjusted, so the common case is
+   * unchanged in shape. Callers that ignore it behave exactly as before.
+   */
+  normalizations?: Array<{ objectId: string; fields: string[] }>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -253,6 +260,16 @@ export function validateRoomConfig(value: unknown): RoomConfig {
 
 /** Validates one stored scene object. Returns null when it is unusable. */
 export function validateSceneObject(value: unknown): SceneObject | null {
+  return validateSceneObjectDetailed(value)?.object ?? null;
+}
+
+/**
+ * Same as {@link validateSceneObject}, plus the list of parameter channels that
+ * had to be rewritten. Used where the result is reported to the user.
+ */
+function validateSceneObjectDetailed(
+  value: unknown,
+): { object: SceneObject; normalized: string[] } | null {
   if (!isRecord(value)) {
     return null;
   }
@@ -267,12 +284,13 @@ export function validateSceneObject(value: unknown): SceneObject | null {
     return null;
   }
 
-  const params = validateFurnitureParams(value.type, value.params);
-  if (!params) {
+  const validated = validateFurnitureParamsDetailed(value.type, value.params);
+  if (!validated) {
     return null;
   }
+  const params = validated.params;
 
-  return {
+  const object: SceneObject = {
     id: id.trim(),
     type: value.type,
     name: normalizeName(value.name, FURNITURE_DEFAULT_NAMES[value.type]),
@@ -285,6 +303,11 @@ export function validateSceneObject(value: unknown): SceneObject | null {
     // Manufacturing material (C3) travels with the object so assignments survive
     // save/load; it is a different field from the PBR `material` above.
     sheetMaterials: normalizeSheetMaterials(value.sheetMaterials),
+  };
+
+  return {
+    object,
+    normalized: validated.normalized.map((entry: ParamNormalization) => entry.key),
   };
 }
 
@@ -304,12 +327,17 @@ export function validateSceneData(value: unknown): SceneValidationResult {
   const objects: SceneObject[] = [];
   const seen = new Set<string>();
   let droppedObjects = 0;
+  const normalizations: Array<{ objectId: string; fields: string[] }> = [];
 
   rawObjects.forEach((entry) => {
-    const object = validateSceneObject(entry);
+    const detailed = validateSceneObjectDetailed(entry);
+    const object = detailed?.object ?? null;
     if (!object || seen.has(object.id)) {
       droppedObjects += 1;
       return;
+    }
+    if (detailed && detailed.normalized.length > 0) {
+      normalizations.push({ objectId: object.id, fields: detailed.normalized });
     }
     seen.add(object.id);
     objects.push(object);
@@ -329,6 +357,7 @@ export function validateSceneData(value: unknown): SceneValidationResult {
     },
     droppedObjects,
     droppedAssemblies,
+    ...(normalizations.length > 0 ? { normalizations } : {}),
   };
 }
 
