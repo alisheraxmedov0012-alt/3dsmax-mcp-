@@ -14,10 +14,17 @@ JSON it is asked exactly once more, with the failure appended to the
 conversation. After that the error is surfaced. There is no unbounded retry
 loop, and a semantically rejected answer (unknown type, impossible dimensions)
 is not retried, because repeating the same request would return the same answer.
+
+Transient HTTP failures (``RETRYABLE_STATUS_CODES``) are retried up to
+``max_retries`` times, honouring ``Retry-After`` when the provider sends one. A
+permanent status (400/401/403/404/422 and the rest) fails at once: repeating the
+same request cannot change the answer and every call may cost money.
 """
 from __future__ import annotations
 
 import logging
+import time
+from collections.abc import Callable
 
 import httpx
 from pydantic import ValidationError
@@ -29,6 +36,19 @@ logger = logging.getLogger("app.ai")
 
 #: One repair attempt only. Bounded on purpose: every extra call costs money.
 MAX_REPAIR_ATTEMPTS = 1
+
+#: Statuses that signal a transient condition: the same request may succeed
+#: later. 408/425/429 are explicit "try again" answers; 5xx means the provider
+#: failed on its side. Everything else is permanent and is not retried.
+RETRYABLE_STATUS_CODES: frozenset[int] = frozenset({408, 425, 429, 500, 502, 503, 504})
+
+#: Hard ceiling on one wait, so a large or hostile ``Retry-After`` cannot stall
+#: a request. The overall request deadline is a separate concern (A3.4 F2).
+MAX_RETRY_WAIT_SECONDS = 5.0
+
+#: Wait before the first retry when the provider sends no ``Retry-After``.
+#: Doubles per attempt and is capped by ``MAX_RETRY_WAIT_SECONDS``.
+RETRY_BACKOFF_SECONDS = 0.5
 
 _FURNITURE_VALUES = ", ".join(f'"{t.value}"' for t in FurnitureType)
 
@@ -65,6 +85,47 @@ _REPAIR_INSTRUCTION = (
 )
 
 
+class _RetryableStatus(AiProviderError):
+    """A transient HTTP failure that may be retried.
+
+    Subclasses :class:`AiProviderError` so that, if the retries are exhausted, it
+    still surfaces to the API as a controlled ``502`` rather than an unhandled
+    error.
+    """
+
+    def __init__(self, status: int, retry_after: float | None = None) -> None:
+        super().__init__(f"AI provayderi HTTP {status} qaytardi.")
+        self.status_code = status
+        self.retry_after = retry_after
+
+
+def _retry_after_seconds(response: httpx.Response) -> float | None:
+    """Parsed, capped ``Retry-After`` in seconds, or ``None`` when unusable.
+
+    Only the delay-seconds form is honoured. The HTTP-date form is ignored rather
+    than guessed at: falling back to the normal backoff is safer than computing a
+    delay from an unsynchronised clock. Negative and non-numeric values are
+    ignored for the same reason.
+    """
+    raw = response.headers.get("Retry-After")
+    if not raw:
+        return None
+    try:
+        seconds = float(raw.strip())
+    except ValueError:
+        return None
+    if seconds < 0:
+        return None
+    return min(seconds, MAX_RETRY_WAIT_SECONDS)
+
+
+def _wait_before_retry(attempt: int, retry_after: float | None) -> float:
+    """Seconds to wait before retry number ``attempt`` (1-based)."""
+    if retry_after is not None:
+        return retry_after
+    return min(RETRY_BACKOFF_SECONDS * (2 ** (attempt - 1)), MAX_RETRY_WAIT_SECONDS)
+
+
 class OpenAiCompatibleProvider:
     """Provider backed by an OpenAI-compatible chat completions endpoint."""
 
@@ -82,6 +143,7 @@ class OpenAiCompatibleProvider:
         timeout: float = 20.0,
         max_retries: int = 1,
         transport: httpx.BaseTransport | None = None,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._api_key = api_key or None
         self._base_url = (base_url or "").rstrip("/") or None
@@ -91,6 +153,8 @@ class OpenAiCompatibleProvider:
         # Injected in tests (httpx.MockTransport) to exercise the real code path
         # without any network access.
         self._transport = transport
+        # Injected in tests so a retry does not actually wait.
+        self._sleep = sleep
 
     @property
     def is_configured(self) -> bool:
@@ -117,6 +181,10 @@ class OpenAiCompatibleProvider:
 
     def _request_once(self, payload: dict) -> str:
         response = self._post(payload)
+        if response.status_code in RETRYABLE_STATUS_CODES:
+            raise _RetryableStatus(
+                response.status_code, _retry_after_seconds(response)
+            )
         if response.status_code >= 400:
             # Do not include the body/headers: they may leak provider detail.
             raise AiProviderError(f"AI provayderi HTTP {response.status_code} qaytardi.")
@@ -147,6 +215,21 @@ class OpenAiCompatibleProvider:
         while True:
             try:
                 content = self._request_once(payload)
+            except _RetryableStatus as exc:
+                network_attempts += 1
+                last_error = exc
+                logger.warning(
+                    "AI provider attempt %d/%d failed: HTTP %d",
+                    network_attempts,
+                    self._max_retries + 1,
+                    exc.status_code,
+                )
+                if network_attempts > self._max_retries:
+                    break
+                # The wait is capped, so a Retry-After of hours cannot stall the
+                # request. Retrying is the only thing this branch does.
+                self._sleep(_wait_before_retry(network_attempts, exc.retry_after))
+                continue
             except (httpx.HTTPError, KeyError, IndexError, ValueError, TypeError) as exc:
                 network_attempts += 1
                 last_error = exc
@@ -158,6 +241,7 @@ class OpenAiCompatibleProvider:
                 )
                 if network_attempts > self._max_retries:
                     break
+                self._sleep(_wait_before_retry(network_attempts, None))
                 continue
 
             try:
@@ -178,7 +262,18 @@ class OpenAiCompatibleProvider:
                     ],
                 }
 
+        # Exhausted the allowed attempts. A transient HTTP failure keeps its
+        # status in the message; a transport failure gets the generic one, as
+        # before. Either way the caller sees a controlled AiProviderError.
+        if isinstance(last_error, AiProviderError):
+            raise last_error
         raise AiProviderError("AI xizmatidan javob olishda xatolik yuz berdi.") from last_error
 
 
-__all__ = ["MAX_REPAIR_ATTEMPTS", "OpenAiCompatibleProvider"]
+__all__ = [
+    "MAX_REPAIR_ATTEMPTS",
+    "MAX_RETRY_WAIT_SECONDS",
+    "RETRYABLE_STATUS_CODES",
+    "RETRY_BACKOFF_SECONDS",
+    "OpenAiCompatibleProvider",
+]

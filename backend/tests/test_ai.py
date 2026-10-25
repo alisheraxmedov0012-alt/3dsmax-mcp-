@@ -21,7 +21,12 @@ from app.services.ai.base import (
     ProviderNotConfigured,
 )
 from app.services.ai.local_provider import LocalHeuristicProvider
-from app.services.ai.openai_provider import OpenAiCompatibleProvider
+from app.services.ai.openai_provider import (
+    MAX_RETRY_WAIT_SECONDS,
+    RETRY_BACKOFF_SECONDS,
+    RETRYABLE_STATUS_CODES,
+    OpenAiCompatibleProvider,
+)
 from app.services.ai.registry import get_ai_provider
 from app.services.ai.spec import (
     FurnitureType,
@@ -376,12 +381,23 @@ def test_build_design_spec_marks_every_geometry_type_supported(furniture):
 # --------------------------------------------------------------------------- #
 
 
+class _NoSleep:
+    """Records requested waits instead of sleeping, so tests never really wait."""
+
+    def __init__(self) -> None:
+        self.calls: list[float] = []
+
+    def __call__(self, seconds: float) -> None:
+        self.calls.append(seconds)
+
+
 def _provider_with(handler, **kwargs) -> OpenAiCompatibleProvider:
+    kwargs.setdefault("max_retries", 0)
+    kwargs.setdefault("sleep", _NoSleep())
     return OpenAiCompatibleProvider(
         api_key="test-key-not-real",
         base_url="https://ai.example.invalid/v1",
         model="test-model",
-        max_retries=kwargs.pop("max_retries", 0),
         transport=httpx.MockTransport(handler),
         **kwargs,
     )
@@ -389,6 +405,15 @@ def _provider_with(handler, **kwargs) -> OpenAiCompatibleProvider:
 
 def _chat_response(content: str) -> dict:
     return {"choices": [{"message": {"content": content}}]}
+
+
+_VALID_SPEC = json.dumps(
+    {
+        "furniture": "table",
+        "dimensions": {"width_cm": 160, "height_cm": 75, "depth_cm": 80},
+        "confidence": "high",
+    }
+)
 
 
 def test_openai_provider_parses_valid_response():
@@ -420,11 +445,17 @@ def test_openai_provider_rejects_malformed_json():
 
 
 def test_openai_provider_http_error_raises_provider_error():
+    calls: list[int] = []
+
     def handler(_: httpx.Request) -> httpx.Response:
+        calls.append(1)
         return httpx.Response(500, json={"error": "upstream"})
 
+    # max_retries=0 from the helper: a retryable status still fails on the first
+    # attempt when no retry is allowed.
     with pytest.raises(AiProviderError):
         _provider_with(handler).generate_design(DesignRequest(text="stol"))
+    assert len(calls) == 1
 
 
 def test_openai_provider_error_message_does_not_leak_key():
@@ -446,3 +477,217 @@ def test_local_provider_is_offline_and_deterministic():
     spec = provider.generate_design(DesignRequest(text="yog'och stul"))
     assert spec.furniture is FurnitureType.CHAIR
     assert spec.supported is True  # W13: chair has a builder
+
+
+# --------------------------------------------------------------------------- #
+# A3.4 F1 — bounded retry for transient HTTP failures
+# --------------------------------------------------------------------------- #
+
+
+def test_transient_http_error_is_retried_then_succeeds():
+    """One 503 followed by a 200 must recover instead of failing the request."""
+    responses = [httpx.Response(503), httpx.Response(200, json=_chat_response(_VALID_SPEC))]
+    calls: list[int] = []
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return responses[len(calls) - 1]
+
+    sleep = _NoSleep()
+    spec = _provider_with(handler, max_retries=1, sleep=sleep).generate_design(
+        DesignRequest(text="stol")
+    )
+
+    assert spec.furniture is FurnitureType.TABLE
+    assert len(calls) == 2
+    assert len(sleep.calls) == 1
+
+
+@pytest.mark.parametrize("status", sorted(RETRYABLE_STATUS_CODES))
+def test_every_retryable_status_is_retried(status):
+    """408/425/429/500/502/503/504 all recover when the retry succeeds."""
+    responses = [httpx.Response(status), httpx.Response(200, json=_chat_response(_VALID_SPEC))]
+    calls: list[int] = []
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return responses[len(calls) - 1]
+
+    spec = _provider_with(handler, max_retries=1).generate_design(
+        DesignRequest(text="stol")
+    )
+    assert spec.furniture is FurnitureType.TABLE
+    assert len(calls) == 2
+
+
+def test_retries_are_capped_at_the_configured_limit():
+    """A persistent transient error is attempted exactly max_retries + 1 times."""
+    calls: list[int] = []
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(503)
+
+    sleep = _NoSleep()
+    with pytest.raises(AiProviderError):
+        _provider_with(handler, max_retries=2, sleep=sleep).generate_design(
+            DesignRequest(text="stol")
+        )
+
+    assert len(calls) == 3  # 1 initial attempt + 2 retries
+    assert len(sleep.calls) == 2  # only between attempts, never after the last
+    assert all(wait <= MAX_RETRY_WAIT_SECONDS for wait in sleep.calls)
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 422])
+def test_permanent_status_is_not_retried(status):
+    """A permanent failure is answered at once: repeating it cannot help."""
+    calls: list[int] = []
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(status, json={"error": "permanent"})
+
+    sleep = _NoSleep()
+    with pytest.raises(AiProviderError):
+        _provider_with(handler, max_retries=3, sleep=sleep).generate_design(
+            DesignRequest(text="stol")
+        )
+
+    assert len(calls) == 1
+    assert sleep.calls == []
+
+
+def test_zero_retries_means_a_single_attempt():
+    calls: list[int] = []
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(429)
+
+    sleep = _NoSleep()
+    with pytest.raises(AiProviderError):
+        _provider_with(handler, max_retries=0, sleep=sleep).generate_design(
+            DesignRequest(text="stol")
+        )
+
+    assert len(calls) == 1
+    assert sleep.calls == []
+
+
+def test_retry_after_is_honoured_for_429():
+    calls: list[int] = []
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            return httpx.Response(429, headers={"Retry-After": "2"})
+        return httpx.Response(200, json=_chat_response(_VALID_SPEC))
+
+    sleep = _NoSleep()
+    spec = _provider_with(handler, max_retries=1, sleep=sleep).generate_design(
+        DesignRequest(text="stol")
+    )
+
+    assert spec.furniture is FurnitureType.TABLE
+    assert sleep.calls == [2.0]
+
+
+@pytest.mark.parametrize("header", ["3600", "1e9"])
+def test_retry_after_is_capped(header):
+    """A huge Retry-After must not stall the request for an hour."""
+    calls: list[int] = []
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(429, headers={"Retry-After": header})
+
+    sleep = _NoSleep()
+    with pytest.raises(AiProviderError):
+        _provider_with(handler, max_retries=1, sleep=sleep).generate_design(
+            DesignRequest(text="stol")
+        )
+
+    assert sleep.calls == [MAX_RETRY_WAIT_SECONDS]
+
+
+@pytest.mark.parametrize("header", ["not-a-number", "-5", ""])
+def test_unusable_retry_after_falls_back_to_backoff(header):
+    """Malformed values are ignored instead of breaking the retry path."""
+    calls: list[int] = []
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            return httpx.Response(503, headers={"Retry-After": header})
+        return httpx.Response(200, json=_chat_response(_VALID_SPEC))
+
+    sleep = _NoSleep()
+    spec = _provider_with(handler, max_retries=1, sleep=sleep).generate_design(
+        DesignRequest(text="stol")
+    )
+
+    assert spec.furniture is FurnitureType.TABLE
+    assert sleep.calls == [RETRY_BACKOFF_SECONDS]
+
+
+def test_transport_error_is_still_retried():
+    """A connection failure keeps its previous retry behaviour."""
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            raise httpx.ConnectError("boom", request=request)
+        return httpx.Response(200, json=_chat_response(_VALID_SPEC))
+
+    sleep = _NoSleep()
+    spec = _provider_with(handler, max_retries=1, sleep=sleep).generate_design(
+        DesignRequest(text="stol")
+    )
+
+    assert spec.furniture is FurnitureType.TABLE
+    assert len(calls) == 2
+    assert len(sleep.calls) == 1
+
+
+def test_exhausted_retries_keep_the_http_status_in_the_message():
+    """The caller still learns which status failed, without any key material."""
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(502)
+
+    with pytest.raises(AiProviderError) as excinfo:
+        _provider_with(handler, max_retries=1).generate_design(DesignRequest(text="stol"))
+
+    assert "502" in str(excinfo.value)
+    assert "test-key-not-real" not in str(excinfo.value)
+
+
+def test_retry_does_not_disturb_the_repair_path():
+    """A 200 with unusable content is repaired, not retried as a network error."""
+    contents = ["not json at all", _VALID_SPEC]
+    calls: list[int] = []
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(200, json=_chat_response(contents[len(calls) - 1]))
+
+    sleep = _NoSleep()
+    spec = _provider_with(handler, max_retries=1, sleep=sleep).generate_design(
+        DesignRequest(text="stol")
+    )
+
+    assert spec.furniture is FurnitureType.TABLE
+    assert len(calls) == 2  # the repair attempt, not a network retry
+    assert sleep.calls == []
+
+
+def test_unexpected_error_is_not_swallowed():
+    """A programming error surfaces instead of being retried into a generic 502."""
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        raise RuntimeError("unexpected")
+
+    with pytest.raises(RuntimeError):
+        _provider_with(handler, max_retries=2).generate_design(DesignRequest(text="stol"))
