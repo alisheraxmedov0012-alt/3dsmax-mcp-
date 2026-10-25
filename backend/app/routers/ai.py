@@ -5,6 +5,17 @@
 Requires an authenticated user and is metered against the ``ai_requests`` limit
 (server-side, from the plan). The API key lives only in the server environment.
 
+Request handling, in order: a reference image is refused (no provider reads one),
+the provider is selected (an unconfigured service must not consume quota), then
+the per-user daily allowance and the system-wide daily ceiling are taken together
+in one transaction before the provider is called.
+
+Quota accounting rule: one accepted request consumes exactly one unit from each
+budget, however many provider HTTP calls it needs internally (a network retry and
+one JSON repair are internal, worst case three calls). A request refused by either
+budget consumes nothing. A request that reaches the provider keeps its unit even
+if the provider then fails, because the call may already have cost money.
+
 This endpoint is a compute/read operation: it returns a design spec and does not
 mutate user-visible state (the only server effects are the usage counter and the
 usage ledger row). It therefore relies on authentication + per-user rate limiting
@@ -31,6 +42,7 @@ from fastapi import APIRouter, Depends
 from pydantic import ValidationError
 from sqlalchemy.orm import Session as OrmSession
 
+from ..config import get_settings
 from ..database import get_db
 from ..deps import get_current_user
 from ..errors import ApiError
@@ -46,7 +58,7 @@ from ..services.ai.base import (
     ProviderNotConfigured,
 )
 from ..services.ai.spec import AiDesignRequest, AiDesignResponse, DesignSpec
-from ..services.limits import METRIC_AI_REQUESTS, enforce_limit
+from ..services.limits import METRIC_AI_REQUESTS, consume_global, enforce_limit
 from ..services.usage import COST_UNKNOWN, OPERATION_AI_GENERATE, record_usage
 
 logger = logging.getLogger("app.ai")
@@ -94,6 +106,19 @@ def create_design(
     user: User = Depends(get_current_user),
     db: OrmSession = Depends(get_db),
 ) -> AiDesignResponse:
+    # A reference image is accepted by the request schema so an older client does
+    # not break, but no provider reads it: neither the offline analyzer nor the
+    # OpenAI adapter sends the image anywhere. Silently answering with a text-only
+    # design would look like the image had been understood, so the request is
+    # rejected with a stable code instead.
+    if payload.image_filename:
+        raise ApiError(
+            "ai_image_not_supported",
+            "Rasm tahlili hozircha qo'llab-quvvatlanmaydi. Iltimos, mebelni matn "
+            "bilan tavsiflang (masalan: «180x60x75 sm stol»).",
+            status_code=422,
+        )
+
     # Select/validate the provider first so an unconfigured service does not
     # consume a usage unit.
     try:
@@ -105,8 +130,20 @@ def create_design(
             status_code=503,
         ) from exc
 
-    # Enforce the server-side limit before spending provider cost.
-    enforce_limit(db, user, METRIC_AI_REQUESTS, increment=1)
+    # Both budgets are consumed in one transaction: if either is exhausted the
+    # request is refused before any provider call, and neither counter keeps a
+    # unit the caller did not get to use.
+    try:
+        enforce_limit(db, user, METRIC_AI_REQUESTS, increment=1, commit=False)
+        limit_global = get_settings().ai_global_daily_limit
+        if limit_global > 0:
+            consume_global(
+                db, METRIC_AI_REQUESTS, limit=limit_global, increment=1, commit=False
+            )
+        db.commit()
+    except ApiError:
+        db.rollback()
+        raise
 
     started = time.perf_counter()
     try:

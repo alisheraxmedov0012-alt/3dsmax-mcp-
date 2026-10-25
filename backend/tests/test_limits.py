@@ -26,11 +26,20 @@ def test_plans_endpoint_lists_free_and_pro(client):
 
 
 def test_limits_default_to_unset_not_invented(client):
-    """Roadmap does not define numbers; they must not be fabricated."""
+    """Unapproved limits stay unset; the AI allowance is set on purpose.
+
+    A3.2 deliberately fills in exactly one number. Providers bill per call, so an
+    unset ``max_ai_requests`` is an unbounded bill rather than a pending decision.
+    The three remaining metrics and the Pro price are still awaiting a business
+    decision and must stay ``None`` — this test keeps that guarantee.
+    """
     plans = {plan["key"]: plan for plan in client.get("/api/plans").json()}
-    for key in ("max_projects", "max_png_exports", "max_glb_exports", "max_ai_requests"):
+    for key in ("max_projects", "max_png_exports", "max_glb_exports"):
         assert plans["free"]["limits"].get(key) is None
         assert plans["pro"]["limits"].get(key) is None
+    # The AI allowance is the one limit the project sets deliberately.
+    assert plans["free"]["limits"].get("max_ai_requests") == 20
+    assert plans["pro"]["limits"].get("max_ai_requests") == 100
     # Pro price/currency are not approved yet.
     assert plans["pro"]["price_cents"] is None
     assert plans["pro"]["currency"] is None

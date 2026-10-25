@@ -134,6 +134,12 @@ class Settings(BaseSettings):
     ai_model: str | None = None
     ai_timeout_seconds: float = 20.0
     ai_max_retries: int = 1
+    # System-wide ceiling on AI provider calls per UTC day, across every user and
+    # every backend replica. This is an abuse/cost guard, not a plan limit: it
+    # protects the budget when a plan limit is unset or an account is misbehaving.
+    # A conservative starting value for a single-operator deployment; raise it
+    # deliberately after watching real usage.
+    ai_global_daily_limit: int = 200
 
     @property
     def cors_origin_list(self) -> list[str]:

@@ -222,14 +222,48 @@ class StoredFile(Base, TimestampMixin):
 
 
 class UsageCounter(Base, TimestampMixin):
-    """Per-user usage counter for server-enforced limits."""
+    """Per-user usage counter for server-enforced limits.
+
+    ``period`` scopes the count. An empty string means "lifetime", which is how
+    the project, export and render counters have always behaved; a ``YYYY-MM-DD``
+    value means "that UTC day", which is what the AI quota needs so a daily limit
+    is genuinely daily rather than a one-off allowance. Keeping both in one table
+    preserves the single enforcement path: this class is still the only thing that
+    blocks an action.
+    """
 
     __tablename__ = "usage_counters"
-    __table_args__ = (UniqueConstraint("user_id", "metric", name="uq_user_metric"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "metric", "period", name="uq_user_metric_period"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     metric: Mapped[str] = mapped_column(String(40), nullable=False)
+    period: Mapped[str] = mapped_column(String(10), nullable=False, default="", server_default="")
+    count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+
+class GlobalUsageCounter(Base, TimestampMixin):
+    """System-wide counter for a protection that is not a plan limit.
+
+    The AI provider costs money per call, so a single misbehaving or compromised
+    account (or an operator leaving a plan limit unset) must not be able to drain
+    the budget. This row lives in the database rather than in process memory so it
+    survives a restart and holds across several backend replicas, and it is
+    incremented with one conditional UPDATE so parallel requests cannot both take
+    the last slot.
+
+    It is deliberately *not* part of the plan system: no subscription reads it and
+    it never grants or denies a user's plan allowance.
+    """
+
+    __tablename__ = "global_usage_counters"
+    __table_args__ = (UniqueConstraint("metric", "period", name="uq_global_metric_period"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    metric: Mapped[str] = mapped_column(String(40), nullable=False)
+    period: Mapped[str] = mapped_column(String(10), nullable=False, default="", server_default="")
     count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
 

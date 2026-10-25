@@ -24,12 +24,19 @@ LIMIT_KEYS = ("max_projects", "max_png_exports", "max_glb_exports", "max_ai_requ
 # unchanged (no blocking) and clearly signals "pending decision".
 UNSET = None
 
+#: AI allowance per UTC day. Providers bill per call, so this one is filled in
+#: rather than left unset: an unset AI limit is an unbounded bill. Free is the
+#: figure requested for the first commercial stage; Pro is a placeholder that
+#: still needs a business decision.
+FREE_AI_REQUESTS_PER_DAY = 20
+PRO_AI_REQUESTS_PER_DAY = 100
+
 PLAN_DEFINITIONS: list[dict] = [
     {
         "key": "free",
         "name": "Free",
         "is_active": True,
-        "limits": {key: UNSET for key in LIMIT_KEYS},
+        "limits": {**{key: UNSET for key in LIMIT_KEYS}, "max_ai_requests": FREE_AI_REQUESTS_PER_DAY},
         "price_cents": 0,
         "currency": None,
         "period_days": None,
@@ -38,7 +45,7 @@ PLAN_DEFINITIONS: list[dict] = [
         "key": "pro",
         "name": "Pro",
         "is_active": True,
-        "limits": {key: UNSET for key in LIMIT_KEYS},
+        "limits": {**{key: UNSET for key in LIMIT_KEYS}, "max_ai_requests": PRO_AI_REQUESTS_PER_DAY},
         # TODO(business): price/currency for Pro are not approved yet.
         "price_cents": UNSET,
         "currency": UNSET,
