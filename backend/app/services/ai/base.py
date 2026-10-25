@@ -57,6 +57,11 @@ class AiProvider(Protocol):
 
     name: str
 
+    #: Whether one call can cost money at the provider (so it must be counted
+    #: against the system-wide spend ceiling). Providers are per-request by
+    #: default; a local, credential-free provider sets this to ``False``.
+    bills_per_request: bool
+
     @property
     def is_configured(self) -> bool:
         """True only when the provider can actually be called."""

@@ -225,6 +225,9 @@ class LocalHeuristicProvider:
     """Offline, deterministic provider. Requires no credentials or network."""
 
     name = "local"
+    # No network call, so no money is spent: the system-wide spend ceiling does
+    # not apply. The per-user plan allowance still does.
+    bills_per_request = False
 
     @property
     def is_configured(self) -> bool:

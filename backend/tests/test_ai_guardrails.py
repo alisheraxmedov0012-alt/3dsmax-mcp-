@@ -72,6 +72,8 @@ class _CountingProvider:
     """Wraps a provider and counts how many times the backend actually called it."""
 
     name = "counting"
+    # Stands in for a provider that costs money, so the global ceiling applies.
+    bills_per_request = True
 
     def __init__(self) -> None:
         self.calls = 0
@@ -224,7 +226,7 @@ def test_quota_applies_to_a_new_day(client, monkeypatch):
 
 def test_global_ceiling_stops_the_platform_across_users(client, monkeypatch):
     """The ceiling is system-wide, so a second account cannot exceed it either."""
-    _use_provider(monkeypatch, LocalHeuristicProvider())
+    _use_provider(monkeypatch, _CountingProvider())
     _set_global_limit(1, monkeypatch)
     _authenticated(client, "platform-a@example.com")
     register(client, "platform-b@example.com")
@@ -267,7 +269,7 @@ def test_global_ceiling_blocks_the_provider_call(client, monkeypatch):
 
 def test_user_quota_is_not_consumed_when_the_platform_is_full(client, monkeypatch):
     """A refused request must not cost the user one of their own requests."""
-    _use_provider(monkeypatch, LocalHeuristicProvider())
+    _use_provider(monkeypatch, _CountingProvider())
     _set_global_limit(1, monkeypatch)
     _authenticated(client, "fair@example.com")
     _set_limit("free", "max_ai_requests", 5)
@@ -337,7 +339,7 @@ def test_global_counter_is_atomic_under_parallel_requests(client, monkeypatch):
 
 def test_global_ceiling_can_be_disabled(client, monkeypatch):
     """Zero means "no ceiling", which is the pre-A3.2 behaviour."""
-    _use_provider(monkeypatch, LocalHeuristicProvider())
+    _use_provider(monkeypatch, _CountingProvider())
     _set_global_limit(0, monkeypatch)
     _authenticated(client, "nocap@example.com")
     _set_limit("free", "max_ai_requests", 50)
@@ -439,6 +441,131 @@ def test_repair_attempts_do_not_consume_extra_quota(client, monkeypatch):
     assert client.post("/api/ai/design", json={"text": "stol"}).status_code == 422
     periods = {period: count for count, period in _user_rows("repair@example.com")}
     assert periods[_today()] == 1
+
+
+# --------------------------------------------------------------------------- #
+# F6 — the spend ceiling applies only to providers that bill per request
+# --------------------------------------------------------------------------- #
+
+
+def test_local_provider_does_not_consume_the_global_ceiling(client, monkeypatch):
+    """A free offline provider must not drain a budget paid providers need."""
+    _use_provider(monkeypatch, LocalHeuristicProvider())
+    _set_global_limit(1, monkeypatch)
+    _authenticated(client, "offline@example.com")
+    _set_limit("free", "max_ai_requests", 50)
+
+    # More requests than the whole platform ceiling allows.
+    for _ in range(3):
+        assert client.post("/api/ai/design", json={"text": "stol"}).status_code == 200
+
+    assert _global_usage() == 0
+
+
+def test_local_provider_keeps_the_per_user_quota(client, monkeypatch):
+    """The free provider still counts against the user's own daily allowance."""
+    _use_provider(monkeypatch, LocalHeuristicProvider())
+    _set_global_limit(100, monkeypatch)
+    _authenticated(client, "offline-quota@example.com")
+    _set_limit("free", "max_ai_requests", 2)
+
+    assert client.post("/api/ai/design", json={"text": "stol"}).status_code == 200
+    assert client.post("/api/ai/design", json={"text": "stol"}).status_code == 200
+    assert client.post("/api/ai/design", json={"text": "stol"}).status_code == 402
+
+    periods = {period: count for count, period in _user_rows("offline-quota@example.com")}
+    assert periods[_today()] == 2
+    # A refused request never reached a provider, so it cost nothing globally.
+    assert _global_usage() == 0
+
+
+def test_billing_provider_still_consumes_the_global_ceiling(client, monkeypatch):
+    """The real OpenAI-compatible adapter bills, so the ceiling keeps applying.
+
+    The adapter runs over ``httpx.MockTransport``: the real request path is
+    exercised without any network access or credentials.
+    """
+    import httpx
+
+    from app.services.ai.openai_provider import OpenAiCompatibleProvider
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": '{"furniture": "table", "confidence": "high"}'
+                        }
+                    }
+                ]
+            },
+        )
+
+    provider = OpenAiCompatibleProvider(
+        api_key="test-key-not-real",
+        base_url="https://provider.invalid/v1",
+        model="test-model",
+        transport=httpx.MockTransport(handler),
+    )
+    assert provider.bills_per_request is True
+
+    _use_provider(monkeypatch, provider)
+    _set_global_limit(2, monkeypatch)
+    _authenticated(client, "billing@example.com")
+    _set_limit("free", "max_ai_requests", 50)
+
+    assert client.post("/api/ai/design", json={"text": "stol"}).status_code == 200
+    assert _global_usage() == 1
+    assert client.post("/api/ai/design", json={"text": "stol"}).status_code == 200
+    assert _global_usage() == 2
+
+    blocked = client.post("/api/ai/design", json={"text": "stol"})
+    assert blocked.status_code == 503
+    assert blocked.json()["error"]["code"] == "ai_capacity_reached"
+    assert _global_usage() == 2
+
+
+def test_unconfigured_provider_still_returns_503(client, monkeypatch):
+    """An unconfigured provider is refused before any budget is touched."""
+    from app.services.ai.base import ProviderNotConfigured
+
+    _use_provider(monkeypatch, ProviderNotConfigured("not configured"))
+    _set_global_limit(5, monkeypatch)
+    _authenticated(client, "unconfigured@example.com")
+
+    response = client.post("/api/ai/design", json={"text": "stol"})
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "ai_unconfigured"
+    assert _global_usage() == 0
+
+
+def test_a_provider_without_the_flag_is_treated_as_billing(client, monkeypatch):
+    """A provider written before A3.4 keeps counting against the ceiling."""
+    class _Legacy:
+        name = "legacy"
+
+        def __init__(self) -> None:
+            self._inner = LocalHeuristicProvider()
+
+        @property
+        def is_configured(self) -> bool:
+            return True
+
+        def generate_design(self, request):
+            return self._inner.generate_design(request)
+
+    provider = _Legacy()
+    assert not hasattr(provider, "bills_per_request")
+
+    _use_provider(monkeypatch, provider)
+    _set_global_limit(5, monkeypatch)
+    _authenticated(client, "legacy@example.com")
+    _set_limit("free", "max_ai_requests", 50)
+
+    assert client.post("/api/ai/design", json={"text": "stol"}).status_code == 200
+    assert _global_usage() == 1
 
 
 def _today() -> str:

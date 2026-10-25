@@ -69,6 +69,9 @@ class OpenAiCompatibleProvider:
     """Provider backed by an OpenAI-compatible chat completions endpoint."""
 
     name = "openai_compatible"
+    # Every call may be billed by the remote service, so it counts against the
+    # system-wide spend ceiling.
+    bills_per_request = True
 
     def __init__(
         self,

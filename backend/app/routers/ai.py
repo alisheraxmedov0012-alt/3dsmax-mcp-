@@ -16,6 +16,10 @@ one JSON repair are internal, worst case three calls). A request refused by eith
 budget consumes nothing. A request that reaches the provider keeps its unit even
 if the provider then fails, because the call may already have cost money.
 
+The system-wide ceiling bounds *spend*, so it only counts providers that bill per
+request (``AiProvider.bills_per_request``). The free offline provider is excluded;
+the per-user allowance applies to every provider.
+
 This endpoint is a compute/read operation: it returns a design spec and does not
 mutate user-visible state (the only server effects are the usage counter and the
 usage ledger row). It therefore relies on authentication + per-user rate limiting
@@ -136,7 +140,11 @@ def create_design(
     try:
         enforce_limit(db, user, METRIC_AI_REQUESTS, increment=1, commit=False)
         limit_global = get_settings().ai_global_daily_limit
-        if limit_global > 0:
+        # The global counter bounds spending, so it only applies to providers
+        # that can actually cost money. A local provider is free and must not
+        # drain a budget that paid providers depend on. The per-user allowance
+        # above still applies to every provider.
+        if limit_global > 0 and getattr(provider, "bills_per_request", True):
             consume_global(
                 db, METRIC_AI_REQUESTS, limit=limit_global, increment=1, commit=False
             )
