@@ -13,8 +13,6 @@
  * carries no colour/material. The limitation is surfaced in the UI via
  * `exportFormats`.
  */
-import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js';
-import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
 import type { SceneData } from '../scene/types';
 import { buildExportScene, exportSceneToGlb, type BuildExportOptions } from './sceneExport';
 import { EXPORT_FORMATS, type ExportFormatId } from './exportFormats';
@@ -22,6 +20,24 @@ import { assertFiniteGeometry } from './geometryGuard';
 import { serializeSceneToJson } from './sceneJson';
 import { buildExportFilename } from './exportNaming';
 import { ExportError, type ExportArtifact, type ExportMetadata } from './exportTypes';
+
+/**
+ * Load an OBJ/STL exporter on demand.
+ *
+ * Both are small (~5-6 kB of source) but were still riding in the entry bundle,
+ * so they move behind the export click like the glTF one. A failed chunk request
+ * becomes a normal `ExportError` so the UI keeps its single error path.
+ */
+async function loadExporter<T>(load: () => Promise<T>, label: string): Promise<T> {
+  try {
+    return await load();
+  } catch {
+    throw new ExportError(
+      'failed',
+      `${label} eksport moduli yuklanmadi. Internet aloqasini tekshirib, qaytadan urinib ko'ring.`,
+    );
+  }
+}
 
 /** File formats produced by `exportSceneToFormat` (PNG is a render, not a file format here). */
 export const DATA_EXPORT_FORMATS: readonly ExportFormatId[] = ['glb', 'json', 'obj', 'stl'];
@@ -76,6 +92,10 @@ export async function exportSceneToFormat(
       const { scene, dispose } = buildExportScene(data, options);
       try {
         assertFiniteGeometry(scene);
+        const { OBJExporter } = await loadExporter(
+          () => import('three/examples/jsm/exporters/OBJExporter.js'),
+          'OBJ',
+        );
         const obj = stripObjMaterialReferences(new OBJExporter().parse(scene));
         return { blob: toBlob(obj, spec.mimeType), filename, mimeType: spec.mimeType };
       } finally {
@@ -87,6 +107,10 @@ export async function exportSceneToFormat(
       try {
         assertFiniteGeometry(scene);
         // Binary STL is compact; ASCII is available but rarely wanted for meshes.
+        const { STLExporter } = await loadExporter(
+          () => import('three/examples/jsm/exporters/STLExporter.js'),
+          'STL',
+        );
         const stl = new STLExporter().parse(scene, { binary: true });
         return { blob: toBlob(stl, spec.mimeType), filename, mimeType: spec.mimeType };
       } finally {

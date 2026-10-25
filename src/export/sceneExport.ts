@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { buildRoom } from '../geometry/buildRoom';
 import { buildSceneObject } from '../scene/buildSceneObject';
 import type { SceneData } from '../scene/types';
 import { assertFiniteGeometry } from './geometryGuard';
+import { ExportError } from './exportTypes';
 
 export const SCENE_EXPORT_FILENAME = '3d-studio-ai-scene.glb';
 
@@ -56,6 +56,29 @@ export function buildExportScene(data: SceneData, options: BuildExportOptions = 
 }
 
 /**
+ * Load the glTF exporter on demand.
+ *
+ * `GLTFExporter` is ~94 kB of source and is only needed when someone actually
+ * exports a GLB, so it is fetched as its own chunk instead of riding along in
+ * the entry bundle. This function is already async, so the extra hop costs
+ * nothing at the call sites (the C1 package and the export button both await it).
+ */
+async function loadGltfExporter() {
+  try {
+    const module = await import('three/examples/jsm/exporters/GLTFExporter.js');
+    return module.GLTFExporter;
+  } catch {
+    // A failed chunk request is a real, recoverable condition (offline, a stale
+    // deployment). Report it as an export error with the same message shape as
+    // any other failure so the UI keeps its single error path.
+    throw new ExportError(
+      'failed',
+      "GLB eksport moduli yuklanmadi. Internet aloqasini tekshirib, qaytadan urinib ko'ring.",
+    );
+  }
+}
+
+/**
  * Serialises the whole scene to binary glTF (.glb) bytes using Three.js'
  * official GLTFExporter. No backend or external API is involved. The temporary
  * export scene is disposed afterwards.
@@ -71,7 +94,8 @@ export async function exportSceneToGlb(
 
   try {
     assertFiniteGeometry(scene);
-    const exporter = new GLTFExporter();
+    const GltfExporter = await loadGltfExporter();
+    const exporter = new GltfExporter();
     const result = await exporter.parseAsync(scene, { binary: true });
 
     if (!(result instanceof ArrayBuffer)) {
