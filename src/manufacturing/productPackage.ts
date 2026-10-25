@@ -23,7 +23,7 @@ import { buildCutList, type CutListResult } from './cutList';
 import { buildFurnitureAssemblyPlan, type AssemblyPlan } from './assemblyInstructions';
 import { buildCuttingPlan, type CuttingPlan, type SheetSettingsInput } from './cuttingPlan';
 import { buildProductDescription, productDescriptionMarkdown } from './productDescription';
-import { PACKAGE_ENTRIES, sceneForObject } from './manufacturingPackage';
+import { PACKAGE_ENTRIES, buildManufacturingPackage, sceneForObject } from './manufacturingPackage';
 import { bomToCsv, cutListToCsv } from './manufacturingExport';
 import { groupByMaterial } from './sheetMaterial';
 import { createTechnicalDrawingSvg } from './technicalDrawing';
@@ -716,7 +716,10 @@ export async function verifyProductExports(
   });
 
   if (input.verifyC1Package) {
-    const { buildManufacturingPackage } = await import('./manufacturingPackage');
+    // Statically imported above: the C1 builder is already in this module's
+    // dependency graph (for `PACKAGE_ENTRIES` and `sceneForObject`), so a dynamic
+    // import here could never move it to a separate chunk — it only produced an
+    // "ineffective dynamic import" build warning.
     const c1 = await buildManufacturingPackage({
       scene: input.scene,
       object: input.object,

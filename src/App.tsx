@@ -16,7 +16,7 @@ import { RenderExportPanel, type RenderStatus } from './components/RenderExportP
 import { RoomPanel } from './components/RoomPanel';
 import { SceneHierarchyPanel } from './components/SceneHierarchyPanel';
 import { SceneSettingsPanel } from './components/SceneSettingsPanel';
-import { ViewerCanvas } from './components/ViewerCanvas';
+import { LazyViewer } from './components/LazyViewer';
 import { downloadBlob } from './export/downloadFile';
 import type { SheetMaterialId } from './manufacturing/sheetMaterial';
 import { exportSceneToFormat } from './export/sceneFileExport';
@@ -706,7 +706,9 @@ export default function App() {
       </FurniturePanel>
 
       <main className="stage">
-        <ViewerCanvas
+        {/* C8.2: three.js loads behind a lazy boundary so the shell paints first
+            and a failed chunk request shows a retry instead of a blank stage. */}
+        <LazyViewer
           scene={scene.data}
           selectedId={scene.selectedId}
           resetToken={resetToken}

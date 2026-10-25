@@ -180,6 +180,33 @@ input[type='color'] {
   height: 100%;
 }
 
+/* C8.2: placeholder for the lazily loaded 3D stage. It reuses `.viewer` so it
+   fills exactly the box the canvas will take — no layout jump when three.js
+   finishes parsing. */
+.viewer--status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  text-align: center;
+  background: #1b1f24;
+}
+
+.viewer__status {
+  margin: 0;
+  font-size: 0.86rem;
+  color: #c3ccd6;
+}
+
+.viewer__hint {
+  margin: 0;
+  max-width: 42ch;
+  font-size: 0.74rem;
+  color: #8f9aa6;
+}
+
 .readout,
 .banner {
   position: absolute;
