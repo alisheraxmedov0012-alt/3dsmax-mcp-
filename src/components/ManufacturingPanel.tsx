@@ -17,7 +17,9 @@ import {
   isAssemblyPlanStale,
   type AssemblyPlan,
 } from '../manufacturing/assemblyInstructions';
+import type { CuttingPlan } from '../manufacturing/cuttingPlan';
 import { AssemblyInstructionsPanel } from './AssemblyInstructionsPanel';
+import { CuttingPlanPanel } from './CuttingPlanPanel';
 import { SheetMaterialPanel } from './SheetMaterialPanel';
 
 interface ManufacturingPanelProps {
@@ -75,6 +77,14 @@ export function ManufacturingPanel({
    * chase the model — a changed model simply makes the shown plan stale.
    */
   const [generated, setGenerated] = useState<{ plan: AssemblyPlan; objectId: string } | null>(null);
+  /**
+   * The C7 layout the panel last calculated, tagged with the object it belongs to.
+   * The tag is what keeps a layout for a previously selected piece out of the PDF;
+   * the panel already withholds a plan whose settings changed.
+   */
+  const [cuttingState, setCuttingState] = useState<{ objectId: string; plan: CuttingPlan } | null>(
+    null,
+  );
 
   const computed = useMemo(() => {
     if (!object) {
@@ -110,6 +120,8 @@ export function ManufacturingPanel({
   const planStale = Boolean(
     shownPlan && currentPlan && isAssemblyPlanStale(shownPlan, currentPlan.fingerprint),
   );
+  const cuttingPlan =
+    cuttingState && cuttingState.objectId === object?.id ? cuttingState.plan : null;
 
   if (!object) {
     return (
@@ -191,6 +203,9 @@ export function ManufacturingPanel({
         // A fresh plan, never the one on screen: a PDF must describe the model as
         // it is now, even when the reader left a stale plan open.
         assembly: computed.assembly,
+        // C7 is different: its sheet settings live in the panel, so the parent
+        // only ever holds the plan the reader last calculated.
+        cuttingPlan,
         generatedAt: new Date(),
       });
 
@@ -387,6 +402,17 @@ export function ManufacturingPanel({
             plan={shownPlan}
             stale={planStale}
             onGenerate={handleGenerateAssembly}
+          />
+
+          {/* C7: material usage and cutting layout. The panel owns its own sheet
+              settings, because a board size is a shop decision that has no place
+              in the scene model. */}
+          <CuttingPlanPanel
+            cutList={computed.cutList}
+            bom={computed.bom}
+            onPlanChange={(plan) =>
+              setCuttingState(plan ? { objectId: object.id, plan } : null)
+            }
           />
 
           {/* C3.1: assign manufacturing material per generated part. Parts come

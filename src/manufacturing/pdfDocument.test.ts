@@ -23,6 +23,7 @@ import {
 import { ASSEMBLY_DEFAULTS } from '../geometry/assemblies/params';
 import { buildBom } from './bom';
 import { buildCutList } from './cutList';
+import { buildCuttingPlan } from './cuttingPlan';
 import { groupByMaterial } from './sheetMaterial';
 import { validateManufacturing } from './validation';
 import { createTechnicalDrawingSvg } from './technicalDrawing';
@@ -510,5 +511,129 @@ describe('C6 — assembly section in the PDF', () => {
     );
     expect(out.filename.endsWith('.pdf')).toBe(true);
     expect(out.pageCount).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('C7 — material usage and cutting plan in the PDF', () => {
+  async function build(input: Parameters<typeof buildManufacturingPdf>[0]) {
+    const outcome = await buildManufacturingPdf(input);
+    if (!outcome.ok) throw new Error(outcome.reason);
+    return outcome;
+  }
+
+  function cuttingPlanFor(type: FurnitureType, overrides: Record<string, number> = {}) {
+    const materials = [
+      'wardrobe-side',
+      'wardrobe-top',
+      'wardrobe-bottom',
+      'wardrobe-back',
+      'wardrobe-shelf',
+      'wardrobe-door',
+      'table-top',
+      'table-leg',
+      'shelf-side',
+      'shelf-top',
+      'shelf-bottom',
+      'shelf-back',
+      'shelf-board',
+    ].map((partId) => ({
+      partId,
+      materialId: 'ldsp' as const,
+      thicknessMm: 18,
+      thicknessSource: 'user' as const,
+    }));
+    const params = createFurnitureParams(type);
+    const bom = buildBom(type, params, materials);
+    if (!bom.ok) throw new Error(bom.reason);
+    const cutList = buildCutList(bom.bom);
+    const outcome = buildCuttingPlan({
+      cutList,
+      bom: bom.bom,
+      settings: {
+        sheetLengthMm: 2440,
+        sheetWidthMm: 1220,
+        kerfMm: 4,
+        allowRotation: true,
+        ...overrides,
+      },
+    });
+    if (!outcome.ok) throw new Error(outcome.reason);
+    return { plan: outcome.plan, cutList, bom: bom.bom, materials };
+  }
+
+  it('leaves the document byte-for-byte unchanged when no plan is supplied', async () => {
+    const baseline = await build(inputFor('wardrobe'));
+    const withNull = await build({ ...inputFor('wardrobe'), cuttingPlan: null });
+    const withUndefined = await build({ ...inputFor('wardrobe'), cuttingPlan: undefined });
+
+    expect(withNull.pageCount).toBe(baseline.pageCount);
+    expect(withUndefined.pageCount).toBe(baseline.pageCount);
+    expect(Array.from(withNull.bytes)).toEqual(Array.from(baseline.bytes));
+    expect(Array.from(withUndefined.bytes)).toEqual(Array.from(baseline.bytes));
+  });
+
+  it('adds a section with the usage summary and a diagram per sheet', async () => {
+    const { plan } = cuttingPlanFor('wardrobe');
+    const out = await build({ ...inputFor('wardrobe'), cuttingPlan: plan });
+    expect(out.ok).toBe(true);
+    expect(plan.groups.length).toBeGreaterThan(0);
+    expect(plan.summary.sheetCount).toBeGreaterThan(0);
+    expect(out.pageCount).toBeGreaterThanOrEqual(3);
+  });
+
+  it('paginates rather than dropping sheets', async () => {
+    const { plan } = cuttingPlanFor('wardrobe');
+    const manySheets = { ...plan, groups: [...plan.groups, ...plan.groups, ...plan.groups] };
+    const wide = await build({ ...inputFor('wardrobe'), cuttingPlan: manySheets });
+    const base = await build({ ...inputFor('wardrobe'), cuttingPlan: plan });
+    expect(wide.pageCount).toBeGreaterThanOrEqual(base.pageCount);
+  });
+
+  it('reports the waste and kerf figures it was given', async () => {
+    const { plan } = cuttingPlanFor('wardrobe');
+    expect(plan.summary.wastePercent).toBeGreaterThan(0);
+    expect(plan.summary.availableAreaM2).toBeGreaterThan(plan.summary.usedAreaM2);
+    const out = await build({ ...inputFor('wardrobe'), cuttingPlan: plan });
+    expect(out.ok).toBe(true);
+  });
+
+  it('states when no layout could be produced instead of printing an empty diagram', async () => {
+    const { plan } = cuttingPlanFor('wardrobe');
+    const empty = {
+      ...plan,
+      status: 'unavailable' as const,
+      groups: [],
+      summary: { ...plan.summary, sheetCount: 0, placedCount: 0 },
+    };
+    const out = await build({ ...inputFor('wardrobe'), cuttingPlan: empty });
+    expect(out.ok).toBe(true);
+    expect(out.pageCount).toBeGreaterThanOrEqual(3);
+  });
+
+  it('stays deterministic with a cutting section', async () => {
+    const { plan } = cuttingPlanFor('wardrobe');
+    const a = await build({ ...inputFor('wardrobe'), cuttingPlan: plan });
+    const b = await build({ ...inputFor('wardrobe'), cuttingPlan: plan });
+    expect(Array.from(b.bytes)).toEqual(Array.from(a.bytes));
+  });
+
+  it('keeps the C5 and C6 sections alongside the C7 one', async () => {
+    const { plan } = cuttingPlanFor('wardrobe');
+    const input = inputFor('wardrobe');
+    const assembly = buildFurnitureAssemblyPlan({ bom: input.bom });
+    const out = await build({ ...input, cuttingPlan: plan, assembly });
+    expect(out.ok).toBe(true);
+    expect(bomTableRows(input.bom).length).toBe(input.bom.rows.length);
+    expect(cutListTableRows(input.cutList).length).toBe(input.cutList.rows.length);
+    expect(assemblyStepBlocks(assembly).length).toBeGreaterThan(0);
+    expect(out.pageCount).toBeGreaterThanOrEqual(4);
+  });
+
+  it('still produces the pre-C7 document when only assembly is supplied', async () => {
+    const input = inputFor('wardrobe');
+    const assembly = buildFurnitureAssemblyPlan({ bom: input.bom });
+    const withAssemblyOnly = await build({ ...input, assembly });
+    const withBothNulls = await build({ ...input, assembly, cuttingPlan: null });
+    expect(Array.from(withBothNulls.bytes)).toEqual(Array.from(withAssemblyOnly.bytes));
   });
 });

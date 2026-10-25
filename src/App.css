@@ -411,6 +411,67 @@ input[type='color'] {
   color: #7f8b98;
 }
 
+/* C7 material usage and cutting plan. The layout is a single column at every
+   width: the sheet diagram scales with the panel, and the piece lists wrap, so a
+   narrow viewport never has to scroll sideways to read a cutting plan. */
+.cutting {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cutting__settings {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cutting__checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.74rem;
+  color: #c3ccd6;
+}
+
+/* The SVG carries the sheet's millimetre coordinates in its viewBox, so letting
+   the width drive the height keeps the drawing true to the plan at any size. */
+.cutting-preview {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  background: #1b1f24;
+}
+
+.cutting__group {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  border-top: 1px solid #2b323a;
+  padding-top: 8px;
+}
+
+.cutting__group-title {
+  margin: 0;
+  font-weight: 600;
+  font-size: 0.76rem;
+  color: #e6ecf2;
+}
+
+.cutting__sheet {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cutting__pieces {
+  font-size: 0.68rem;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
 .server-panel {
   display: flex;
   flex-direction: column;

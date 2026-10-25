@@ -31,6 +31,12 @@ import {
   ASSEMBLY_STATUS_LABELS,
   type AssemblyPlan,
 } from './assemblyInstructions';
+import {
+  CUTTING_STATUS_LABELS,
+  UNPLACED_REASON_LABELS,
+  type CuttingPlan,
+  type PlacedPiece,
+} from './cuttingPlan';
 
 export interface PdfDrawingInput {
   /** The SVG produced by `createTechnicalDrawingSvg`. */
@@ -58,6 +64,14 @@ export interface PdfDocumentInput {
    * than leaving a silent gap where a workshop expects guidance.
    */
   assembly?: AssemblyPlan | null;
+  /**
+   * C7 material usage and cutting plan.
+   *
+   * Optional for the same reason as `assembly`: without it the document is the
+   * pre-C7 one, byte for byte, including the section numbering. With it, a
+   * section is inserted after the material list and the numbers below shift.
+   */
+  cuttingPlan?: CuttingPlan | null;
   /** Export timestamp; injected so the same input yields identical bytes. */
   generatedAt: Date;
 }
@@ -86,6 +100,8 @@ const RULE = rgb(0.78, 0.79, 0.81);
 const ERROR_INK = rgb(0.72, 0.16, 0.16);
 const WARN_INK = rgb(0.68, 0.45, 0.09);
 const PANEL_FILL = rgb(0.95, 0.96, 0.97);
+/** Tint for a rotated piece, so a turned part is visible on the diagram too. */
+const TINT = rgb(0.88, 0.92, 0.96);
 
 const TITLE = 'Mebel ishlab chiqarish hujjatlari';
 
@@ -430,6 +446,64 @@ class Layout {
     this.cursorY = top - height - 8;
   }
 
+  /**
+   * Draw one cutting sheet to scale, with each placed piece in its position.
+   *
+   * The diagram uses a single scale for both axes, so proportions stay true and a
+   * rectangle's place on the page is its place on the board. The scale is chosen
+   * to fit the text column and `maxHeight`, which keeps every sheet on the page
+   * it starts on instead of splitting a diagram across two pages.
+   */
+  cuttingSheet(
+    sheetLengthMm: number,
+    sheetWidthMm: number,
+    placements: readonly PlacedPiece[],
+    maxHeight = 128,
+  ): void {
+    if (sheetLengthMm <= 0 || sheetWidthMm <= 0) {
+      return;
+    }
+    const scale = Math.min(this.contentWidth / sheetLengthMm, maxHeight / sheetWidthMm);
+    const width = sheetLengthMm * scale;
+    const height = sheetWidthMm * scale;
+    this.ensure(height + 12);
+    const originX = MARGIN;
+    const originY = this.cursorY - height;
+
+    this.page.drawRectangle({
+      x: originX,
+      y: originY,
+      width,
+      height,
+      borderColor: RULE,
+      borderWidth: 0.7,
+    });
+    const labelSize = 3.8;
+    for (const piece of placements) {
+      this.page.drawRectangle({
+        x: originX + piece.xMm * scale,
+        y: originY + piece.yMm * scale,
+        width: piece.widthMm * scale,
+        height: piece.heightMm * scale,
+        borderColor: MUTED,
+        borderWidth: 0.4,
+        color: piece.rotated ? TINT : undefined,
+      });
+      const pieceWidth = piece.widthMm * scale;
+      const pieceHeight = piece.heightMm * scale;
+      if (pieceWidth > 26 && pieceHeight > 8) {
+        this.page.drawText(piece.partId, {
+          x: originX + piece.xMm * scale + 1.5,
+          y: originY + piece.yMm * scale + pieceHeight - labelSize - 1,
+          size: labelSize,
+          font: this.regular,
+          color: MUTED,
+        });
+      }
+    }
+    this.cursorY = originY - 10;
+  }
+
   /** Footer with the page number and title, applied once the total is known. */
   stampFooters(): void {
     const total = this.pages.length;
@@ -591,10 +665,14 @@ export async function buildManufacturingPdf(input: PdfDocumentInput): Promise<Pd
   const layout = new Layout(doc, regular, bold);
   const project = input.projectName.trim() || 'Nomsiz loyiha';
   const assemblyPlan = input.assembly ?? null;
-  // Section numbers shift only when the optional assembly section is present, so
-  // a document exported without a plan keeps the pre-C6 numbering.
-  const validationNumber = assemblyPlan ? 6 : 5;
-  const limitationsNumber = assemblyPlan ? 7 : 6;
+  const cuttingPlan = input.cuttingPlan ?? null;
+  // Optional sections are numbered in the order they appear: the cutting plan
+  // sits with the other material documents, the assembly instructions after it.
+  // With neither supplied the numbering is exactly the pre-C6 one.
+  const cuttingNumber = cuttingPlan ? 5 : null;
+  const assemblyNumber = assemblyPlan ? (cuttingPlan ? 6 : 5) : null;
+  const validationNumber = 4 + (cuttingPlan ? 1 : 0) + (assemblyPlan ? 1 : 0) + 1;
+  const limitationsNumber = validationNumber + 1;
 
   doc.setTitle(`${TITLE} — ${project}`);
   doc.setProducer('3D Studio AI');
@@ -644,8 +722,13 @@ export async function buildManufacturingPdf(input: PdfDocumentInput): Promise<Pd
     '3. Kesish royxati — panel detallar',
     '4. Materiallar — tanlangan material va nominal qalinlik',
   ];
-  if (assemblyPlan) {
-    contents.push("5. Montaj yoriqnomasi — tartiblangan qadamlar va detallar");
+  if (cuttingNumber !== null) {
+    contents.push(
+      `${cuttingNumber}. Material sarfi — listlar, joylashuv va chiqindi`,
+    );
+  }
+  if (assemblyNumber !== null) {
+    contents.push(`${assemblyNumber}. Montaj yoriqnomasi — tartiblangan qadamlar va detallar`);
   }
   contents.push(
     `${validationNumber}. Tekshiruv natijasi — C4 xatolik va ogohlantirishlari`,
@@ -784,10 +867,113 @@ export async function buildManufacturingPdf(input: PdfDocumentInput): Promise<Pd
     }
   }
 
+  // ---- C7 material usage and cutting plan -----------------------------
+  if (cuttingPlan && cuttingNumber !== null) {
+    layout.gap(6);
+    layout.heading(`${cuttingNumber}. Material sarfi va kesish rejasi`, 14);
+    layout.paragraph(
+      `${CUTTING_STATUS_LABELS[cuttingPlan.status]} · List ${cuttingPlan.settings.sheetLengthMm}×${cuttingPlan.settings.sheetWidthMm} mm · kerf ${cuttingPlan.settings.kerfMm} mm · chekka ${cuttingPlan.settings.edgeMarginMm} mm · aylantirish ${cuttingPlan.settings.allowRotation ? "ruxsat etilgan" : "taqiqlangan"}`,
+      9.2,
+    );
+
+    layout.gap(2);
+    layout.table(
+      [
+        { header: 'Korsatkich', weight: 0.5 },
+        { header: 'Qiymat', weight: 0.5 },
+      ],
+      [
+        ['Detallar', `${cuttingPlan.summary.placedCount} / ${cuttingPlan.summary.pieceCount} dona`],
+        ['Listlar', `${cuttingPlan.summary.sheetCount} dona`],
+        ['Foydalanilgan yuza', `${cuttingPlan.summary.usedAreaM2} m2`],
+        ['Mavjud yuza', `${cuttingPlan.summary.availableAreaM2} m2`],
+        ['Kerf maydoni', `${cuttingPlan.summary.kerfAreaM2} m2`],
+        [
+          'Chiqindi (qoldiq)',
+          `${cuttingPlan.summary.wasteAreaM2} m2 (${cuttingPlan.summary.wastePercent}%)`,
+        ],
+      ],
+      8.6,
+    );
+
+    if (cuttingPlan.summary.sheetCount === 0) {
+      layout.gap(4);
+      layout.callout(
+        'Kesish rejasi tuzilmadi',
+        [
+          "Hech bir detal listga joylashtirilmadi, shuning uchun kesish sxemasi chop etilmadi.",
+          ...cuttingPlan.issues
+            .filter((issue) => issue.level === 'error')
+            .map((issue) => `• ${issue.message}`),
+        ],
+        ERROR_INK,
+      );
+    }
+
+    for (const group of cuttingPlan.groups) {
+      layout.gap(4);
+      layout.subheading(
+        `${group.name} · ${group.thicknessMm} mm — ${group.sheets.length} list, ${group.pieceCount} detal, chiqindi ${group.wastePercent}%`,
+        10,
+      );
+      for (const sheet of group.sheets) {
+        layout.paragraph(
+          `List ${sheet.index}: ${sheet.sheetLengthMm}×${sheet.sheetWidthMm} mm · foydalanilgan ${sheet.usedAreaM2} m2 · kerf ${sheet.kerfAreaM2} m2 · chiqindi ${sheet.wasteAreaM2} m2 (${sheet.wastePercent}%)`,
+          8.6,
+        );
+        layout.cuttingSheet(sheet.sheetLengthMm, sheet.sheetWidthMm, sheet.placements);
+        layout.paragraph(
+          sheet.placements
+            .map(
+              (piece) =>
+                `${piece.name} (${piece.partId}) #${piece.instance} — ${piece.widthMm}×${piece.heightMm} mm @ ${piece.xMm},${piece.yMm}${piece.rotated ? " (aylantirilgan)" : ''}`,
+            )
+            .join('; '),
+          7.8,
+        );
+      }
+    }
+
+    if (cuttingPlan.unplaced.length > 0) {
+      layout.gap(4);
+      layout.subheading('Joylashtirilmagan detallar', 10);
+      for (const piece of cuttingPlan.unplaced) {
+        layout.paragraph(
+          `• ${UNPLACED_REASON_LABELS[piece.reason]} · ${piece.name} (${piece.partId}) × ${piece.quantity} — ${piece.lengthMm}×${piece.widthMm} mm`,
+          8.4,
+          ERROR_INK,
+        );
+      }
+    }
+
+    if (cuttingPlan.excluded.length > 0) {
+      layout.gap(2);
+      layout.paragraph(
+        `Panel bolmagan detallar (listga kirmaydi): ${cuttingPlan.excluded.map((piece) => `${piece.name} (${piece.partId}) × ${piece.quantity}`).join(', ')}`,
+        8,
+        MUTED,
+      );
+    }
+
+    layout.gap(2);
+    layout.subheading('Kesish rejasi boyicha cheklovlar', 10);
+    for (const limitation of cuttingPlan.limitations) {
+      layout.paragraph(`• ${limitation}`, 8.4);
+    }
+
+    if (counts.error > 0) {
+      layout.paragraph(
+        `Model tekshiruvida ${counts.error} xatolik bor — bu kesish rejasi tasdiqlangan hisoblanmaydi.`,
+        8.6,
+        ERROR_INK,
+      );
+    }
+  }
+
   // ---- 6. Assembly instructions (C6) ----------------------------------
   if (assemblyPlan) {
     layout.gap(6);
-    layout.heading(`5. Montaj yoriqnomasi`, 14);
+    layout.heading(`${assemblyNumber}. Montaj yoriqnomasi`, 14);
     layout.paragraph(
       `${assemblyPlan.modelLabel} — holat: ${ASSEMBLY_STATUS_LABELS[assemblyPlan.status]}.`,
       9.5,
