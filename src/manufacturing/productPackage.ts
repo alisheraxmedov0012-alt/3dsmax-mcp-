@@ -26,6 +26,11 @@ import { buildProductDescription, productDescriptionMarkdown } from './productDe
 import { PACKAGE_ENTRIES, buildManufacturingPackage, sceneForObject } from './manufacturingPackage';
 import { bomToCsv, cutListToCsv } from './manufacturingExport';
 import { groupByMaterial } from './sheetMaterial';
+import {
+  PRODUCT_PREVIEW_FILENAMES,
+  isPngBytes,
+  isProductPreviewFilename,
+} from '../viewer/productPreviewViews';
 import { createTechnicalDrawingSvg } from './technicalDrawing';
 import { validateManufacturing, type ValidationReport } from './validation';
 import type { ReadinessCheck } from './productReadiness';
@@ -59,6 +64,35 @@ export const PRODUCT_PACKAGE_ENTRIES = [
 
 export type ProductPackageEntry = (typeof PRODUCT_PACKAGE_ENTRIES)[number];
 
+/**
+ * A preview image supplied by the caller.
+ *
+ * The package builder runs without a renderer, so images are produced by the
+ * viewer and handed in as bytes. `name` must be one of the declared preview
+ * filenames; anything else is rejected rather than written under an arbitrary
+ * path.
+ */
+export interface ProductPreviewImage {
+  name: string;
+  bytes: Uint8Array;
+}
+
+/**
+ * Entries for a package, including any previews that were supplied.
+ *
+ * The twelve base entries keep their order; previews follow, in the canonical
+ * order from `PRODUCT_PREVIEW_VIEWS`. Without previews this is exactly
+ * `PRODUCT_PACKAGE_ENTRIES`, so the established contract is unchanged for every
+ * caller that does not take pictures.
+ */
+export function productPackageEntries(
+  previews: readonly ProductPreviewImage[] = [],
+): string[] {
+  const names = new Set(previews.map((preview) => preview.name));
+  const ordered = PRODUCT_PREVIEW_FILENAMES.filter((name) => names.has(name));
+  return [...PRODUCT_PACKAGE_ENTRIES, ...ordered];
+}
+
 export const PRODUCT_PACKAGE_META_FORMAT = '3d-studio-ai-product-package';
 export const PRODUCT_PACKAGE_META_VERSION = 1;
 
@@ -79,6 +113,13 @@ export interface ProductPackageInput {
    * are absent the bundle ships no layout and says so; no board size is invented.
    */
   cuttingSettings?: SheetSettingsInput | null;
+  /**
+   * Preview shots from the viewer. Optional: without them the archive is the
+   * established twelve entries. An invalid image is a hard error, because a
+   * package that silently drops or mislabels a picture is worse than one that
+   * refuses.
+   */
+  previews?: readonly ProductPreviewImage[] | null;
   generatedAt?: Date;
 }
 
@@ -86,9 +127,14 @@ export interface ProductPackage {
   bytes: Uint8Array<ArrayBuffer>;
   filename: string;
   mimeType: 'application/zip';
-  entries: Array<{ name: ProductPackageEntry; bytes: number }>;
-  /** Every entry the caller asked for; compared against the zip on verification. */
-  expectedEntries: readonly ProductPackageEntry[];
+  /**
+   * What was written. The names are `string` rather than the base union because a
+   * package may also carry preview images; `PRODUCT_PACKAGE_ENTRIES` still
+   * enumerates the twelve guaranteed members.
+   */
+  entries: Array<{ name: string; bytes: number }>;
+  /** Every entry written, in archive order; compared against the zip on verification. */
+  expectedEntries: readonly string[];
   totalParts: number;
   cutPieces: number;
   sheetCount: number;
@@ -293,7 +339,8 @@ function buildProductMeta(input: {
   validation: ValidationReport;
   assembly: AssemblyPlan;
   cuttingPlan: CuttingPlan | null;
-  entries: readonly ProductPackageEntry[];
+  entries: readonly string[];
+  previews: readonly string[];
   skipped: readonly { name: ProductPackageEntry; reason: string }[];
 }): string {
   return JSON.stringify(
@@ -306,6 +353,7 @@ function buildProductMeta(input: {
       exportedAt: input.generatedAt.toISOString(),
       unit: 'mm',
       entries: input.entries,
+      previews: input.previews,
       skipped: input.skipped,
       bom: {
         partTypes: input.bom.rows.length,
@@ -357,6 +405,8 @@ function buildProductReadme(input: {
   validation: ValidationReport;
   assembly: AssemblyPlan;
   cuttingPlan: CuttingPlan | null;
+  /** Every entry in the archive, including previews. */
+  entries: readonly string[];
   skipped: readonly { name: ProductPackageEntry; reason: string }[];
 }): string {
   const name = input.projectName.trim() || 'Nomsiz loyiha';
@@ -368,7 +418,7 @@ function buildProductReadme(input: {
     '',
     'Paket tarkibi:',
   ];
-  for (const entry of PRODUCT_PACKAGE_ENTRIES) {
+  for (const entry of input.entries) {
     lines.push(`- ${entry}`);
   }
   if (input.skipped.length > 0) {
@@ -521,6 +571,29 @@ export async function buildProductPackage(
     return { ok: false, reason: `PDF yaratilmadi: ${pdf.reason}` };
   }
 
+  // Preview validation happens before anything is written: a package that
+  // silently skipped a bad image would look complete while showing nothing.
+  const previews = input.previews ?? [];
+  const seenPreviews = new Set<string>();
+  for (const preview of previews) {
+    if (!isProductPreviewFilename(preview.name)) {
+      return {
+        ok: false,
+        reason: `Noma'lum preview fayli: "${preview.name}". Ruxsat etilganlar: ${PRODUCT_PREVIEW_FILENAMES.join(', ')}.`,
+      };
+    }
+    if (seenPreviews.has(preview.name)) {
+      return { ok: false, reason: `Preview fayli takrorlangan: "${preview.name}".` };
+    }
+    seenPreviews.add(preview.name);
+    if (!isPngBytes(preview.bytes)) {
+      return {
+        ok: false,
+        reason: `"${preview.name}" haqiqiy PNG emas yoki bo'sh — paketga qo'shilmadi.`,
+      };
+    }
+  }
+
   const files: Record<string, Uint8Array> = {
     'model.glb': new Uint8Array(glb),
     'BOM.csv': strToU8(bomToCsv(bom)),
@@ -542,7 +615,8 @@ export async function buildProductPackage(
         validation,
         assembly,
         cuttingPlan,
-        entries: PRODUCT_PACKAGE_ENTRIES,
+        entries: productPackageEntries(previews),
+        previews: previews.map((preview) => preview.name),
         skipped,
       }),
     ),
@@ -555,10 +629,15 @@ export async function buildProductPackage(
         validation,
         assembly,
         cuttingPlan,
+        entries: productPackageEntries(previews),
         skipped,
       }),
     ),
   };
+
+  for (const preview of previews) {
+    files[preview.name] = preview.bytes;
+  }
 
   let bytes: Uint8Array<ArrayBuffer>;
   try {
@@ -582,8 +661,11 @@ export async function buildProductPackage(
       bytes,
       filename: productPackageFilename(projectName),
       mimeType: 'application/zip',
-      entries: PRODUCT_PACKAGE_ENTRIES.map((name) => ({ name, bytes: files[name].length })),
-      expectedEntries: PRODUCT_PACKAGE_ENTRIES,
+      entries: productPackageEntries(previews).map((name) => ({
+        name,
+        bytes: files[name].length,
+      })),
+      expectedEntries: productPackageEntries(previews),
       totalParts: bom.totalParts,
       cutPieces: cutList.totalPieces,
       sheetCount: cuttingPlan?.summary.sheetCount ?? 0,
@@ -676,11 +758,18 @@ export async function verifyProductExports(
   }
 
   const present = new Set(Object.keys(unzipped));
-  const expected = [...PRODUCT_PACKAGE_ENTRIES].sort();
+  // Everything the bundle claims to contain, previews included.
+  const expected = [...product.expectedEntries].sort();
   const missing = expected.filter((name) => !present.has(name));
   const empty = expected.filter((name) => present.has(name) && unzipped[name].length === 0);
 
-  if (missing.length > 0 || empty.length > 0) {
+  // Every preview must still be a readable PNG after the round trip, not just
+  // present: a truncated image would look like a successful package.
+  const brokenPreviews = PRODUCT_PREVIEW_FILENAMES.filter(
+    (name) => present.has(name) && !isPngBytes(unzipped[name]),
+  );
+
+  if (missing.length > 0 || empty.length > 0 || brokenPreviews.length > 0) {
     checks.push({
       id: 'package-integrity',
       label: 'Arxiv yaxlitligi',
@@ -688,6 +777,7 @@ export async function verifyProductExports(
       detail: [
         missing.length > 0 ? `yetishmayotgan: ${missing.join(', ')}` : null,
         empty.length > 0 ? `bosh fayl: ${empty.join(', ')}` : null,
+        brokenPreviews.length > 0 ? `PNG emas: ${brokenPreviews.join(', ')}` : null,
       ]
         .filter(Boolean)
         .join('; '),

@@ -6,6 +6,7 @@ import { ROOM_OBJECT_ID, type SceneData } from '../scene/types';
 import type { CameraPreset, SceneSettings } from '../scene/sceneSettings';
 import { computePresetFraming, computeRoomFraming } from './cameraFraming';
 import { computeObjectFraming, isValidBounds, type BoundsBox } from '../render/framing';
+import { PRODUCT_PREVIEW_VIEWS, type ProductPreviewId } from './productPreviewViews';
 import {
   LIGHTING_PRESET_POSITIONS,
   isLightingPresetId,
@@ -392,6 +393,74 @@ export class SceneViewer {
       this.camera.aspect = prevAspect;
       this.camera.updateProjectionMatrix();
       // Redraw the visible frame at the restored size.
+      this.renderer.render(this.scene, this.camera);
+    }
+  }
+
+  /**
+   * Capture one PNG per product preview shot.
+   *
+   * Each shot re-frames the camera with an existing preset and renders offscreen
+   * via {@link capturePng}.
+   *
+   * The room and the selection outline are hidden for the duration. Two reasons,
+   * and the first is a bug this fixed: the `side` framing puts the camera outside
+   * the room's wall, so the wall completely occluded the product and the shot came
+   * out as a flat picture of a wall. More generally, a listing image should show
+   * the piece, not the customer's room or an editor selection box — this matches
+   * what the C1 package does with `includeRoom: false`.
+   *
+   * The camera, orbit target, room visibility and selection visibility are all
+   * restored in a `finally`, so exporting a package never disturbs what the reader
+   * is looking at, however far the loop got.
+   *
+   * Returns the bytes per view; the caller decides whether to put them in a ZIP.
+   * An empty blob is reported as a failure rather than passed off as a preview.
+   */
+  async captureProductPreviews(
+    width: number,
+    height: number,
+  ): Promise<Array<{ id: ProductPreviewId; filename: string; bytes: Uint8Array }>> {
+    const startPosition = this.camera.position.clone();
+    const startTarget = this.controls.target.clone();
+    const startAspect = this.camera.aspect;
+    const startRoomVisible = this.room?.group.visible ?? null;
+    const startSelectionVisible = this.selectionHelper?.visible ?? null;
+    const results: Array<{ id: ProductPreviewId; filename: string; bytes: Uint8Array }> = [];
+
+    try {
+      if (this.room) {
+        this.room.group.visible = false;
+      }
+      if (this.selectionHelper) {
+        this.selectionHelper.visible = false;
+      }
+      for (const view of PRODUCT_PREVIEW_VIEWS) {
+        this.applyCameraPreset(view.cameraPreset);
+        // Sequential on purpose: each shot moves the one shared camera, so
+        // running them concurrently would interleave the framing.
+        // eslint-disable-next-line no-await-in-loop
+        const blob = await this.capturePng(width, height);
+        // eslint-disable-next-line no-await-in-loop
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        if (bytes.length === 0) {
+          throw new Error(`"${view.filename}" uchun rasm bo'sh chiqdi.`);
+        }
+        results.push({ id: view.id, filename: view.filename, bytes });
+      }
+      return results;
+    } finally {
+      if (this.room && startRoomVisible !== null) {
+        this.room.group.visible = startRoomVisible;
+      }
+      if (this.selectionHelper && startSelectionVisible !== null) {
+        this.selectionHelper.visible = startSelectionVisible;
+      }
+      this.camera.position.copy(startPosition);
+      this.controls.target.copy(startTarget);
+      this.camera.aspect = startAspect;
+      this.camera.updateProjectionMatrix();
+      this.controls.update();
       this.renderer.render(this.scene, this.camera);
     }
   }

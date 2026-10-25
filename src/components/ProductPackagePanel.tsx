@@ -58,6 +58,12 @@ interface ProductPackagePanelProps {
    * panel never constructs a second WebGL context.
    */
   onCapturePreview?: (preset: PngPreset) => Promise<Blob | null>;
+  /**
+   * A2.2: the multi-angle shots that go into the package. Optional, and may
+   * resolve to null when the viewer is not ready; the package is then built
+   * without previews and the readiness report says so.
+   */
+  onCaptureProductPreviews?: () => Promise<Array<{ name: string; bytes: Uint8Array }> | null>;
   /** Saves a material assignment; reused from C3.1. */
   onAssignSheetMaterial?: (
     partId: string,
@@ -94,6 +100,7 @@ export function ProductPackagePanel({
   projectName,
   cuttingPlan,
   onCapturePreview,
+  onCaptureProductPreviews,
 }: ProductPackagePanelProps) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -141,11 +148,28 @@ export function ProductPackagePanel({
         sheetMaterials: materials,
         cuttingPlan,
       });
+      // Take the shots first: the package builder needs the bytes, and a capture
+      // failure must be visible rather than silently producing a text-only bundle.
+      let previews: Array<{ name: string; bytes: Uint8Array }> | null = null;
+      if (onCaptureProductPreviews) {
+        try {
+          previews = await onCaptureProductPreviews();
+        } catch (captureError) {
+          setError(
+            captureError instanceof Error
+              ? `Preview rasmlarini olishda xatolik: ${captureError.message}`
+              : 'Preview rasmlarini olishda xatolik.',
+          );
+          previews = null;
+        }
+      }
+
       const verification = await verifyProductExports({
         scene,
         object,
         projectName,
         cuttingPlan,
+        previews,
         verifyC1Package: true,
       });
       const readiness = combineReadiness(structural, verification.checks);

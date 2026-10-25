@@ -559,6 +559,25 @@ export default function App() {
     return viewer.capturePng(size.width, size.height);
   };
 
+  /**
+   * A2.2: the product shots that go into the ZIP.
+   *
+   * Returned as plain bytes so the package builder stays renderer-free. `null`
+   * means the viewer is not ready — the caller then packages without previews and
+   * says so, rather than shipping blank images.
+   */
+  const handleCaptureProductPreviews = async (): Promise<
+    Array<{ name: string; bytes: Uint8Array }> | null
+  > => {
+    const viewer = viewerRef.current;
+    if (!viewer) {
+      return null;
+    }
+    const size = resolvePngSize('standard');
+    const shots = await viewer.captureProductPreviews(size.width, size.height);
+    return shots.map((shot) => ({ name: shot.filename, bytes: shot.bytes }));
+  };
+
   const handleExportPng = async () => {
     if (renderStatus === 'working') {
       return;
@@ -666,6 +685,7 @@ export default function App() {
           onAssignSheetMaterial={handleAssignSheetMaterial}
           onRemoveSheetMaterial={handleRemoveSheetMaterial}
           onCapturePreview={handleCapturePreview}
+          onCaptureProductPreviews={handleCaptureProductPreviews}
         />
         <AccountPanel />
         <ServerPanel />

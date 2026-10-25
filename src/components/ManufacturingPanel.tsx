@@ -39,6 +39,8 @@ interface ManufacturingPanelProps {
   onRemoveSheetMaterial?: (partId: string) => void;
   /** C8: capture the live 3D view for the product panel (owned by the app). */
   onCapturePreview?: (preset: PngPreset) => Promise<Blob | null>;
+  /** A2.2: multi-angle product shots for the ZIP, or null when unavailable. */
+  onCaptureProductPreviews?: () => Promise<Array<{ name: string; bytes: Uint8Array }> | null>;
 }
 
 type Status = 'idle' | 'ok' | 'error';
@@ -68,6 +70,7 @@ export function ManufacturingPanel({
   onAssignSheetMaterial,
   onRemoveSheetMaterial,
   onCapturePreview,
+  onCaptureProductPreviews,
 }: ManufacturingPanelProps) {
   const [status, setStatus] = useState<Status>('idle');
   const [message, setMessage] = useState('');
@@ -428,6 +431,7 @@ export function ManufacturingPanel({
             projectName={projectName}
             cuttingPlan={cuttingPlan}
             onCapturePreview={onCapturePreview}
+            onCaptureProductPreviews={onCaptureProductPreviews}
           />
 
           {/* C3.1: assign manufacturing material per generated part. Parts come

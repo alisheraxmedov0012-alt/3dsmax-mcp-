@@ -240,6 +240,77 @@ describe('C8 panel — downloads and description', () => {
   });
 });
 
+describe('A2.2 panel — preview shots reach the package', () => {
+  function png(): Uint8Array {
+    const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    const ihdr = [
+      0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 0, 0, 0, 0,
+    ];
+    return new Uint8Array([...signature, ...ihdr]);
+  }
+
+  it('captures previews before packaging and includes them', async () => {
+    const object = objectFor('table');
+    const onCaptureProductPreviews = vi.fn(async () => [
+      { name: 'preview-front.png', bytes: png() },
+      { name: 'preview-side.png', bytes: png() },
+    ]);
+
+    render(
+      <ProductPackagePanel
+        object={object}
+        scene={sceneWith(object)}
+        projectName="Stol loyihasi"
+        cuttingPlan={planFor(object)}
+        onCaptureProductPreviews={onCaptureProductPreviews}
+      />,
+    );
+    fireEvent.click(checkButton());
+    await waitFor(() => expect(screen.getByTestId('product-verdict')).toBeTruthy());
+
+    expect(onCaptureProductPreviews).toHaveBeenCalledTimes(1);
+    // Two shots requested, so the package reports fourteen files, not twelve.
+    const pkg = screen.getByTestId('product-check-package').textContent ?? '';
+    expect(pkg).toMatch(/14 fayl/);
+  });
+
+  it('packages without previews when the viewer is not ready', async () => {
+    const object = objectFor('table');
+    render(
+      <ProductPackagePanel
+        object={object}
+        scene={sceneWith(object)}
+        projectName="Stol loyihasi"
+        cuttingPlan={planFor(object)}
+        onCaptureProductPreviews={async () => null}
+      />,
+    );
+    fireEvent.click(checkButton());
+    await waitFor(() => expect(screen.getByTestId('product-verdict')).toBeTruthy());
+
+    const pkg = screen.getByTestId('product-check-package').textContent ?? '';
+    expect(pkg).toMatch(/12 fayl/);
+  });
+
+  it('surfaces a capture failure instead of shipping a text-only bundle silently', async () => {
+    const object = objectFor('table');
+    render(
+      <ProductPackagePanel
+        object={object}
+        scene={sceneWith(object)}
+        projectName="Stol loyihasi"
+        cuttingPlan={planFor(object)}
+        onCaptureProductPreviews={async () => {
+          throw new Error('renderer yo‘q');
+        }}
+      />,
+    );
+    fireEvent.click(checkButton());
+    await waitFor(() => expect(screen.getByTestId('product-error')).toBeTruthy());
+    expect(screen.getByTestId('product-error').textContent).toMatch(/Preview rasmlarini olishda xatolik/);
+  });
+});
+
 describe('C8 panel — 3D preview', () => {
   it('does not offer a preview when the app supplies no capture handler', () => {
     renderPanel();
