@@ -5,10 +5,13 @@
  * same `{ group, dispose }` shape as the existing table builder, so the viewer,
  * the GLB exporter and the scene layer stay type-agnostic.
  *
- * W4 integration note: builders receive a `PartMaterialOptions` ({metalness,
- * roughness}) — the same fields the Stage 6 `ObjectMaterial` already carries — and
- * tag every part with a stable `userData.partId`, so W4's `buildPbrMaterial`
- * (materialId/opacity/texture) can be routed per part without changing this API.
+ * W4 integration: builders receive the full `PartMaterialOptions` (materialId,
+ * metalness, roughness, opacity, textureScale, normalStrength) — the same fields
+ * the Stage 6 `ObjectMaterial` carries — and tag every part with a stable
+ * `userData.partId`. Since A2.1 that material is built through
+ * `buildPbrMaterial`, so every type, not just the legacy table, picks up its
+ * preset and procedural texture. The per-part tag remains available for a future
+ * per-part material override.
  */
 import { buildTable } from '../buildTable';
 import { sanitizeBaseDimensions } from './params';

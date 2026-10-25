@@ -7,11 +7,19 @@
  * introducing a heavier abstraction.
  */
 import * as THREE from 'three';
+import { buildPbrMaterial } from '../../materials/buildMaterial';
+import type { MaterialSettingsInput } from '../../materials/types';
 
-export interface PartMaterialOptions {
-  metalness?: number;
-  roughness?: number;
-}
+/**
+ * Material settings a furniture builder accepts.
+ *
+ * This is the W4 PBR model: `materialId` selects a preset (which decides the
+ * procedural texture), and the channels below it override it per object. Every
+ * field is optional, so the original `{metalness, roughness}` callers keep
+ * working unchanged and a builder called with no material still renders with the
+ * default preset.
+ */
+export type PartMaterialOptions = MaterialSettingsInput;
 
 export interface BuiltFurniture {
   group: THREE.Group;
@@ -40,14 +48,16 @@ export class PartBuilder {
   readonly group = new THREE.Group();
   private readonly geometries: THREE.BufferGeometry[] = [];
   private readonly material: THREE.MeshStandardMaterial;
+  private readonly built: ReturnType<typeof buildPbrMaterial>;
 
   constructor(groupName: string, color: string, material: PartMaterialOptions = {}) {
     this.group.name = groupName;
-    this.material = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(color),
-      metalness: material.metalness ?? 0.05,
-      roughness: material.roughness ?? 0.6,
-    });
+    // One PBR material per object, shared by all of its parts: this is where a
+    // furniture piece picks up its preset and procedural texture. `buildPbrMaterial`
+    // owns the texture lifetime, so it must be disposed through `built.dispose`.
+    this.built = buildPbrMaterial(color, material);
+    this.material = this.built.material;
+    this.material.name = `${groupName}-material`;
   }
 
   /** Adds a box part centred at `position` (cm). */
@@ -78,6 +88,7 @@ export class PartBuilder {
 
   dispose(): void {
     this.geometries.forEach((geometry) => geometry.dispose());
-    this.material.dispose();
+    // Releases the material and its (possibly shared) textures.
+    this.built.dispose();
   }
 }

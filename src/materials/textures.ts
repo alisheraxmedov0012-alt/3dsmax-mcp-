@@ -121,26 +121,37 @@ type CanvasLike = {
   getContext: (id: '2d') => CanvasRenderingContext2D | null;
 };
 
-function createCanvas(size: number): CanvasLike | null {
-  if (typeof document !== 'undefined' && typeof document.createElement === 'function') {
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    return canvas;
+/**
+ * Create a canvas that can actually be painted on.
+ *
+ * Checking for `document.createElement` alone is not enough. A DOM without a
+ * canvas backend (jsdom without the `canvas` package, some embedded webviews)
+ * happily returns an element whose `getContext('2d')` is `null`. Drawing onto it
+ * silently produces a blank texture, and the failure only surfaces much later
+ * when the GLB exporter tries to read the image back and throws. Requiring a real
+ * 2D context means such an environment gets the documented "no texture" fallback
+ * instead of a broken export.
+ */
+function createCanvas(size: number): { canvas: CanvasLike; ctx: CanvasRenderingContext2D } | null {
+  if (typeof document === 'undefined' || typeof document.createElement !== 'function') {
+    return null;
   }
-  return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return null;
+  }
+  return { canvas, ctx };
 }
 
 function fillFromHeight(
-  canvas: CanvasLike,
+  ctx: CanvasRenderingContext2D,
   width: number,
   height: number,
   data: Uint8ClampedArray,
 ): void {
-  const ctx = canvas.getContext('2d');
-  if (!ctx) {
-    return;
-  }
   const image = ctx.createImageData(width, height);
   for (let i = 0; i < width * height; i += 1) {
     const src = i * 3;
@@ -153,21 +164,53 @@ function fillFromHeight(
   ctx.putImageData(image, 0, 0);
 }
 
+interface CachedTextures {
+  map: THREE.CanvasTexture;
+  normalMap: THREE.CanvasTexture;
+  /** How many live materials are using these GPU textures right now. */
+  refs: number;
+}
+
 /**
- * Build the procedural detail (map) and normal textures for a material type.
- * Returns `null` when the kind has no texture or no canvas is available.
+ * Shared textures, keyed by everything that affects their pixels.
+ *
+ * A material is built per furniture object, and the same object is rebuilt
+ * several times per interaction (viewport, BOM, validation, drawing). Generating
+ * a 128x128 noise field, a normal map and two canvases each time is both CPU work
+ * and a fresh GPU upload for identical pixels, so textures are shared.
+ *
+ * Sharing is safe because the key contains every input that changes the result:
+ * the pattern kind, the UV repeat, and the bitmap size. Materials still own their
+ * colour and PBR channels, which are per-object.
+ *
+ * Disposal is reference-counted: a material releasing the textures only frees the
+ * GPU resources once the last material that uses them has gone. Releasing on the
+ * first dispose would break every other object sharing the same preset.
  */
-export function createProceduralTextures(
+const textureCache = new Map<string, CachedTextures>();
+
+function releaseCached(key: string): void {
+  const entry = textureCache.get(key);
+  if (!entry) {
+    return;
+  }
+  entry.refs -= 1;
+  if (entry.refs > 0) {
+    return;
+  }
+  entry.map.dispose();
+  entry.normalMap.dispose();
+  textureCache.delete(key);
+}
+
+function buildTextures(
   kind: TextureKind,
   scale: number,
-  size: number = DEFAULT_TEXTURE_SIZE,
-): ProceduralTextures | null {
-  if (kind === 'none') {
-    return null;
-  }
-  const baseCanvas = createCanvas(size);
-  const normalCanvas = createCanvas(size);
-  if (!baseCanvas || !normalCanvas) {
+  size: number,
+): { map: THREE.CanvasTexture; normalMap: THREE.CanvasTexture } | null {
+  const base = createCanvas(size);
+  const normal = createCanvas(size);
+  if (!base || !normal) {
     return null;
   }
 
@@ -186,26 +229,79 @@ export function createProceduralTextures(
     gray[i * 3 + 1] = value;
     gray[i * 3 + 2] = value;
   }
-  fillFromHeight(baseCanvas, size, size, gray);
+  fillFromHeight(base.ctx, size, size, gray);
 
   const normals = heightToNormal(heights, size, size, 6);
-  fillFromHeight(normalCanvas, size, size, normals);
+  fillFromHeight(normal.ctx, size, size, normals);
 
-  const map = new THREE.CanvasTexture(baseCanvas as unknown as HTMLCanvasElement);
-  const normalMap = new THREE.CanvasTexture(normalCanvas as unknown as HTMLCanvasElement);
+  const map = new THREE.CanvasTexture(base.canvas as unknown as HTMLCanvasElement);
+  const normalMap = new THREE.CanvasTexture(normal.canvas as unknown as HTMLCanvasElement);
   for (const texture of [map, normalMap]) {
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
     texture.repeat.set(scale, scale);
     texture.needsUpdate = true;
   }
+  return { map, normalMap };
+}
 
+/**
+ * Build (or reuse) the procedural detail (map) and normal textures for a material
+ * type. Returns `null` when the kind has no texture or no usable canvas backend is
+ * available, which is the documented fallback: the material then renders with its
+ * PBR channels and no detail map.
+ *
+ * Every non-null result must be disposed exactly once; `dispose` is idempotent per
+ * returned handle and reference-counted across handles.
+ */
+export function createProceduralTextures(
+  kind: TextureKind,
+  scale: number,
+  size: number = DEFAULT_TEXTURE_SIZE,
+): ProceduralTextures | null {
+  if (kind === 'none') {
+    return null;
+  }
+
+  const key = `${kind}|${scale}|${size}`;
+  const cached = textureCache.get(key);
+  if (cached) {
+    cached.refs += 1;
+    let released = false;
+    return {
+      map: cached.map,
+      normalMap: cached.normalMap,
+      dispose: () => {
+        if (released) {
+          return;
+        }
+        released = true;
+        releaseCached(key);
+      },
+    };
+  }
+
+  const built = buildTextures(kind, scale, size);
+  if (!built) {
+    return null;
+  }
+  textureCache.set(key, { ...built, refs: 1 });
+
+  let released = false;
   return {
-    map,
-    normalMap,
+    map: built.map,
+    normalMap: built.normalMap,
     dispose: () => {
-      map.dispose();
-      normalMap.dispose();
+      if (released) {
+        return;
+      }
+      released = true;
+      releaseCached(key);
     },
   };
+}
+
+/** Number of texture sets currently held in the cache. Exposed for tests. */
+export function cachedTextureCount(): number {
+  return textureCache.size;
 }
