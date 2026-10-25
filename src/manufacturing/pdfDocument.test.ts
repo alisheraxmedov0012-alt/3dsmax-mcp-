@@ -7,6 +7,7 @@ import {
   textPlacement,
 } from './pdfDrawing';
 import {
+  assemblyStepBlocks,
   bomTableRows,
   buildManufacturingPdf,
   cutListTableRows,
@@ -14,6 +15,12 @@ import {
   pdfFilename,
   validationTableRows,
 } from './pdfDocument';
+import {
+  buildAssemblyPlan,
+  buildFurnitureAssemblyPlan,
+  type AssemblyPlan,
+} from './assemblyInstructions';
+import { ASSEMBLY_DEFAULTS } from '../geometry/assemblies/params';
 import { buildBom } from './bom';
 import { buildCutList } from './cutList';
 import { groupByMaterial } from './sheetMaterial';
@@ -382,5 +389,126 @@ describe('C5 — document content', () => {
     expect(labels).toContain(`${input.overall.widthMm} mm`);
     expect(labels).toContain(`${input.overall.heightMm} mm`);
     expect(input.drawing.scale.ratio).toMatch(/^1:\d/);
+  });
+});
+
+describe('C6 — assembly section in the PDF', () => {
+  function withPlan(type: FurnitureType, plan?: AssemblyPlan | null) {
+    return { ...inputFor(type, 'Montaj loyihasi'), assembly: plan };
+  }
+
+  async function build(input: ReturnType<typeof withPlan>) {
+    const outcome = await buildManufacturingPdf(input);
+    if (!outcome.ok) throw new Error(outcome.reason);
+    return outcome;
+  }
+
+  it('keeps producing the pre-C6 document when no plan is supplied', async () => {
+    const without = await build(withPlan('wardrobe'));
+    const omitted = await build(withPlan('wardrobe', null));
+    expect(omitted.pageCount).toBe(without.pageCount);
+    expect(omitted.bytes.length).toBe(without.bytes.length);
+  });
+
+  it('adds a section with every step of a real plan', async () => {
+    const input = withPlan('wardrobe');
+    const plan = buildFurnitureAssemblyPlan({ bom: input.bom });
+    const withSection = await build({ ...input, assembly: plan });
+    const without = await build(withPlan('wardrobe'));
+
+    expect(plan.steps.length).toBeGreaterThan(0);
+    expect(withSection.pageCount).toBeGreaterThanOrEqual(without.pageCount);
+
+    const blocks = assemblyStepBlocks(plan);
+    expect(blocks).toHaveLength(plan.steps.length);
+    for (const [index, step] of plan.steps.entries()) {
+      expect(blocks[index].heading.startsWith(`${step.order}. ${step.title}`)).toBe(true);
+      expect(blocks[index].instruction).toBe(step.instruction);
+      for (const part of step.parts) {
+        expect(blocks[index].parts).toContain(part.partId);
+        expect(blocks[index].parts).toContain(`× ${part.quantity}`);
+      }
+    }
+  });
+
+  it('prints the part dimensions and quantities it was given', () => {
+    const input = withPlan('table');
+    const plan = buildFurnitureAssemblyPlan({ bom: input.bom });
+    const legs = assemblyStepBlocks(plan)[0];
+    expect(legs.parts).toContain('table-leg');
+    expect(legs.parts).toContain('× 4');
+    expect(legs.parts).toContain('mm');
+  });
+
+  it('paginates a long plan instead of dropping steps', async () => {
+    const input = withPlan('table');
+    const base = buildFurnitureAssemblyPlan({ bom: input.bom });
+    const longPlan: AssemblyPlan = {
+      ...base,
+      steps: Array.from({ length: 40 }, (_, index) => ({
+        ...base.steps[0],
+        id: `step-${index + 1}`,
+        order: index + 1,
+        title: `Qadam ${index + 1}`,
+        instruction:
+          "Oyoqlarni tekis yuzaga qo'ying va keyingi qadamga tayyorlang. Bu matn uzunligi bir necha qatorga bo'linishini tekshirish uchun ataylab uzaytirilgan.",
+        dependsOn: index === 0 ? [] : [`step-${index}`],
+      })),
+    };
+    const plain = await build(withPlan('table'));
+    const out = await build({ ...input, assembly: longPlan });
+    expect(out.pageCount).toBeGreaterThan(plain.pageCount);
+    expect(assemblyStepBlocks(longPlan)).toHaveLength(40);
+    // Every step keeps its number in the printed heading.
+    const blocks = assemblyStepBlocks(longPlan);
+    expect(blocks[blocks.length - 1].heading.startsWith('40.')).toBe(true);
+  });
+
+  it('states explicitly when no reliable plan exists instead of inventing steps', async () => {
+    const input = withPlan('table');
+    const empty: AssemblyPlan = {
+      ...buildFurnitureAssemblyPlan({ bom: input.bom }),
+      status: 'unsupported',
+      steps: [],
+      issues: [
+        { level: 'error', code: 'plan-empty', stepId: null, message: "Modelda detallar yo'q." },
+      ],
+    };
+    const out = await build({ ...input, assembly: empty });
+    expect(out.pageCount).toBeGreaterThanOrEqual(3);
+    expect(assemblyStepBlocks(empty)).toEqual([]);
+  });
+
+  it('includes an assembly section for an assembly model too', async () => {
+    const input = withPlan('shelf');
+    const plan = buildAssemblyPlan({
+      kind: 'wall-cabinet',
+      params: ASSEMBLY_DEFAULTS['wall-cabinet'] as unknown as Record<string, unknown>,
+    });
+    const out = await build({ ...input, assembly: plan });
+    expect(out.ok).toBe(true);
+    expect(assemblyStepBlocks(plan).length).toBeGreaterThan(0);
+  });
+
+  it('stays deterministic with an assembly section', async () => {
+    const input = withPlan('bed');
+    const plan = buildFurnitureAssemblyPlan({ bom: input.bom });
+    const a = await build({ ...input, assembly: plan });
+    const b = await build({ ...input, assembly: plan });
+    expect(Array.from(b.bytes)).toEqual(Array.from(a.bytes));
+  });
+
+  it('keeps the existing sections available alongside the new one', async () => {
+    const input = withPlan('wardrobe');
+    const plan = buildFurnitureAssemblyPlan({ bom: input.bom });
+    const out = await build({ ...input, assembly: plan });
+    // The BOM, cut list and materials inputs are untouched by the new section.
+    expect(bomTableRows(input.bom).length).toBe(input.bom.rows.length);
+    expect(cutListTableRows(input.cutList).length).toBe(input.cutList.rows.length);
+    expect(validationTableRows(input.validation.issues).length).toBe(
+      input.validation.issues.filter((issue) => issue.level !== 'info').length,
+    );
+    expect(out.filename.endsWith('.pdf')).toBe(true);
+    expect(out.pageCount).toBeGreaterThanOrEqual(3);
   });
 });

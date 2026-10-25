@@ -12,6 +12,12 @@ import { buildManufacturingPackage } from '../manufacturing/manufacturingPackage
 import { createTechnicalDrawingSvg } from '../manufacturing/technicalDrawing';
 import { validateManufacturing, type ValidationLevel } from '../manufacturing/validation';
 import { groupByMaterial, type SheetMaterialId } from '../manufacturing/sheetMaterial';
+import {
+  buildFurnitureAssemblyPlan,
+  isAssemblyPlanStale,
+  type AssemblyPlan,
+} from '../manufacturing/assemblyInstructions';
+import { AssemblyInstructionsPanel } from './AssemblyInstructionsPanel';
 import { SheetMaterialPanel } from './SheetMaterialPanel';
 
 interface ManufacturingPanelProps {
@@ -63,6 +69,12 @@ export function ManufacturingPanel({
   // Refs, not state: two clicks in the same tick would both see the state value.
   const packageLock = useRef(false);
   const pdfLock = useRef(false);
+  /**
+   * The plan the reader asked for, tagged with the object it was built from.
+   * Staleness is derived from that tag plus the fingerprint, so no effect has to
+   * chase the model — a changed model simply makes the shown plan stale.
+   */
+  const [generated, setGenerated] = useState<{ plan: AssemblyPlan; objectId: string } | null>(null);
 
   const computed = useMemo(() => {
     if (!object) {
@@ -73,16 +85,31 @@ export function ManufacturingPanel({
       if (!bomOutcome.ok) {
         return { error: bomOutcome.reason };
       }
+      const validation = validateManufacturing(
+        object.type,
+        object.params,
+        object.sheetMaterials,
+      );
       return {
         bom: bomOutcome.bom,
         cutList: buildCutList(bomOutcome.bom),
-        validation: validateManufacturing(object.type, object.params, object.sheetMaterials),
+        validation,
+        // Built from the same BOM and report the panel displays, so the steps
+        // cannot disagree with the parts list next to them.
+        assembly: buildFurnitureAssemblyPlan({ bom: bomOutcome.bom, validation }),
       };
     } catch (error) {
       console.error('Ishlab chiqarish hisob-kitobi xatosi:', error);
       return { error: "Hisob-kitobda kutilmagan xatolik yuz berdi." };
     }
   }, [object]);
+
+  // A plan for a previously selected object is never shown against this one.
+  const shownPlan = generated && generated.objectId === object?.id ? generated.plan : null;
+  const currentPlan = computed && !('error' in computed) ? computed.assembly : null;
+  const planStale = Boolean(
+    shownPlan && currentPlan && isAssemblyPlanStale(shownPlan, currentPlan.fingerprint),
+  );
 
   if (!object) {
     return (
@@ -161,6 +188,9 @@ export function ManufacturingPanel({
         validation: computed.validation,
         drawing: { svg: drawing.svg, scale: drawing.scale },
         overall: drawing.overall,
+        // A fresh plan, never the one on screen: a PDF must describe the model as
+        // it is now, even when the reader left a stale plan open.
+        assembly: computed.assembly,
         generatedAt: new Date(),
       });
 
@@ -184,6 +214,21 @@ export function ManufacturingPanel({
       pdfLock.current = false;
       setPdfBusy(false);
     }
+  };
+
+  const handleGenerateAssembly = () => {
+    if (!computed || 'error' in computed) {
+      setStatus('error');
+      setMessage('Montaj yo‘riqnomasi uchun hisob-kitob mavjud emas.');
+      return;
+    }
+    setGenerated({ plan: computed.assembly, objectId: object.id });
+    setStatus('ok');
+    setMessage(
+      computed.assembly.steps.length === 0
+        ? 'Montaj yo‘riqnomasi tuzilmadi — sabab bo‘limda ko‘rsatilgan.'
+        : `Montaj yo‘riqnomasi tayyor: ${computed.assembly.steps.length} qadam.`,
+    );
   };
 
   const handleExport = (kind: ManufacturingArtifactKind) => {
@@ -334,6 +379,15 @@ export function ManufacturingPanel({
             </button>
             <p className="visual__hint">Old, yon va yuqoridan ko‘rinishlar; o‘lchamlar mm.</p>
           </div>
+
+          {/* C6: ordered assembly steps derived from the model's part roles.
+              Steps are only shown after an explicit generate, so what the reader
+              sees is always a plan they asked for — and one they can see go stale. */}
+          <AssemblyInstructionsPanel
+            plan={shownPlan}
+            stale={planStale}
+            onGenerate={handleGenerateAssembly}
+          />
 
           {/* C3.1: assign manufacturing material per generated part. Parts come
               from the BOM, so an assignment can only target a real part. */}

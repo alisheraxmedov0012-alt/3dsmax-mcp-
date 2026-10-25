@@ -4,6 +4,13 @@ import { assembliesEnabled } from '../geometry/assemblies/flag';
 import { assemblyDefaults, validateAssemblyParams } from '../geometry/assemblies/params';
 import { buildAssembly } from '../geometry/assemblies';
 import { AssemblyError, MAX_ASSEMBLIES_PER_SCENE } from '../geometry/assemblies/limits';
+import {
+  assemblyPlanFingerprintOf,
+  buildAssemblyPlan,
+  isAssemblyPlanStale,
+  type AssemblyPlan,
+} from '../manufacturing/assemblyInstructions';
+import { AssemblyInstructionsPanel } from './AssemblyInstructionsPanel';
 
 const KIND_LABELS: Record<AssemblyKind, string> = {
   'kitchen-base-run': 'Oshxona pastki moduli',
@@ -37,6 +44,8 @@ export function AssemblyPanel({ assemblies, onAdd, onDelete }: AssemblyPanelProp
   const [kind, setKind] = useState<AssemblyKind>('wall-cabinet');
   const [message, setMessage] = useState('');
   const [status, setStatus] = useState<'idle' | 'ok' | 'error'>('idle');
+  /** C6: the instructions the reader opened, tagged with the assembly they belong to. */
+  const [instructions, setInstructions] = useState<{ id: string; plan: AssemblyPlan } | null>(null);
 
   if (!assembliesEnabled()) {
     return null;
@@ -79,8 +88,23 @@ export function AssemblyPanel({ assemblies, onAdd, onDelete }: AssemblyPanelProp
 
   const handleDelete = (assembly: SceneAssembly) => {
     onDelete(assembly.id);
+    if (instructions?.id === assembly.id) {
+      setInstructions(null);
+    }
     setStatus('ok');
     setMessage(`${KIND_LABELS[assembly.kind]} o'chirildi.`);
+  };
+
+  /**
+   * C6: the assembly's own part graph is the only place in this project where a
+   * part-to-part relation is stored, so these steps can say "modelda belgilangan"
+   * where the furniture path has to say "roldan kelib chiqqan".
+   */
+  const handleInstructions = (assembly: SceneAssembly) => {
+    setInstructions({
+      id: assembly.id,
+      plan: buildAssemblyPlan({ kind: assembly.kind, params: assembly.params }),
+    });
   };
 
   return (
@@ -140,6 +164,25 @@ export function AssemblyPanel({ assemblies, onAdd, onDelete }: AssemblyPanelProp
               >
                 O'chirish
               </button>
+              <button
+                type="button"
+                className="assembly-row__delete"
+                onClick={() => handleInstructions(assembly)}
+                aria-label={`${KIND_LABELS[assembly.kind]} uchun montaj yo'riqnomasi`}
+                data-testid={`assembly-instructions-${assembly.id}`}
+              >
+                Montaj yo‘riqnomasi
+              </button>
+              {instructions?.id === assembly.id && (
+                <AssemblyInstructionsPanel
+                  plan={instructions.plan}
+                  stale={isAssemblyPlanStale(
+                    instructions.plan,
+                    assemblyPlanFingerprintOf(assembly.kind, assembly.params),
+                  )}
+                  onGenerate={() => handleInstructions(assembly)}
+                />
+              )}
             </li>
           ))}
         </ul>

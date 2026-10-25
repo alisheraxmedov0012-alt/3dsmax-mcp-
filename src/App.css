@@ -336,6 +336,81 @@ input[type='color'] {
   }
 }
 
+/* C6 assembly instructions: one column at every width, so a step never has to
+   be read across a fold. Long part lists wrap rather than scroll sideways. */
+.assembly {
+  display: grid;
+  gap: 6px;
+}
+
+.assembly__steps {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  color: #c3ccd6;
+  display: grid;
+  gap: 10px;
+}
+
+.assembly-step__title {
+  margin: 0;
+  font-weight: 600;
+  color: #e6ecf2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+
+/* The relationship source is text as well as colour: "Modelda belgilangan",
+   "Roldan kelib chiqqan" and "Taxminiy joylashuv" are different claims. */
+.assembly-step__source {
+  font-size: 0.62rem;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid #3a424c;
+  color: #9aa6b2;
+  white-space: normal;
+}
+
+.assembly-step__source--modeled {
+  border-color: #4c7a5a;
+  color: #8fd0a4;
+}
+
+.assembly-step__source--derived {
+  border-color: #4a6a86;
+  color: #9cc4e0;
+}
+
+.assembly-step__source--inferred {
+  border-color: #7a6436;
+  color: #d6a35c;
+}
+
+.assembly-step__instruction,
+.assembly-step__depends {
+  margin: 2px 0 0;
+  color: #9aa6b2;
+}
+
+.assembly-step__parts {
+  margin: 2px 0 0;
+  padding-left: 16px;
+  color: #9aa6b2;
+  font-size: 0.7rem;
+  word-break: break-word;
+}
+
+.assembly-step__depends {
+  font-size: 0.68rem;
+  color: #7f8b98;
+}
+
 .server-panel {
   display: flex;
   flex-direction: column;

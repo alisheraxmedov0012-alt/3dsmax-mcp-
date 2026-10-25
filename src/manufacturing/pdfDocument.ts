@@ -26,6 +26,11 @@ import type { MaterialGroup } from './sheetMaterial';
 import type { ValidationReport } from './validation';
 import { PDF_FONT_BOLD_B64, PDF_FONT_REGULAR_B64 } from './pdfFont';
 import { parseDrawingSvg, renderDrawing } from './pdfDrawing';
+import {
+  ASSEMBLY_RELATION_LABELS,
+  ASSEMBLY_STATUS_LABELS,
+  type AssemblyPlan,
+} from './assemblyInstructions';
 
 export interface PdfDrawingInput {
   /** The SVG produced by `createTechnicalDrawingSvg`. */
@@ -44,6 +49,15 @@ export interface PdfDocumentInput {
   validation: ValidationReport;
   drawing: PdfDrawingInput;
   overall: { widthMm: number; heightMm: number; depthMm: number };
+  /**
+   * C6 assembly instructions.
+   *
+   * Optional so every pre-C6 caller keeps producing the same document: without a
+   * plan the section is absent and the numbering is unchanged. With a plan — even
+   * an `unsupported` one — the section appears and states why it is empty rather
+   * than leaving a silent gap where a workshop expects guidance.
+   */
+  assembly?: AssemblyPlan | null;
   /** Export timestamp; injected so the same input yields identical bytes. */
   generatedAt: Date;
 }
@@ -510,6 +524,37 @@ export function validationTableRows(issues: ValidationReport['issues']): Row[] {
 }
 
 /**
+ * One assembly step as the strings that get printed, in order.
+ *
+ * Same contract as `bomTableRows`: the renderer consumes exactly these fields, so
+ * asserting on them is asserting on the document. `parts` always names every part
+ * of the step, including its quantity, so a step cannot be printed with its
+ * contents silently dropped.
+ */
+export interface AssemblyStepBlock {
+  heading: string;
+  instruction: string;
+  parts: string;
+  dependsOn: string | null;
+}
+
+export function assemblyStepBlocks(plan: AssemblyPlan): AssemblyStepBlock[] {
+  return plan.steps.map((step) => ({
+    heading: `${step.order}. ${step.title} — ${ASSEMBLY_RELATION_LABELS[step.relation]}`,
+    instruction: step.instruction,
+    parts: step.parts
+      .map((part) => {
+        const size = part.sizeMm
+          ? `${part.sizeMm.x}×${part.sizeMm.y}×${part.sizeMm.z} mm`
+          : "o'lcham noaniq";
+        return `${part.name} (${part.partId}) × ${part.quantity} — ${size}`;
+      })
+      .join('; '),
+    dependsOn: step.dependsOn.length > 0 ? step.dependsOn.join(', ') : null,
+  }));
+}
+
+/**
  * Build the PDF.
  *
  * Deterministic: `generatedAt` fixes the metadata dates, and nothing else in the
@@ -545,6 +590,11 @@ export async function buildManufacturingPdf(input: PdfDocumentInput): Promise<Pd
   const notes: string[] = [];
   const layout = new Layout(doc, regular, bold);
   const project = input.projectName.trim() || 'Nomsiz loyiha';
+  const assemblyPlan = input.assembly ?? null;
+  // Section numbers shift only when the optional assembly section is present, so
+  // a document exported without a plan keeps the pre-C6 numbering.
+  const validationNumber = assemblyPlan ? 6 : 5;
+  const limitationsNumber = assemblyPlan ? 7 : 6;
 
   doc.setTitle(`${TITLE} — ${project}`);
   doc.setProducer('3D Studio AI');
@@ -579,7 +629,7 @@ export async function buildManufacturingPdf(input: PdfDocumentInput): Promise<Pd
     [
       `Xatolik: ${counts.error} · Ogohlantirish: ${counts.warning} · Malumot: ${counts.info}`,
       input.validation.ok
-        ? "Bu hisobot ishlab chiqarishga yaroqlilikni tasdiqlamaydi — 6-bo'limdagi cheklovlarni oqing."
+        ? `Bu hisobot ishlab chiqarishga yaroqlilikni tasdiqlamaydi — ${limitationsNumber}-bo'limdagi cheklovlarni oqing.`
         : "Diqqat: xatoliklar mavjud. Hujjat tekshirish uchun foydali, lekin model tayyor deb belgilanmaydi.",
     ],
     input.validation.ok ? INK : ERROR_INK,
@@ -588,14 +638,20 @@ export async function buildManufacturingPdf(input: PdfDocumentInput): Promise<Pd
   // A shop flipping through a printout benefits from knowing what follows.
   layout.gap(10);
   layout.subheading('Hujjat tarkibi');
-  for (const entry of [
+  const contents = [
     '1. Texnik chizma — old, yon va yuqoridan korinishlar, olchamlar bilan',
     '2. Detallar royxati (BOM) — nomi, olchamlari, olchangan qalinligi',
     '3. Kesish royxati — panel detallar',
     '4. Materiallar — tanlangan material va nominal qalinlik',
-    '5. Tekshiruv natijasi — C4 xatolik va ogohlantirishlari',
-    '6. Cheklovlar — nima tekshirilmagan',
-  ]) {
+  ];
+  if (assemblyPlan) {
+    contents.push("5. Montaj yoriqnomasi — tartiblangan qadamlar va detallar");
+  }
+  contents.push(
+    `${validationNumber}. Tekshiruv natijasi — C4 xatolik va ogohlantirishlari`,
+    `${limitationsNumber}. Cheklovlar — nima tekshirilmagan`,
+  );
+  for (const entry of contents) {
     layout.paragraph(entry, 9);
   }
 
@@ -728,9 +784,74 @@ export async function buildManufacturingPdf(input: PdfDocumentInput): Promise<Pd
     }
   }
 
+  // ---- 6. Assembly instructions (C6) ----------------------------------
+  if (assemblyPlan) {
+    layout.gap(6);
+    layout.heading(`5. Montaj yoriqnomasi`, 14);
+    layout.paragraph(
+      `${assemblyPlan.modelLabel} — holat: ${ASSEMBLY_STATUS_LABELS[assemblyPlan.status]}.`,
+      9.5,
+    );
+
+    if (assemblyPlan.steps.length === 0) {
+      layout.callout(
+        'Montaj yoriqnomasi tuzilmadi',
+        [
+          "Bu model uchun ishonchli qadamlar tuzib bo'lmadi, shuning uchun hech qanday qadam chop etilmadi.",
+          ...assemblyPlan.issues
+            .filter((issue) => issue.level === 'error')
+            .map((issue) => `• ${issue.message}`),
+        ],
+        ERROR_INK,
+      );
+    } else {
+      layout.paragraph(
+        "Qadamlar tartibi modeldagi qism rollari va bog'lanishlaridan tuzilgan. Manba har bir qadam sarlavhasida ko'rsatilgan.",
+        8.5,
+      );
+      for (const block of assemblyStepBlocks(assemblyPlan)) {
+        // Keep a heading with at least its instruction on one page.
+        layout.ensure(70);
+        layout.subheading(block.heading, 10.5);
+        layout.paragraph(block.instruction, 9.2, INK);
+        layout.paragraph(`Detallar: ${block.parts}`, 8.6);
+        if (block.dependsOn) {
+          layout.paragraph(`Avval bajarilishi kerak: ${block.dependsOn}`, 8.2, MUTED);
+        }
+        layout.gap(3);
+      }
+
+      const stepIssues = assemblyPlan.issues.filter((issue) => issue.level !== 'info');
+      if (stepIssues.length > 0) {
+        layout.gap(2);
+        layout.subheading('Montaj rejasidagi eslatmalar', 10);
+        for (const issue of stepIssues) {
+          layout.paragraph(
+            `${issue.level === 'error' ? 'XATO' : 'OGOH'} · ${issue.code}: ${issue.message}`,
+            8.4,
+            issue.level === 'error' ? ERROR_INK : WARN_INK,
+          );
+        }
+      }
+    }
+
+    layout.gap(2);
+    layout.subheading('Montaj boyicha cheklovlar', 10);
+    for (const limitation of assemblyPlan.limitations) {
+      layout.paragraph(`• ${limitation}`, 8.6);
+    }
+    if (counts.error > 0) {
+      layout.paragraph(
+        `Model tekshiruvida ${counts.error} xatolik bor — bu montaj rejasi tasdiqlangan hisoblanmaydi.`,
+        8.8,
+        ERROR_INK,
+      );
+    }
+  }
+
   // ---- 6. Validation --------------------------------------------------
   layout.gap(6);
-  layout.heading('5. Tekshiruv natijasi', 14);
+  layout.heading(`${validationNumber}. Tekshiruv natijasi`, 14);
   layout.paragraph(
     `Xatolik: ${counts.error} · Ogohlantirish: ${counts.warning} · Malumot: ${counts.info}`,
     9.5,
@@ -763,7 +884,7 @@ export async function buildManufacturingPdf(input: PdfDocumentInput): Promise<Pd
 
   // ---- 7. Limitations -------------------------------------------------
   layout.gap(6);
-  layout.heading('6. Cheklovlar va tekshirilmagan jihatlar', 14);
+  layout.heading(`${limitationsNumber}. Cheklovlar va tekshirilmagan jihatlar`, 14);
   for (const limitation of input.validation.limitations) {
     layout.paragraph(`• ${limitation}`, 8.8);
   }

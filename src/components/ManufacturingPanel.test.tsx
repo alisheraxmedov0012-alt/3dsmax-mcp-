@@ -395,3 +395,108 @@ describe('C5 — PDF export action', () => {
     expect(downloaded[0].name).not.toContain('.pdf');
   });
 });
+
+/**
+ * C6 wiring: the panel owns the plan lifecycle, so what is tested here is that a
+ * plan appears only when asked for, that it describes the model as it is now, and
+ * that a changed model is called out instead of being papered over.
+ */
+describe('ManufacturingPanel — assembly instructions (C6)', () => {
+  function wardrobe(id = 'wardrobe-1'): SceneObject {
+    return createFurnitureSceneObject('wardrobe', id);
+  }
+
+  function renderWardrobe(object = wardrobe()) {
+    return render(
+      <ManufacturingPanel object={object} projectName="Shkaf loyihasi" scene={sceneWith(object)} />,
+    );
+  }
+
+  function generate(): void {
+    fireEvent.click(screen.getByTestId('assembly-generate'));
+  }
+
+  it('shows the section without publishing steps before the user asks', () => {
+    renderWardrobe();
+    expect(screen.getByTestId('assembly-instructions')).toBeTruthy();
+    expect(screen.queryByTestId('assembly-steps')).toBeNull();
+  });
+
+  it('generates the real ordered steps of the selected piece', () => {
+    renderWardrobe();
+    generate();
+
+    const list = screen.getByTestId('assembly-steps');
+    const items = Array.from(list.children) as HTMLElement[];
+    // Korpus, tokchalar, eshiklar — the parts a wardrobe model actually has.
+    expect(items).toHaveLength(3);
+    expect(items[0].textContent).toContain('1. Korpus');
+    expect(items[1].textContent).toContain('2. Ichki tokchalar');
+    expect(items[2].textContent).toContain('3. Eshiklar');
+    expect(list.textContent).toContain('wardrobe-door');
+  });
+
+  it('reports how many steps were produced', () => {
+    renderWardrobe();
+    generate();
+    expect(screen.getByRole('status').textContent).toMatch(/3 qadam/);
+  });
+
+  it('marks the plan stale when the model changes underneath it', () => {
+    const before = wardrobe();
+    const { rerender } = renderWardrobe(before);
+    generate();
+    expect(screen.queryByTestId('assembly-stale')).toBeNull();
+
+    const changed: SceneObject = {
+      ...before,
+      params: { ...before.params, shelfCount: 1 },
+    };
+    rerender(
+      <ManufacturingPanel object={changed} projectName="Shkaf loyihasi" scene={sceneWith(changed)} />,
+    );
+
+    expect(screen.getByTestId('assembly-stale').textContent).toMatch(/eski reja/);
+    // The previous steps are still on screen; they are labelled, not rewritten.
+    expect(screen.getByTestId('assembly-steps')).toBeTruthy();
+  });
+
+  it('refreshes a stale plan on request', () => {
+    const before = wardrobe();
+    const { rerender } = renderWardrobe(before);
+    generate();
+
+    const changed: SceneObject = { ...before, params: { ...before.params, shelfCount: 1 } };
+    rerender(
+      <ManufacturingPanel object={changed} projectName="Shkaf loyihasi" scene={sceneWith(changed)} />,
+    );
+    generate();
+
+    expect(screen.queryByTestId('assembly-stale')).toBeNull();
+    const list = screen.getByTestId('assembly-steps');
+    const shelves = list.querySelectorAll('.assembly-step')[1].textContent ?? '';
+    expect(shelves).toContain('× 1');
+  });
+
+  it('never shows one object\'s plan against another object', () => {
+    const first = wardrobe('wardrobe-1');
+    const { rerender } = renderWardrobe(first);
+    generate();
+    expect(screen.getByTestId('assembly-steps')).toBeTruthy();
+
+    const second = wardrobe('wardrobe-2');
+    rerender(
+      <ManufacturingPanel object={second} projectName="Shkaf loyihasi" scene={sceneWith(second)} />,
+    );
+
+    expect(screen.queryByTestId('assembly-steps')).toBeNull();
+    // Not "stale": it is simply not this object's plan.
+    expect(screen.queryByTestId('assembly-stale')).toBeNull();
+  });
+
+  it('labels the steps of the default table as role-derived, not as a modelled joint', () => {
+    renderPanel();
+    generate();
+    expect(screen.getByTestId('assembly-source-1').textContent).toBe('Roldan kelib chiqqan');
+  });
+});

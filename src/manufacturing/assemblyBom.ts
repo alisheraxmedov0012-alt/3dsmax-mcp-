@@ -27,7 +27,7 @@ import {
 import { convertLength, roundLength } from './units';
 
 /** Role tag written by `assembleParts` -> the kind vocabulary the BOM uses. */
-const ROLE_TO_KIND: Record<string, PartKind> = {
+export const ROLE_TO_KIND: Record<string, PartKind> = {
   corpus: 'body',
   divider: 'board',
   shelf: 'shelf',
@@ -39,6 +39,23 @@ const ROLE_TO_KIND: Record<string, PartKind> = {
   stringer: 'frame',
   back: 'back',
 };
+
+/**
+ * The part kind an assembly role maps to, or `unknown` for a role the BOM has no
+ * vocabulary for.
+ *
+ * Exported because the graph (`wall-cabinet-door-2`) and the BOM
+ * (`wall-cabinet-door`) use different id vocabularies; C6 needs the same mapping
+ * the BOM uses rather than a second opinion on it.
+ */
+export function assemblyPartKind(role: string): PartKind {
+  return ROLE_TO_KIND[role] ?? 'unknown';
+}
+
+/** Manufacturing `partId` for one role of one assembly kind. */
+export function assemblyBomPartId(kind: AssemblyKind, role: string): string {
+  return `${kind}-${assemblyPartKind(role)}`;
+}
 
 export interface AssemblyBomRow {
   name: string;
@@ -75,7 +92,7 @@ export const ASSEMBLY_BOM_LIMITATIONS: readonly string[] = [
   "Assembly manufacturing-ready emas: qirra (edge banding) va yig'ish sxemasi modellashtirilmagan.",
 ];
 
-const ASSEMBLY_LABELS: Record<AssemblyKind, string> = {
+export const ASSEMBLY_TYPE_LABELS: Record<AssemblyKind, string> = {
   'kitchen-base-run': 'Oshxona pastki moduli',
   'wall-cabinet': 'Osma oshxona shkafi',
   'wardrobe-section': 'Shkaf seksiyasi',
@@ -213,7 +230,7 @@ export function buildAssemblyBom(
     ok: true,
     bom: {
       assemblyKind: kind,
-      typeLabel: ASSEMBLY_LABELS[kind],
+      typeLabel: ASSEMBLY_TYPE_LABELS[kind],
       unit: 'mm',
       rows,
       totalParts: totalPartCount(groups),

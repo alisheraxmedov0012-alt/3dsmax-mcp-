@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { useReducer, useState } from 'react';
 import { AssemblyPanel } from './AssemblyPanel';
 import { createDefaultSceneState, MAX_ASSEMBLIES_PER_SCENE, type SceneAssembly } from '../scene/types';
+import { ASSEMBLY_DEFAULTS as DEFAULTS } from '../geometry/assemblies/params';
 import { sceneReducer } from '../scene/sceneReducer';
 
 /**
@@ -259,5 +260,80 @@ describe('AssemblyPanel wired to the real reducer', () => {
 
     expect(list()).toBeNull();
     expect(screen.getByText(/Hozircha assembly yo'q/)).toBeTruthy();
+  });
+});
+
+/**
+ * C6: the assembly graph is the only stored part-to-part relation in the project,
+ * so the instructions opened from this panel are the ones that can honestly call
+ * a relationship "modelda belgilangan".
+ */
+describe('AssemblyPanel — assembly instructions (C6)', () => {
+  const WALL_CABINET: SceneAssembly = {
+    id: 'asm-1',
+    kind: 'wall-cabinet',
+    params: { ...DEFAULTS['wall-cabinet'] },
+  };
+
+  beforeEach(() => {
+    vi.stubEnv('VITE_ASSEMBLY_ENABLED', 'true');
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllEnvs();
+  });
+
+  it('opens instructions for one assembly only', () => {
+    const { container } = render(<AssemblyPanel assemblies={[WALL_CABINET]} onAdd={vi.fn()} onDelete={vi.fn()} />);
+    expect(container.querySelector('[data-testid="assembly-steps"]')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('assembly-instructions-asm-1'));
+
+    const steps = container.querySelectorAll('.assembly-step');
+    expect(steps).toHaveLength(2);
+    expect(steps[0].textContent).toContain('1. Korpus');
+    expect(steps[1].textContent).toContain('2. Eshiklar');
+  });
+
+  it('labels the door step as a modelled relationship', () => {
+    render(<AssemblyPanel assemblies={[WALL_CABINET]} onAdd={vi.fn()} onDelete={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('assembly-instructions-asm-1'));
+
+    expect(screen.getByTestId('assembly-source-1').textContent).toBe('Roldan kelib chiqqan');
+    expect(screen.getByTestId('assembly-source-2').textContent).toBe('Modelda belgilangan');
+  });
+
+  it('names the manufacturing part ids and quantities of the assembly', () => {
+    const { container } = render(
+      <AssemblyPanel assemblies={[WALL_CABINET]} onAdd={vi.fn()} onDelete={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByTestId('assembly-instructions-asm-1'));
+
+    const text = container.querySelector('.assembly__steps')?.textContent ?? '';
+    expect(text).toContain('wall-cabinet-body');
+    expect(text).toContain('wall-cabinet-door');
+    expect(text).toContain('× 2');
+    // The graph ids are not leaked into the instructions.
+    expect(text).not.toContain('wall-cabinet-door-1');
+  });
+
+  it('closes the instructions when their assembly is deleted', () => {
+    render(<Harness initial={[WALL_CABINET]} />);
+    fireEvent.click(screen.getByTestId('assembly-instructions-asm-1'));
+    expect(screen.getByTestId('assembly-steps')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /assembly o'chirish/ }));
+
+    expect(screen.queryByTestId('assembly-steps')).toBeNull();
+    expect(list()).toBeNull();
+  });
+
+  it('keeps the flag authoritative — no instructions without it', () => {
+    vi.stubEnv('VITE_ASSEMBLY_ENABLED', 'false');
+    const { container } = render(
+      <AssemblyPanel assemblies={[WALL_CABINET]} onAdd={vi.fn()} onDelete={vi.fn()} />,
+    );
+    expect(container.innerHTML).toBe('');
   });
 });
