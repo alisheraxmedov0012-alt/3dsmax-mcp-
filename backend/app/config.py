@@ -7,7 +7,9 @@ expected variables. Production must provide its own values.
 from __future__ import annotations
 
 from functools import lru_cache
+from urllib.parse import urlsplit
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 #: Payment provider names that are sandbox/test substitutes and must never be
@@ -20,6 +22,59 @@ SAFE_SAMESITE_VALUES = frozenset({"lax", "strict"})
 #: Schemes accepted for ``APP_REDIS_URL`` (plain and TLS).
 REDIS_URL_SCHEMES = ("redis://", "rediss://")
 
+#: Schemes accepted for ``APP_AI_BASE_URL``. Plain HTTP is only allowed for the
+#: loopback hosts below; every other host must use TLS so the API key never
+#: travels in clear text.
+AI_BASE_URL_SCHEMES = frozenset({"http", "https"})
+
+#: Exact hostnames allowed to use plain HTTP: a provider gateway running on the
+#: developer's own machine. Matched exactly, so ``localhost.example.com`` and
+#: ``127.0.0.1.attacker.example`` are *not* loopback.
+LOOPBACK_HOSTNAMES = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def validate_ai_base_url(value: str) -> str:
+    """Reject an ``APP_AI_BASE_URL`` that would leak the API key or is unusable.
+
+    Rules, in order:
+
+    * blank stays blank — an empty value already means "provider not
+      configured" and that behaviour is preserved;
+    * the scheme must be ``http`` or ``https``, so ``file:``, ``ftp:`` and a
+      scheme-less value are refused;
+    * a hostname is required;
+    * embedded credentials (``user:pass@host``) are refused, because a password
+      in configuration is a secret in the wrong place;
+    * ``https`` is accepted for any host;
+    * ``http`` is accepted only for an exact loopback hostname.
+
+    The raised message names the failed rule and never echoes the value, so a
+    credential or key inside a malformed URL cannot reach a log or an API error.
+    """
+    if not value or not value.strip():
+        return value
+
+    parsed = urlsplit(value.strip())
+
+    if parsed.scheme.lower() not in AI_BASE_URL_SCHEMES:
+        raise ValueError(
+            "APP_AI_BASE_URL sxemasi noto'g'ri: faqat https:// (va lokal "
+            "ishlab chiqish uchun http:// loopback) qo'llab-quvvatlanadi."
+        )
+    if not parsed.hostname:
+        raise ValueError("APP_AI_BASE_URL manzilida host ko'rsatilmagan.")
+    if parsed.username or parsed.password:
+        raise ValueError(
+            "APP_AI_BASE_URL ichida login/parol bo'lmasligi kerak: sirli "
+            "ma'lumot faqat APP_AI_API_KEY orqali beriladi."
+        )
+    if parsed.scheme.lower() == "http" and parsed.hostname not in LOOPBACK_HOSTNAMES:
+        raise ValueError(
+            "APP_AI_BASE_URL tashqi manzil uchun https:// bo'lishi shart; "
+            "http:// faqat localhost/127.0.0.1 uchun ruxsat etilgan."
+        )
+    return value
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -27,6 +82,10 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        # A rejected value must never be echoed into a startup log: the settings
+        # include ``ai_api_key``, ``secret_key`` and ``database_url``, and a
+        # malformed ``ai_base_url`` could carry credentials in its userinfo.
+        hide_input_in_errors=True,
     )
 
     # Core
@@ -145,6 +204,16 @@ class Settings(BaseSettings):
     # A conservative starting value for a single-operator deployment; raise it
     # deliberately after watching real usage.
     ai_global_daily_limit: int = 200
+
+    @field_validator("ai_base_url")
+    @classmethod
+    def _check_ai_base_url(cls, value: str) -> str:
+        """Reject an unsafe provider URL while the settings load.
+
+        Failing here means a misconfigured deployment cannot start, instead of
+        silently sending the API key over plain HTTP on the first request.
+        """
+        return validate_ai_base_url(value)
 
     @property
     def cors_origin_list(self) -> list[str]:
