@@ -134,6 +134,11 @@ class Settings(BaseSettings):
     ai_model: str | None = None
     ai_timeout_seconds: float = 20.0
     ai_max_retries: int = 1
+    # Overall wall-clock budget for one AI design request, covering every HTTP
+    # call, retry wait and repair attempt. Kept below the frontend's 30s abort
+    # (src/api/client.ts) so the browser receives a controlled error instead of
+    # a dead connection. The two values must be changed together.
+    ai_request_budget_seconds: float = 25.0
     # System-wide ceiling on AI provider calls per UTC day, across every user and
     # every backend replica. This is an abuse/cost guard, not a plan limit: it
     # protects the budget when a plan limit is unset or an account is misbehaving.

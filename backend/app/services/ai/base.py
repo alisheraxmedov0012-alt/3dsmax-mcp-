@@ -52,6 +52,17 @@ class AiAmbiguousPrompt(AiProviderError):
     code = "ai_ambiguous_type"
 
 
+class AiTimeout(AiProviderError):
+    """The request ran out of its overall time budget before an answer arrived.
+
+    Distinct from a generic provider failure: the provider may be healthy but
+    slow, and retrying will not help. Only the client-side wait is bounded — the
+    provider may still be working on an abandoned request.
+    """
+
+    code = "ai_timeout"
+
+
 class AiProvider(Protocol):
     """A text -> design spec provider."""
 
@@ -75,6 +86,7 @@ __all__ = [
     "AiOutputError",
     "AiProvider",
     "AiProviderError",
+    "AiTimeout",
     "DesignRequest",
     "ProviderNotConfigured",
 ]

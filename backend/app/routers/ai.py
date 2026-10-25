@@ -58,6 +58,7 @@ from ..services.ai.base import (
     AiAmbiguousPrompt,
     AiOutputError,
     AiProviderError,
+    AiTimeout,
     DesignRequest,
     ProviderNotConfigured,
 )
@@ -182,6 +183,16 @@ def create_design(
             "ai_invalid_output",
             "AI javobi tekshiruvdan o'tmadi. Iltimos, tavsifni aniqroq yozing.",
             status_code=422,
+        ) from exc
+    except AiTimeout as exc:
+        # A budget overrun is not a provider failure: the service may be healthy
+        # but too slow. 504 keeps it distinguishable from ``ai_provider_error``
+        # while staying in the ``5xx`` range the frontend already treats as
+        # "unavailable, fall back to the offline analyzer".
+        raise ApiError(
+            "ai_timeout",
+            "AI xizmati vaqt chegarasida javob bermadi. Mahalliy tahlil ishlatilmoqda.",
+            status_code=504,
         ) from exc
     except AiProviderError as exc:
         raise ApiError(

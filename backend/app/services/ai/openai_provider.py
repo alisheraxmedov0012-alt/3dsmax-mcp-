@@ -19,6 +19,18 @@ Transient HTTP failures (``RETRYABLE_STATUS_CODES``) are retried up to
 ``max_retries`` times, honouring ``Retry-After`` when the provider sends one. A
 permanent status (400/401/403/404/422 and the rest) fails at once: repeating the
 same request cannot change the answer and every call may cost money.
+
+Every attempt, retry wait and repair call shares one wall-clock budget
+(``budget``, default ``DEFAULT_REQUEST_BUDGET_SECONDS``). Each HTTP call gets
+whichever is smaller: its own timeout or the time left in the budget, so no
+single call outlives the deadline. When the budget is gone the request stops
+with :class:`AiTimeout` instead of starting another call.
+
+What the deadline does *not* do: it bounds how long *this process waits*. It
+cannot cancel work already running at the provider, and it does not kill an
+in-flight socket — it only stops waiting for it, and the per-call timeout ends
+the wait at the remaining budget. An abandoned provider call may still be
+completed and billed remotely.
 """
 from __future__ import annotations
 
@@ -29,7 +41,13 @@ from collections.abc import Callable
 import httpx
 from pydantic import ValidationError
 
-from .base import AiOutputError, AiProviderError, DesignRequest, ProviderNotConfigured
+from .base import (
+    AiOutputError,
+    AiProviderError,
+    AiTimeout,
+    DesignRequest,
+    ProviderNotConfigured,
+)
 from .spec import DesignSpec, FurnitureType, RawDesignSpec, build_design_spec
 
 logger = logging.getLogger("app.ai")
@@ -43,12 +61,17 @@ MAX_REPAIR_ATTEMPTS = 1
 RETRYABLE_STATUS_CODES: frozenset[int] = frozenset({408, 425, 429, 500, 502, 503, 504})
 
 #: Hard ceiling on one wait, so a large or hostile ``Retry-After`` cannot stall
-#: a request. The overall request deadline is a separate concern (A3.4 F2).
+#: a request. The overall budget caps it further.
 MAX_RETRY_WAIT_SECONDS = 5.0
 
 #: Wait before the first retry when the provider sends no ``Retry-After``.
 #: Doubles per attempt and is capped by ``MAX_RETRY_WAIT_SECONDS``.
 RETRY_BACKOFF_SECONDS = 0.5
+
+#: Wall-clock budget for one design request when the caller does not supply one.
+#: Must stay below the frontend's 30s abort (``src/api/client.ts``) so the browser
+#: gets a controlled error rather than a dead connection.
+DEFAULT_REQUEST_BUDGET_SECONDS = 25.0
 
 _FURNITURE_VALUES = ", ".join(f'"{t.value}"' for t in FurnitureType)
 
@@ -144,6 +167,8 @@ class OpenAiCompatibleProvider:
         max_retries: int = 1,
         transport: httpx.BaseTransport | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        budget: float = DEFAULT_REQUEST_BUDGET_SECONDS,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._api_key = api_key or None
         self._base_url = (base_url or "").rstrip("/") or None
@@ -155,21 +180,45 @@ class OpenAiCompatibleProvider:
         self._transport = transport
         # Injected in tests so a retry does not actually wait.
         self._sleep = sleep
+        # Per-request budget. Held on the instance, never shared, so concurrent
+        # requests cannot shorten each other's deadline.
+        self._budget = max(0.0, budget)
+        # Monotonic clock, injected in tests to make deadline tests instant.
+        self._clock = clock
 
     @property
     def is_configured(self) -> bool:
         return bool(self._api_key and self._base_url and self._model)
 
+    def _remaining(self, deadline: float) -> float:
+        """Time left in the budget; never negative."""
+        return max(0.0, deadline - self._clock())
+
+    def _wait_within_budget(self, seconds: float, deadline: float) -> bool:
+        """Sleep ``seconds`` if it fits in the budget; report whether it did.
+
+        A wait that would consume the remaining budget leaves no time for the
+        call it is meant to precede, so it is refused instead of being shortened:
+        retrying with no time left would only delay the error.
+        """
+        remaining = self._remaining(deadline)
+        if seconds >= remaining:
+            return False
+        self._sleep(seconds)
+        return True
+
     def _endpoint(self) -> str:
         assert self._base_url is not None  # guarded by is_configured
         return f"{self._base_url}/chat/completions"
 
-    def _post(self, payload: dict) -> httpx.Response:
+    def _post(self, payload: dict, timeout: float) -> httpx.Response:
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
         }
-        with httpx.Client(timeout=self._timeout, transport=self._transport) as client:
+        # The client is opened and closed per call, so its connection is released
+        # on timeout, on error and on success alike.
+        with httpx.Client(timeout=timeout, transport=self._transport) as client:
             return client.post(self._endpoint(), json=payload, headers=headers)
 
     def _interpret(self, content: str) -> DesignSpec:
@@ -179,8 +228,8 @@ class OpenAiCompatibleProvider:
             raise AiOutputError("AI javobi kutilgan sxemaga mos kelmadi.") from exc
         return build_design_spec(raw, provider=self.name)
 
-    def _request_once(self, payload: dict) -> str:
-        response = self._post(payload)
+    def _request_once(self, payload: dict, timeout: float) -> str:
+        response = self._post(payload, timeout)
         if response.status_code in RETRYABLE_STATUS_CODES:
             raise _RetryableStatus(
                 response.status_code, _retry_after_seconds(response)
@@ -211,10 +260,24 @@ class OpenAiCompatibleProvider:
         repair_left = MAX_REPAIR_ATTEMPTS
         network_attempts = 0
         last_error: Exception | None = None
+        # Set when a retry is abandoned because its wait would not fit in the
+        # budget: the request then ends as a timeout, not as a provider error.
+        budget_exhausted = False
+        # One deadline for the whole request: every call, wait and repair draws
+        # from the same budget.
+        deadline = self._clock() + self._budget
 
         while True:
+            remaining = self._remaining(deadline)
+            if remaining <= 0:
+                raise AiTimeout(
+                    "AI so'rovi vaqt chegarasidan oshdi (javob olinmadi)."
+                )
+
             try:
-                content = self._request_once(payload)
+                # Never outlive the deadline: the call may wait at most what is
+                # left of the budget.
+                content = self._request_once(payload, min(self._timeout, remaining))
             except _RetryableStatus as exc:
                 network_attempts += 1
                 last_error = exc
@@ -226,9 +289,11 @@ class OpenAiCompatibleProvider:
                 )
                 if network_attempts > self._max_retries:
                     break
-                # The wait is capped, so a Retry-After of hours cannot stall the
-                # request. Retrying is the only thing this branch does.
-                self._sleep(_wait_before_retry(network_attempts, exc.retry_after))
+                if not self._wait_within_budget(
+                    _wait_before_retry(network_attempts, exc.retry_after), deadline
+                ):
+                    budget_exhausted = True
+                    break
                 continue
             except (httpx.HTTPError, KeyError, IndexError, ValueError, TypeError) as exc:
                 network_attempts += 1
@@ -241,7 +306,11 @@ class OpenAiCompatibleProvider:
                 )
                 if network_attempts > self._max_retries:
                     break
-                self._sleep(_wait_before_retry(network_attempts, None))
+                if not self._wait_within_budget(
+                    _wait_before_retry(network_attempts, None), deadline
+                ):
+                    budget_exhausted = True
+                    break
                 continue
 
             try:
@@ -249,6 +318,11 @@ class OpenAiCompatibleProvider:
             except AiOutputError:
                 if repair_left <= 0:
                     raise
+                # No budget for another call means no repair attempt either.
+                if self._remaining(deadline) <= 0:
+                    raise AiTimeout(
+                        "AI so'rovi vaqt chegarasidan oshdi (javob tekshirilmadi)."
+                    ) from None
                 # Bounded repair: exactly one extra call, with the failure shown
                 # to the model. Never an unbounded loop.
                 repair_left -= 1
@@ -262,6 +336,12 @@ class OpenAiCompatibleProvider:
                     ],
                 }
 
+        # The budget, not the attempt count, ended the request: report that
+        # honestly instead of blaming the provider. This also keeps the internal
+        # retry error from ever reaching the caller.
+        if budget_exhausted or self._remaining(deadline) <= 0:
+            raise AiTimeout("AI so'rovi vaqt chegarasidan oshdi.")
+
         # Exhausted the allowed attempts. A transient HTTP failure keeps its
         # status in the message; a transport failure gets the generic one, as
         # before. Either way the caller sees a controlled AiProviderError.
@@ -271,6 +351,7 @@ class OpenAiCompatibleProvider:
 
 
 __all__ = [
+    "DEFAULT_REQUEST_BUDGET_SECONDS",
     "MAX_REPAIR_ATTEMPTS",
     "MAX_RETRY_WAIT_SECONDS",
     "RETRYABLE_STATUS_CODES",

@@ -17,11 +17,13 @@ from app.config import get_settings
 from app.services.ai.base import (
     AiOutputError,
     AiProviderError,
+    AiTimeout,
     DesignRequest,
     ProviderNotConfigured,
 )
 from app.services.ai.local_provider import LocalHeuristicProvider
 from app.services.ai.openai_provider import (
+    DEFAULT_REQUEST_BUDGET_SECONDS,
     MAX_RETRY_WAIT_SECONDS,
     RETRY_BACKOFF_SECONDS,
     RETRYABLE_STATUS_CODES,
@@ -391,6 +393,25 @@ class _NoSleep:
         self.calls.append(seconds)
 
 
+class _FakeClock:
+    """A monotonic clock the test advances instead of waiting.
+
+    ``sleep`` advances the same clock, so retry waits count against the request
+    budget exactly as they would in production, without costing real time.
+    """
+
+    def __init__(self, start: float = 0.0) -> None:
+        self.now = start
+        self.waits: list[float] = []
+
+    def __call__(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.waits.append(seconds)
+        self.now += seconds
+
+
 def _provider_with(handler, **kwargs) -> OpenAiCompatibleProvider:
     kwargs.setdefault("max_retries", 0)
     kwargs.setdefault("sleep", _NoSleep())
@@ -691,3 +712,235 @@ def test_unexpected_error_is_not_swallowed():
 
     with pytest.raises(RuntimeError):
         _provider_with(handler, max_retries=2).generate_design(DesignRequest(text="stol"))
+
+
+# --------------------------------------------------------------------------- #
+# A3.4 F2 — one wall-clock budget for the whole request
+# --------------------------------------------------------------------------- #
+
+
+def test_successful_request_is_unaffected_by_the_budget():
+    """The happy path still costs one call and no waiting."""
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_chat_response(_VALID_SPEC))
+
+    clock = _FakeClock()
+    spec = _provider_with(handler, clock=clock, sleep=clock.sleep, budget=25.0).generate_design(
+        DesignRequest(text="stol")
+    )
+
+    assert spec.furniture is FurnitureType.TABLE
+    assert clock.waits == []
+
+
+def test_http_call_is_capped_by_the_remaining_budget():
+    """A per-call timeout larger than the budget is reduced to what is left."""
+    seen: dict[str, dict] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["timeout"] = request.extensions["timeout"]
+        return httpx.Response(200, json=_chat_response(_VALID_SPEC))
+
+    # The call timeout (20s) is longer than the budget (8s), so the budget wins.
+    clock = _FakeClock()
+    _provider_with(handler, timeout=20.0, budget=8.0, clock=clock).generate_design(
+        DesignRequest(text="stol")
+    )
+
+    assert seen["timeout"]["read"] == 8.0
+
+
+def test_per_call_timeout_is_used_when_it_is_the_smaller_one():
+    seen: dict[str, dict] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["timeout"] = request.extensions["timeout"]
+        return httpx.Response(200, json=_chat_response(_VALID_SPEC))
+
+    clock = _FakeClock()
+    _provider_with(handler, timeout=3.0, budget=25.0, clock=clock).generate_design(
+        DesignRequest(text="stol")
+    )
+
+    assert seen["timeout"]["read"] == 3.0
+
+
+def test_no_retry_starts_after_the_deadline():
+    """When the budget is gone a transient error is not retried."""
+    calls: list[int] = []
+    clock = _FakeClock()
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        clock.now += 30.0  # the provider took longer than the whole budget
+        return httpx.Response(503)
+
+    with pytest.raises(AiTimeout):
+        _provider_with(
+            handler, max_retries=2, clock=clock, sleep=clock.sleep, budget=25.0
+        ).generate_design(DesignRequest(text="stol"))
+
+    assert len(calls) == 1
+    assert clock.waits == []
+
+
+def test_retry_wait_counts_against_the_budget():
+    """A wait that fits the budget is taken; the retry then runs."""
+    calls: list[int] = []
+    clock = _FakeClock()
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            return httpx.Response(429, headers={"Retry-After": "4"})
+        return httpx.Response(200, json=_chat_response(_VALID_SPEC))
+
+    spec = _provider_with(
+        handler, max_retries=1, clock=clock, sleep=clock.sleep, budget=25.0
+    ).generate_design(DesignRequest(text="stol"))
+
+    assert spec.furniture is FurnitureType.TABLE
+    assert clock.waits == [4.0]
+    assert clock.now == 4.0  # the wait consumed part of the budget
+
+
+def test_retry_is_abandoned_when_the_wait_would_exceed_the_budget():
+    """Retry-After longer than the remaining budget is not waited out."""
+    calls: list[int] = []
+    clock = _FakeClock()
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        # Only 2s of budget left, but the provider asks for the capped 5s.
+        clock.now += 23.0
+        return httpx.Response(429, headers={"Retry-After": "5"})
+
+    with pytest.raises(AiTimeout):
+        _provider_with(
+            handler, max_retries=2, clock=clock, sleep=clock.sleep, budget=25.0
+        ).generate_design(DesignRequest(text="stol"))
+
+    assert len(calls) == 1
+    assert clock.waits == []
+
+
+def test_no_repair_starts_after_the_deadline():
+    """An unusable answer is not repaired once the budget is spent."""
+    calls: list[int] = []
+    clock = _FakeClock()
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        clock.now += 30.0
+        return httpx.Response(200, json=_chat_response("not json at all"))
+
+    with pytest.raises(AiTimeout):
+        _provider_with(handler, clock=clock, sleep=clock.sleep, budget=25.0).generate_design(
+            DesignRequest(text="stol")
+        )
+
+    assert len(calls) == 1
+
+
+def test_repair_still_runs_while_budget_remains():
+    """The repair path is unchanged when there is time left."""
+    calls: list[int] = []
+    contents = ["not json at all", _VALID_SPEC]
+    clock = _FakeClock()
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(200, json=_chat_response(contents[len(calls) - 1]))
+
+    spec = _provider_with(
+        handler, max_retries=1, clock=clock, sleep=clock.sleep, budget=25.0
+    ).generate_design(DesignRequest(text="stol"))
+
+    assert spec.furniture is FurnitureType.TABLE
+    assert len(calls) == 2
+
+
+def test_zero_budget_fails_before_any_call():
+    """An exhausted budget from the start makes no HTTP request at all."""
+    calls: list[int] = []
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(200, json=_chat_response(_VALID_SPEC))
+
+    with pytest.raises(AiTimeout):
+        _provider_with(handler, budget=0.0).generate_design(DesignRequest(text="stol"))
+
+    assert calls == []
+
+
+def test_timeout_is_distinct_from_a_provider_error():
+    """A budget overrun is an AiTimeout, not a generic provider failure."""
+    clock = _FakeClock()
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        clock.now += 30.0
+        return httpx.Response(503)
+
+    with pytest.raises(AiTimeout) as excinfo:
+        _provider_with(
+            handler, max_retries=1, clock=clock, sleep=clock.sleep, budget=25.0
+        ).generate_design(DesignRequest(text="stol"))
+
+    assert type(excinfo.value) is not AiProviderError
+    assert excinfo.value.code == "ai_timeout"
+    assert "test-key-not-real" not in str(excinfo.value)
+
+
+def test_parallel_requests_have_independent_budgets():
+    """A slow request must not shorten another request's deadline."""
+    clock = _FakeClock()
+
+    def slow(_: httpx.Request) -> httpx.Response:
+        clock.now += 24.0
+        return httpx.Response(503)
+
+    def fast(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_chat_response(_VALID_SPEC))
+
+    slow_provider = _provider_with(
+        slow, max_retries=1, clock=clock, sleep=clock.sleep, budget=25.0
+    )
+    fast_provider = _provider_with(
+        fast, max_retries=1, clock=clock, sleep=clock.sleep, budget=25.0
+    )
+
+    with pytest.raises(AiTimeout):
+        slow_provider.generate_design(DesignRequest(text="stol"))
+
+    # The slow request consumed the shared fake clock, but the second provider
+    # starts its own deadline, so it still has its full budget.
+    spec = fast_provider.generate_design(DesignRequest(text="stol"))
+    assert spec.furniture is FurnitureType.TABLE
+
+
+def test_default_budget_is_below_the_frontend_timeout():
+    """The backend must give up before the browser's 30s abort."""
+    assert DEFAULT_REQUEST_BUDGET_SECONDS < 30.0
+
+
+def test_timeout_maps_to_the_ai_timeout_api_error(client, monkeypatch):
+    """The endpoint answers a controlled 504 instead of an unhandled 500."""
+    clock = _FakeClock()
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        clock.now += 30.0
+        return httpx.Response(503)
+
+    provider = _provider_with(
+        handler, max_retries=1, clock=clock, sleep=clock.sleep, budget=25.0
+    )
+    _use_provider(monkeypatch, provider)
+    _authenticated(client, "deadline@example.com")
+
+    response = client.post("/api/ai/design", json={"text": "180x60x75 sm stol"})
+
+    assert response.status_code == 504
+    assert response.json()["error"]["code"] == "ai_timeout"
+    assert "test-key-not-real" not in response.text
