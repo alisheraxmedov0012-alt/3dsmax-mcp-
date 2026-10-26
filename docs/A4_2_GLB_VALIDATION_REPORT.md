@@ -135,13 +135,23 @@ stay open until a real third-party tool checks the file.
 
 ## Reproducing
 
-The GLB is build output and is not committed. To regenerate and check it:
+The GLB is build output and is not committed, but the harness that produces it
+is: `tools/glb-harness/` (see its README). Short version:
 
 ```bash
+python tools/glb-harness/server.py --out /tmp/a4-validation &
+npx vite --config tools/glb-harness/vite.config.mjs &
+chromium --headless=new --no-sandbox --enable-unsafe-swiftshader --use-gl=swiftshader \
+  --virtual-time-budget=180000 --dump-dom http://127.0.0.1:5199/export.html
+
 cd backend
-python -m pytest tests/test_glb_validate.py -q      # validator's own tests
-python scripts/glb_validate.py path/to/model.glb    # exits 1 on any failure
+python scripts/glb_validate.py /tmp/a4-validation/model-with-room.glb  # exits 1 on any failure
+python -m pytest tests/test_glb_validate.py -q                         # validator's own tests
 ```
 
-The exporter needs a browser (canvas + `GLTFExporter`), so producing the file is
-a manual or harness step; the validator itself needs only Python.
+Two independent runs, in different directories, produced a **byte-identical**
+file: `sha256 15aabce6e1f9b746224a1625013b737181e60c0690f54ba599b39612842bc6ce`,
+272 076 bytes both times. Procedural textures are deterministic, so a digest
+change between runs means the pipeline changed — which makes the digest usable as
+a regression check.
+

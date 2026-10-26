@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>GLB reopen + render harness</title>
+    <style>
+      html, body { margin: 0; background: #101014; }
+      canvas { display: block; }
+      #out { position: fixed; left: 8px; top: 8px; color: #9f9; font: 12px monospace;
+             white-space: pre; background: #000a; padding: 6px; }
+    </style>
+  </head>
+  <body>
+    <pre id="out">starting…</pre>
+    <script type="module">
+      // Re-parses the finished .glb with GLTFLoader and renders it, then reads the
+      // framebuffer back. This is an independent parse path from the exporter, but
+      // it is still the three.js ecosystem — supporting evidence, not third-party
+      // confirmation. Blender and the Khronos validator remain NOT VERIFIED.
+      const out = document.getElementById('out');
+      const lines = [];
+      const note = (line) => {
+        lines.push(line);
+        out.textContent = lines.join('\n');
+        console.log(line);
+      };
+
+      async function main() {
+        try {
+          const THREE = await import('three');
+          const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
+
+          const response = await fetch('/artefakt/model-with-room.glb');
+          const buffer = await response.arrayBuffer();
+          note(`fetched=${buffer.byteLength} bytes status=${response.status}`);
+
+          const loader = new GLTFLoader();
+          const gltf = await new Promise((resolve, reject) => loader.parse(buffer, '', resolve, reject));
+          note(`parse=OK scenes=${gltf.scenes.length}`);
+
+          let meshes = 0;
+          let withMap = 0;
+          let transparent = 0;
+          const materials = new Set();
+          gltf.scene.traverse((node) => {
+            if (!node.isMesh) return;
+            meshes += 1;
+            for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
+              if (!material) continue;
+              materials.add(material.uuid);
+              if (material.map) withMap += 1;
+              if (material.transparent === true) transparent += 1;
+            }
+          });
+          note(`reload meshes=${meshes} uniqueMaterials=${materials.size} withMap=${withMap} transparent=${transparent}`);
+
+          const box = new THREE.Box3().setFromObject(gltf.scene);
+          const size = box.getSize(new THREE.Vector3());
+          note('bbox=' + [size.x, size.y, size.z].map((v) => v.toFixed(0)).join('x'));
+
+          const scene = new THREE.Scene();
+          scene.background = new THREE.Color(0x14161c);
+          scene.add(gltf.scene);
+          scene.add(new THREE.AmbientLight(0xffffff, 1.6));
+          const key = new THREE.DirectionalLight(0xffffff, 2.2);
+          key.position.set(400, 700, 520);
+          scene.add(key);
+
+          const width = 1280;
+          const height = 720;
+          const camera = new THREE.PerspectiveCamera(42, width / height, 1, 20000);
+          const centre = box.getCenter(new THREE.Vector3());
+          const radius = Math.max(size.x, size.y, size.z) || 1;
+          camera.position.set(centre.x + radius * 1.5, centre.y + radius * 1.1, centre.z + radius * 1.7);
+          camera.lookAt(centre);
+
+          const renderer = new THREE.WebGLRenderer({ antialias: true });
+          renderer.setSize(width, height);
+          renderer.outputColorSpace = THREE.SRGBColorSpace;
+          document.body.appendChild(renderer.domElement);
+          renderer.render(scene, camera);
+
+          const gl = renderer.getContext();
+          const pixels = new Uint8Array(width * height * 4);
+          gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+          const colours = new Set();
+          let nonBackground = 0;
+          for (let i = 0; i < pixels.length; i += 4) {
+            const [r, g, b] = [pixels[i], pixels[i + 1], pixels[i + 2]];
+            colours.add((r << 16) | (g << 8) | b);
+            if (Math.abs(r - 0x14) > 12 || Math.abs(g - 0x16) > 12 || Math.abs(b - 0x1c) > 12) nonBackground += 1;
+          }
+          const percent = (nonBackground / (width * height)) * 100;
+          note(`pixels uniqueColours=${colours.size} nonBackground=${percent.toFixed(1)}%`);
+
+          await fetch('/artefakt/visual', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ meshes, uniqueMaterials: materials.size, withMap, transparent, uniqueColours: colours.size }),
+          });
+          note('DONE');
+        } catch (error) {
+          note('ERROR=' + (error && error.stack ? error.stack : String(error)));
+        }
+      }
+
+      await main();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>GLB export harness</title>
+    <style>
+      body { background: #101014; color: #cfe; font: 13px/1.5 monospace; padding: 12px; }
+      pre { white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <pre id="out">starting…</pre>
+    <script type="module">
+      // Exports a scene with every furniture type and real PBR presets, using the
+      // shipped pipeline (src/export/sceneExport.ts). Runs in a real browser so
+      // the textures come from a real 2D canvas, not the jsdom stub.
+      const out = document.getElementById('out');
+      const lines = [];
+      const note = (line) => {
+        lines.push(line);
+        out.textContent = lines.join('\n');
+        console.log(line);
+      };
+
+      function webglInfo() {
+        const canvas = document.createElement('canvas');
+        const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+        if (!gl) return { webgl: false };
+        const debug = gl.getExtension('WEBGL_debug_renderer_info');
+        return {
+          webgl: true,
+          version: gl.getParameter(gl.VERSION),
+          renderer: debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : 'unknown',
+        };
+      }
+
+      async function postBinary(path, arrayBuffer) {
+        const response = await fetch(path, {
+          method: 'POST',
+          headers: { 'content-type': 'application/octet-stream' },
+          body: arrayBuffer,
+        });
+        if (!response.ok) throw new Error(`POST ${path} -> ${response.status}`);
+      }
+
+      async function main() {
+        try {
+          note('webgl=' + JSON.stringify(webglInfo()));
+
+          const probe = document.createElement('canvas');
+          probe.width = probe.height = 128;
+          const ctx = probe.getContext('2d');
+          ctx.fillStyle = 'rgb(180,120,60)';
+          ctx.fillRect(0, 0, 128, 128);
+          note('2d-canvas=' + (ctx ? 'real' : 'null') + ' probePngBytes=' + probe.toDataURL('image/png').length);
+
+          const { exportSceneToGlb } = await import('@repo/src/export/sceneExport.ts');
+          const { FURNITURE_TYPES, createFurnitureParams } = await import('@repo/src/geometry/furniture/types.ts');
+          const { ROOM_DEFAULTS, SCENE_SCHEMA_VERSION, createFurnitureSceneObject } = await import(
+            '@repo/src/scene/types.ts'
+          );
+          const { createDefaultSettings } = await import('@repo/src/scene/sceneSettings.ts');
+
+          // Presets are cycled so at least one object carries each material kind,
+          // and glass (opacity < 1) is represented for the BLEND check.
+          const presets = [
+            'wood-oak',
+            'metal-steel',
+            'fabric-linen',
+            'leather-brown',
+            'glass-clear',
+            'plastic-white',
+            'painted-red',
+            'wood-oak',
+          ];
+
+          const objects = FURNITURE_TYPES.map((type, index) => {
+            const columns = 4;
+            const materialId = presets[index % presets.length];
+            const isGlass = materialId === 'glass-clear';
+            return createFurnitureSceneObject(type, `obj-${type}`, {
+              name: type,
+              position: {
+                x: (index % columns) * 220 - 330,
+                y: 0,
+                z: Math.floor(index / columns) * 260 - 130,
+              },
+              params: createFurnitureParams(type),
+              material: {
+                materialId,
+                metalness: isGlass ? 0.0 : 0.05,
+                roughness: isGlass ? 0.05 : 0.6,
+                opacity: isGlass ? 0.35 : 1,
+                textureScale: isGlass ? 1 : 2,
+                normalStrength: isGlass ? 0.5 : 1,
+              },
+            });
+          });
+
+          const sceneData = {
+            schemaVersion: SCENE_SCHEMA_VERSION,
+            room: { ...ROOM_DEFAULTS },
+            objects,
+            settings: createDefaultSettings(),
+          };
+          note(`objects=${objects.length} presets=${presets.join(',')}`);
+
+          const started = performance.now();
+          const withRoom = await exportSceneToGlb(sceneData, { includeRoom: true });
+          note(`exportWithRoom bytes=${withRoom.byteLength} ms=${Math.round(performance.now() - started)}`);
+
+          const furnitureOnly = await exportSceneToGlb(sceneData, { includeRoom: false });
+          note(`exportFurnitureOnly bytes=${furnitureOnly.byteLength}`);
+
+          await postBinary('/artefakt/with-room', withRoom);
+          await postBinary('/artefakt/furniture-only', furnitureOnly);
+          note('DONE');
+        } catch (error) {
+          note('ERROR=' + (error && error.stack ? error.stack : String(error)));
+        }
+      }
+
+      await main();
+    </script>
+  </body>
+</html>
