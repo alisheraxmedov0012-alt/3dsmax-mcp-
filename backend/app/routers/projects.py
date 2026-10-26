@@ -38,9 +38,11 @@ from ..services.projects import (
     delete_project,
     get_owned_project,
     list_owned_projects,
+    prepare_import_scene,
     project_to_dict,
     update_project,
 )
+from ..services.scene_payload import DEFAULT_SCENE_SCHEMA_VERSION
 
 router = APIRouter(prefix="/api", tags=["projects"])
 
@@ -120,7 +122,14 @@ def import_local_projects(
     skipped = 0
     project_ids: list[str] = []
 
-    for item in payload.projects:
+    # Validate every scene before writing anything. Import used to store
+    # ``item.scene`` verbatim, so this path accepted NaN values, oversized scenes
+    # and bad container versions that POST/PATCH /projects reject. Validating the
+    # whole batch first also means a rejected payload leaves no half-imported
+    # projects behind.
+    scenes = [prepare_import_scene(item.scene) for item in payload.projects]
+
+    for item, scene in zip(payload.projects, scenes, strict=True):
         existing = db.execute(
             select(Project).where(
                 Project.user_id == user.id, Project.client_id == item.client_id
@@ -130,8 +139,14 @@ def import_local_projects(
         if existing is not None:
             # Idempotent update; never duplicate.
             existing.name = item.name
-            existing.scene = item.scene
+            existing.scene = scene
+            existing.schema_version = DEFAULT_SCENE_SCHEMA_VERSION
             existing.version = existing.version + 1
+            # Commit per item, like the create branch below. Without it the
+            # update was only flushed if a later item happened to commit, so a
+            # single re-import silently kept the old scene while still reporting
+            # the item as skipped.
+            db.commit()
             project_ids.append(existing.id)
             skipped += 1
             continue
@@ -143,7 +158,11 @@ def import_local_projects(
             user_id=user.id,
             client_id=item.client_id,
             name=item.name,
-            scene=item.scene,
+            scene=scene,
+            # Imports used to fall back to the column default (1) while
+            # create_project wrote the current version, so the same scene was
+            # described differently depending on how it arrived.
+            schema_version=DEFAULT_SCENE_SCHEMA_VERSION,
         )
         db.add(project)
         db.commit()

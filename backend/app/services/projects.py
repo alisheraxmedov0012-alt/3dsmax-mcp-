@@ -43,6 +43,20 @@ def _check_size(scene: dict) -> None:
         )
 
 
+def prepare_import_scene(payload: dict) -> dict:
+    """Validate one imported scene with the same checks create/update apply.
+
+    Import used to store ``item.scene`` as-is, which meant a NaN value, an
+    oversized scene or a bad container version could reach the database through
+    this one path while ``POST``/``PATCH /projects`` rejected it. Reusing
+    :func:`extract_scene` and ``_check_size`` keeps a single validation
+    definition rather than a second, weaker one.
+    """
+    scene = extract_scene(payload)
+    _check_size(scene)
+    return scene
+
+
 def get_owned_project(db: OrmSession, user: User, project_id: str) -> Project:
     """Return the project only when it belongs to ``user``; else 404."""
     project = db.get(Project, project_id)
@@ -169,6 +183,7 @@ __all__ = [
     "delete_project",
     "get_owned_project",
     "list_owned_projects",
+    "prepare_import_scene",
     "project_to_dict",
     "update_project",
 ]
