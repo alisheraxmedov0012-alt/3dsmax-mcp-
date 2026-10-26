@@ -276,6 +276,18 @@ def create_design(
             "AI xizmati vaqt chegarasida javob bermadi. Mahalliy tahlil ishlatilmoqda.",
             status_code=504,
         ) from exc
+    except ProviderNotConfigured as exc:
+        # A provider can also report this from inside ``generate_design`` (the
+        # registry checked earlier, but credentials can be rotated or the
+        # provider swapped in between). It is not a gateway failure, so it keeps
+        # the same 503 ``ai_unconfigured`` answer as the registry-level path
+        # instead of becoming a misleading 502. Must stay above the generic
+        # ``AiProviderError`` handler, which would otherwise catch it first.
+        raise ApiError(
+            "ai_unconfigured",
+            "AI xizmati hozircha sozlanmagan. Mahalliy tahlil ishlatilmoqda.",
+            status_code=503,
+        ) from exc
     except AiProviderError as exc:
         raise ApiError(
             "ai_provider_error",
