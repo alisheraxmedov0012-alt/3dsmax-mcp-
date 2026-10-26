@@ -1,9 +1,13 @@
 """OpenAI-compatible chat provider (real integration, swappable).
 
 Works with any service exposing the OpenAI ``/chat/completions`` shape (OpenAI,
-Azure OpenAI, Mistral, a local vLLM/Ollama gateway, ...). The endpoint and model
+Mistral, a local vLLM/Ollama gateway, ...). The endpoint and model
 come from configuration; the API key is read from the server environment only
 and is never sent to the frontend, echoed in responses or written to logs.
+
+Azure OpenAI is deliberately not covered: it uses a different path
+(``/openai/deployments/{deployment}/chat/completions?api-version=...``) and an
+``api-key`` header, which this adapter does not build.
 
 The model is asked for a strict JSON object (``response_format=json_object``)
 which is then parsed and validated by :func:`build_design_spec` exactly like any

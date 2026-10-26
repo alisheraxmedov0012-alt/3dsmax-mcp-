@@ -77,7 +77,8 @@ POST /api/ai/design                     backend/app/routers/ai.py
 get_ai_provider()                       services/ai/registry.py
    ├─ "none" (default)  → ProviderNotConfigured  (503, halol)
    ├─ "local"           → LocalHeuristicProvider  (regex/kalit so'z)
-   └─ "openai*"/"azure" → OpenAiCompatibleProvider (httpx)
+   └─ "openai*"          → OpenAiCompatibleProvider (httpx)
+      "azure*"           → ProviderNotConfigured  (503, alohida protokol kerak)
    ↓ xom matn/JSON
 build_design_spec()                     services/ai/spec.py
    ↓ sxema + chegara + supported

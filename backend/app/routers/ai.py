@@ -200,6 +200,11 @@ def create_design(
     try:
         provider = get_ai_provider()
     except ProviderNotConfigured as exc:
+        # The client gets one stable message for every unconfigured case; the
+        # specific reason (a missing key, an unsupported name such as azure) is a
+        # deployment detail for the operator, so it goes to the log instead of
+        # being dropped or shown to end users.
+        logger.warning("AI provayderi sozlanmagan: %s", exc)
         raise ApiError(
             "ai_unconfigured",
             "AI xizmati hozircha sozlanmagan. Mahalliy tahlil ishlatilmoqda.",
@@ -283,6 +288,7 @@ def create_design(
         # the same 503 ``ai_unconfigured`` answer as the registry-level path
         # instead of becoming a misleading 502. Must stay above the generic
         # ``AiProviderError`` handler, which would otherwise catch it first.
+        logger.warning("AI provayderi sozlanmagan: %s", exc)
         raise ApiError(
             "ai_unconfigured",
             "AI xizmati hozircha sozlanmagan. Mahalliy tahlil ishlatilmoqda.",
