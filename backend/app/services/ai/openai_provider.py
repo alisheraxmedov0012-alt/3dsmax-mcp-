@@ -7,7 +7,9 @@ and is never sent to the frontend, echoed in responses or written to logs.
 
 The model is asked for a strict JSON object (``response_format=json_object``)
 which is then parsed and validated by :func:`build_design_spec` exactly like any
-other untrusted provider output.
+other untrusted provider output. Gateways that reject that field can be switched
+off with ``APP_AI_JSON_MODE=false``; the answer is validated as JSON regardless,
+so the contract does not depend on the provider honouring the request.
 
 Repair is bounded: when the model returns syntactically or structurally invalid
 JSON it is asked exactly once more, with the failure appended to the
@@ -168,6 +170,23 @@ def _add_optional(current: int | None, increment: int | None) -> int | None:
     return (current or 0) + increment
 
 
+def _json_mode_hint(status: int) -> str:
+    """Explain a rejected request when JSON mode may be the cause.
+
+    A provider that does not implement ``response_format`` answers 400 (some
+    answer 422). The generic "HTTP 400" tells an operator nothing, so the remedy
+    is named here. This is deliberately a message and not an automatic retry:
+    retrying without the field would cost a second call and would hide a 400 that
+    meant something else entirely (a bad model name, for instance).
+    """
+    if status in (400, 422):
+        return (
+            " Provayder bu so'rovni rad etdi; sababi response_format bo'lishi "
+            "mumkin — APP_AI_JSON_MODE=false qilib ko'ring."
+        )
+    return ""
+
+
 class OpenAiCompatibleProvider:
     """Provider backed by an OpenAI-compatible chat completions endpoint."""
 
@@ -189,6 +208,7 @@ class OpenAiCompatibleProvider:
         budget: float = DEFAULT_REQUEST_BUDGET_SECONDS,
         clock: Callable[[], float] = time.monotonic,
         max_output_tokens: int | None = None,
+        json_mode: bool = True,
     ) -> None:
         self._api_key = api_key or None
         self._base_url = (base_url or "").rstrip("/") or None
@@ -215,6 +235,9 @@ class OpenAiCompatibleProvider:
             and max_output_tokens > 0
             else None
         )
+        # Whether to ask for a JSON object via ``response_format``. Only an
+        # explicit ``False`` turns it off, so any other value keeps the field.
+        self._json_mode = json_mode is not False
         # Token counts reported by the provider for the *current* request. Reset
         # at the start of every call; kept as null when nothing was reported.
         self.last_usage: dict[str, int | None] = {
@@ -273,7 +296,10 @@ class OpenAiCompatibleProvider:
             )
         if response.status_code >= 400:
             # Do not include the body/headers: they may leak provider detail.
-            raise AiProviderError(f"AI provayderi HTTP {response.status_code} qaytardi.")
+            hint = _json_mode_hint(response.status_code) if self._json_mode else ""
+            raise AiProviderError(
+                f"AI provayderi HTTP {response.status_code} qaytardi.{hint}"
+            )
         data = response.json()
         # Record what the provider reported *before* the content is validated, so
         # a call whose answer fails validation still counts toward the total: the
@@ -330,9 +356,13 @@ class OpenAiCompatibleProvider:
         payload = {
             "model": self._model,
             "temperature": 0,
-            "response_format": {"type": "json_object"},
             "messages": messages,
         }
+        if self._json_mode:
+            # Not every OpenAI-compatible gateway accepts this field; when one
+            # rejects it the operator turns it off with APP_AI_JSON_MODE=false and
+            # the answer is still validated as JSON.
+            payload["response_format"] = {"type": "json_object"}
         if self._max_output_tokens is not None:
             # ``max_tokens`` is the field every OpenAI-compatible
             # ``/chat/completions`` implementation accepts (OpenAI's older models,

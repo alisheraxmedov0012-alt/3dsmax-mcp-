@@ -217,6 +217,10 @@ class Settings(BaseSettings):
     # Only a positive integer is accepted; an unset, zero or negative value would
     # either change nothing or produce an invalid request.
     ai_max_output_tokens: int | None = None
+    # Ask the provider to answer with a JSON object (``response_format``). Some
+    # OpenAI-compatible gateways reject that field outright, so it can be turned
+    # off; the answer is still parsed and validated as JSON either way.
+    ai_json_mode: bool = True
 
     @field_validator("ai_max_output_tokens", mode="before")
     @classmethod

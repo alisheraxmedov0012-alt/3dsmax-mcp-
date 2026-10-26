@@ -39,6 +39,7 @@ def get_ai_provider() -> AiProvider:
             max_retries=settings.ai_max_retries,
             budget=settings.ai_request_budget_seconds,
             max_output_tokens=settings.ai_max_output_tokens,
+            json_mode=settings.ai_json_mode,
         )
         # Report an unconfigured real provider here so the API answers
         # "ai_unconfigured" (503) without consuming a usage unit, instead of
