@@ -15,10 +15,12 @@ describe('export format registry', () => {
   });
 
   it('does not claim capabilities the pipeline does not provide', () => {
-    // GLB: geometry + material, but no textures/transparency in the current model.
+    // GLB: geometry + material + the procedural maps and alpha blending that
+    // buildPbrMaterial wires into MeshStandardMaterial (see
+    // sceneExport.materials.test.ts, which reads these back out of the .glb).
     expect(EXPORT_FORMATS.glb.capabilities.material).toBe(true);
-    expect(EXPORT_FORMATS.glb.capabilities.textures).toBe(false);
-    expect(EXPORT_FORMATS.glb.capabilities.transparency).toBe(false);
+    expect(EXPORT_FORMATS.glb.capabilities.textures).toBe(true);
+    expect(EXPORT_FORMATS.glb.capabilities.transparency).toBe(true);
 
     // OBJ: geometry only (Three.js OBJExporter emits no .mtl/materials).
     expect(EXPORT_FORMATS.obj.capabilities.geometry).toBe(true);
@@ -45,6 +47,24 @@ describe('export format registry', () => {
     expect(EXPORT_FORMATS.obj.notes.join(' ')).toMatch(/\.mtl/i);
   });
 
+  it('states the GLB texture and transparency limits in its notes', () => {
+    const notes = EXPORT_FORMATS.glb.notes.join(' ');
+    expect(notes).toMatch(/base color/i);
+    expect(notes).toMatch(/normal map/i);
+    expect(notes).toMatch(/128/);
+    expect(notes).toMatch(/BLEND/);
+    expect(notes).toMatch(/ORM/i);
+    expect(notes).toMatch(/BoxGeometry/);
+  });
+
+  it('never brings back the stale "no textures" claim for GLB', () => {
+    // The exporter has embedded both maps since the A2.1 material work; the
+    // registry text lagged behind. Guard so a revert of that fix fails here.
+    const notes = EXPORT_FORMATS.glb.notes.join(' ');
+    expect(notes).not.toMatch(/hozircha yo[‘']q/i);
+    expect(notes).not.toMatch(/mavjud emas/i);
+  });
+
   it('declares a MIME type and extension per format', () => {
     for (const id of EXPORT_FORMAT_ORDER) {
       const spec = EXPORT_FORMATS[id];
@@ -55,7 +75,9 @@ describe('export format registry', () => {
   });
 
   it('builds a capability summary from real flags', () => {
-    expect(formatCapabilitySummary(EXPORT_FORMATS.glb)).toBe('geometriya, material');
+    expect(formatCapabilitySummary(EXPORT_FORMATS.glb)).toBe(
+      'geometriya, material, tekstura, shaffoflik',
+    );
     expect(formatCapabilitySummary(EXPORT_FORMATS.stl)).toBe('geometriya');
     expect(formatCapabilitySummary(EXPORT_FORMATS.json)).toBe('parametrlar');
   });

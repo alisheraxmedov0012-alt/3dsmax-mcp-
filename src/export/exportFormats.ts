@@ -6,10 +6,14 @@
  * exporter really provides it.
  *
  * Reality of the current pipeline (verified against the exporters in use):
- * - GLB (Three.js GLTFExporter): geometry, transforms, node names, and the
- *   MeshStandardMaterial base colour + metalness/roughness. The current material
- *   model (W6 baseline `ObjectMaterial`) has no textures and no opacity, so no
- *   texture or transparency data is written.
+ * - GLB (Three.js GLTFExporter): geometry, transforms, node names, and the full
+ *   MeshStandardMaterial, including the two procedural maps `buildPbrMaterial`
+ *   attaches (`map` → `pbrMetallicRoughness.baseColorTexture`, `normalMap` →
+ *   `normalTexture`) and opacity (`opacity < 1` → `alphaMode: 'BLEND'`).
+ *   Limits a buyer must know: the maps are 128×128 procedural bitmaps, not
+ *   authored image textures; roughness and metalness stay scalar factors because
+ *   no ORM (occlusion/roughness/metalness) map is produced; and the UVs are the
+ *   ones `BoxGeometry` generates, so there is no unwrap of its own.
  * - OBJ (Three.js OBJExporter): **geometry only** — the exporter emits no `.mtl`
  *   file and no materials (this is stated in Three.js' own OBJExporter source).
  * - STL (Three.js STLExporter): **geometry only** — no colour, no material.
@@ -58,15 +62,18 @@ export const EXPORT_FORMATS: Record<ExportFormatId, ExportFormatSpec> = {
     capabilities: {
       geometry: true,
       material: true,
-      textures: false,
-      transparency: false,
+      textures: true,
+      transparency: true,
       data: false,
       render: false,
     },
     notes: [
       'Geometriya, transformlar, obyekt nomlari saqlanadi.',
       "Material: asosiy rang + metallik/qo'pollik (PBR).",
-      "Tekstura va shaffoflik hozircha yo'q (material modelida mavjud emas).",
+      'Tekstura: base color va normal map ichkariga yoziladi (procedural, 128×128).',
+      "Shaffoflik: alphaMode BLEND (shisha va opacity < 1 bo'lgan materiallar).",
+      "Cheklov: ORM (occlusion/roughness/metalness) teksturasi yo'q — bu ikki kanal scalar.",
+      "Cheklov: UV — BoxGeometry UV'lari; alohida unwrap qilinmaydi.",
       'Interyer (xona) va barcha ko‘rinadigan mebel eksport qilinadi.',
     ],
   },
