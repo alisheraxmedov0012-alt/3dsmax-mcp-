@@ -71,6 +71,19 @@ async function submit(text: string) {
   fireEvent.click(button());
 }
 
+/**
+ * Wait until the panel shows a *settled* status message matching `pattern`.
+ *
+ * A `role="status"` element exists from the first render and already holds
+ * "Tahlil qilinmoqda…" while the request is in flight. Waiting for the element
+ * alone therefore returns immediately and the assertion after it races the
+ * request, which is why this file used to fail intermittently on slow CI
+ * runners. Waiting for the text keeps every check on the finished state.
+ */
+async function waitForStatus(pattern: RegExp) {
+  await waitFor(() => expect(screen.getByRole('status').textContent).toMatch(pattern));
+}
+
 describe('A3.3 panel — a timeout leaves the waiting state', () => {
   it('shows the button idle again and explains the deadline', async () => {
     // A real deadline, shortened through the documented env override, so the test
@@ -184,8 +197,7 @@ describe('A3.3 panel — server refusals are shown, not papered over', () => {
 
     await submit('180x60x75 sm stol');
 
-    await waitFor(() => expect(screen.getByRole('status')).toBeTruthy());
-    expect(screen.getByRole('status').textContent).toMatch(/sozlanmagan/i);
+    await waitForStatus(/sozlanmagan/i);
     expect(onApply).toHaveBeenCalledWith('table', expect.anything(), null);
   });
 
@@ -197,8 +209,7 @@ describe('A3.3 panel — server refusals are shown, not papered over', () => {
 
     await submit('180x60x75 sm stol');
 
-    await waitFor(() => expect(screen.getByRole('status')).toBeTruthy());
-    expect(screen.getByRole('status').textContent).toMatch(/provayderi javob bermadi/i);
+    await waitForStatus(/provayderi javob bermadi/i);
     expect(onApply).toHaveBeenCalledWith('table', expect.anything(), null);
   });
 
@@ -213,8 +224,7 @@ describe('A3.3 panel — server refusals are shown, not papered over', () => {
 
     await submit('180x60x75 sm stol');
 
-    await waitFor(() => expect(screen.getByRole('status')).toBeTruthy());
-    expect(screen.getByRole('status').textContent).toMatch(/umumiy chegaraga yetdi/i);
+    await waitForStatus(/umumiy chegaraga yetdi/i);
     expect(onApply).toHaveBeenCalledWith('table', expect.anything(), null);
   });
 });
@@ -258,7 +268,7 @@ describe('A3.3 panel — the offline fallback refuses prompts it cannot answer',
 
     await submit('180x60x75 sm, yog‘och rangli');
 
-    await waitFor(() => expect(screen.getByRole('status')).toBeTruthy());
+    await waitForStatus(/Mahalliy tahlil ishlatildi/i);
     expect(onApply).toHaveBeenCalledWith('table', expect.anything(), null);
   });
 });
@@ -270,9 +280,8 @@ describe('A3.3 panel — the success path is unchanged', () => {
 
     await submit('180x60x75 sm stol');
 
-    await waitFor(() => expect(screen.getByRole('status')).toBeTruthy());
+    await waitForStatus(/qo‘llanildi|qo'llanildi/);
     expect(onApply).toHaveBeenCalledWith('table', expect.anything(), null);
-    expect(screen.getByRole('status').textContent).toMatch(/qo‘llanildi|qo'llanildi/);
     expect(button().textContent).toBe(IDLE_LABEL);
   });
 
@@ -282,7 +291,9 @@ describe('A3.3 panel — the success path is unchanged', () => {
 
     await submit('3 eshikli shkaf');
 
-    await waitFor(() => expect(screen.getByRole('status')).toBeTruthy());
+    // Wait for the settled success message first: checking for the absence of an
+    // alert while the request is still running would prove nothing.
+    await waitForStatus(/qo‘llanildi|qo'llanildi/);
     expect(screen.queryByRole('alert')).toBeNull();
   });
 });
@@ -294,8 +305,9 @@ describe('A3.4 F3 — the AI material reaches the model', () => {
 
     await submit('yog‘och stol');
 
-    await waitFor(() => expect(onApply).toHaveBeenCalled());
-    expect(onApply).toHaveBeenCalledWith('table', expect.anything(), 'wood-oak');
+    await waitFor(() =>
+      expect(onApply).toHaveBeenCalledWith('table', expect.anything(), 'wood-oak'),
+    );
   });
 
   it('passes null when the AI names no material, so the default is kept', async () => {
@@ -304,8 +316,7 @@ describe('A3.4 F3 — the AI material reaches the model', () => {
 
     await submit('180x60x75 sm stol');
 
-    await waitFor(() => expect(onApply).toHaveBeenCalled());
-    expect(onApply).toHaveBeenCalledWith('table', expect.anything(), null);
+    await waitFor(() => expect(onApply).toHaveBeenCalledWith('table', expect.anything(), null));
   });
 
   it('passes null for an unknown material kind instead of guessing', async () => {
@@ -314,7 +325,6 @@ describe('A3.4 F3 — the AI material reaches the model', () => {
 
     await submit('180x60x75 sm stol');
 
-    await waitFor(() => expect(onApply).toHaveBeenCalled());
-    expect(onApply).toHaveBeenCalledWith('table', expect.anything(), null);
+    await waitFor(() => expect(onApply).toHaveBeenCalledWith('table', expect.anything(), null));
   });
 });
