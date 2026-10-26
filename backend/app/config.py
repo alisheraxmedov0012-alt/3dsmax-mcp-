@@ -211,6 +211,45 @@ class Settings(BaseSettings):
     ai_price_input_micros_per_1k: int | None = None
     ai_price_output_micros_per_1k: int | None = None
     ai_price_currency: str | None = None
+    # Optional cap on the answer length, in tokens, sent with each provider
+    # request. Unset by default: without a cap the provider decides how long the
+    # answer may be, which is the behaviour that existed before this setting.
+    # Only a positive integer is accepted; an unset, zero or negative value would
+    # either change nothing or produce an invalid request.
+    ai_max_output_tokens: int | None = None
+
+    @field_validator("ai_max_output_tokens", mode="before")
+    @classmethod
+    def _check_max_output_tokens(cls, value: object) -> object:
+        """Reject a cap that cannot be sent, before pydantic coerces it.
+
+        ``bool`` is refused explicitly because ``True``/``False`` would otherwise
+        be accepted as ``1``/``0``: a cap of zero tokens is not a request anyone
+        means to make, and a boolean is a configuration mistake.
+        """
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            raise ValueError("APP_AI_MAX_OUTPUT_TOKENS boolean bo'lmasligi kerak.")
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None
+            try:
+                value = int(text)
+            except ValueError as exc:
+                raise ValueError(
+                    "APP_AI_MAX_OUTPUT_TOKENS butun son bo'lishi kerak."
+                ) from exc
+        if isinstance(value, float):
+            if not value.is_integer():
+                raise ValueError("APP_AI_MAX_OUTPUT_TOKENS butun son bo'lishi kerak.")
+            value = int(value)
+        if not isinstance(value, int):
+            raise ValueError("APP_AI_MAX_OUTPUT_TOKENS butun son bo'lishi kerak.")
+        if value <= 0:
+            raise ValueError("APP_AI_MAX_OUTPUT_TOKENS musbat son bo'lishi kerak.")
+        return value
 
     @field_validator("ai_base_url")
     @classmethod

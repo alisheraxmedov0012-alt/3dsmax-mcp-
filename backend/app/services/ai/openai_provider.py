@@ -188,6 +188,7 @@ class OpenAiCompatibleProvider:
         sleep: Callable[[float], None] = time.sleep,
         budget: float = DEFAULT_REQUEST_BUDGET_SECONDS,
         clock: Callable[[], float] = time.monotonic,
+        max_output_tokens: int | None = None,
     ) -> None:
         self._api_key = api_key or None
         self._base_url = (base_url or "").rstrip("/") or None
@@ -204,6 +205,16 @@ class OpenAiCompatibleProvider:
         self._budget = max(0.0, budget)
         # Monotonic clock, injected in tests to make deadline tests instant.
         self._clock = clock
+        # Optional answer-length cap. Validated here as well as in the settings so
+        # a directly constructed provider (a test, a future caller) cannot send a
+        # nonsensical limit: anything but a positive int means "no cap".
+        self._max_output_tokens = (
+            max_output_tokens
+            if isinstance(max_output_tokens, int)
+            and not isinstance(max_output_tokens, bool)
+            and max_output_tokens > 0
+            else None
+        )
         # Token counts reported by the provider for the *current* request. Reset
         # at the start of every call; kept as null when nothing was reported.
         self.last_usage: dict[str, int | None] = {
@@ -322,6 +333,16 @@ class OpenAiCompatibleProvider:
             "response_format": {"type": "json_object"},
             "messages": messages,
         }
+        if self._max_output_tokens is not None:
+            # ``max_tokens`` is the field every OpenAI-compatible
+            # ``/chat/completions`` implementation accepts (OpenAI's older models,
+            # vLLM, Ollama, Mistral, LM Studio). OpenAI's newer reasoning models
+            # want ``max_completion_tokens`` instead, but they already reject this
+            # payload's ``temperature: 0`` and ``response_format``, so they are out
+            # of scope for this adapter either way. This module has no per-provider
+            # switch to pick the field name, so the widely supported one is used;
+            # supporting the other would need a provider-specific setting.
+            payload["max_tokens"] = self._max_output_tokens
 
         repair_left = MAX_REPAIR_ATTEMPTS
         network_attempts = 0
