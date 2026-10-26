@@ -204,6 +204,13 @@ class Settings(BaseSettings):
     # A conservative starting value for a single-operator deployment; raise it
     # deliberately after watching real usage.
     ai_global_daily_limit: int = 200
+    # Token prices, used only to *estimate* the cost of a request. Left unset by
+    # default because a real price must be confirmed by the operator: the ledger
+    # then records cost_kind="unknown" instead of an invented number. Micros
+    # (1e-6) per 1000 tokens; all three must be set for a cost to be computed.
+    ai_price_input_micros_per_1k: int | None = None
+    ai_price_output_micros_per_1k: int | None = None
+    ai_price_currency: str | None = None
 
     @field_validator("ai_base_url")
     @classmethod

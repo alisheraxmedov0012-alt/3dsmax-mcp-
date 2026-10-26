@@ -62,9 +62,17 @@ from ..services.ai.base import (
     DesignRequest,
     ProviderNotConfigured,
 )
-from ..services.ai.spec import AiDesignRequest, AiDesignResponse, DesignSpec
+from ..services.ai.pricing import token_prices_from_settings
+from ..services.ai.spec import AiDesignRequest, AiDesignResponse
 from ..services.limits import METRIC_AI_REQUESTS, consume_global, enforce_limit
-from ..services.usage import COST_UNKNOWN, OPERATION_AI_GENERATE, record_usage
+from ..services.usage import (
+    COST_ESTIMATED,
+    COST_UNKNOWN,
+    OPERATION_AI_GENERATE,
+    UNIT_REQUEST,
+    UNIT_TOKENS,
+    record_usage,
+)
 
 logger = logging.getLogger("app.ai")
 
@@ -79,29 +87,92 @@ def _ledger_key() -> str:
     return f"ai-design:{uuid.uuid4().hex}"
 
 
-def _record_usage(db: OrmSession, user: User, spec: DesignSpec, provider: str, duration_ms: int):
-    """Write the usage ledger row; never fail the response because of it.
+def _provider_usage(provider) -> dict[str, int | None]:
+    """Token counts the provider reported for this request.
 
-    The provider call has already happened and may already have cost money, so a
-    ledger failure is logged (without secrets) instead of turning a successful
-    generation into a 500. The failure is visible in the logs rather than
-    swallowed silently.
+    Providers that do not report usage (the offline analyzer) simply have no
+    ``last_usage``; the ledger then stores nulls instead of a guess.
     """
+    usage = getattr(provider, "last_usage", None)
+    return usage if isinstance(usage, dict) else {}
+
+
+def _cost_fields(provider, usage: dict[str, int | None]):
+    """(cost_kind, cost_micros, currency) for this call.
+
+    A cost is only computed when the operator configured both prices and a
+    currency *and* the provider reported both token counts. Anything less stays
+    ``unknown`` with null cost columns: the ledger must never show an invented
+    price as if it were real.
+    """
+    prices = token_prices_from_settings(get_settings())
+    if prices is None:
+        return COST_UNKNOWN, None, None
+    cost_micros = prices.estimate_micros(
+        usage.get("prompt_tokens"), usage.get("completion_tokens")
+    )
+    if cost_micros is None:
+        return COST_UNKNOWN, None, None
+    return COST_ESTIMATED, cost_micros, prices.currency
+
+
+def _write_ledger(
+    db: OrmSession,
+    user: User,
+    *,
+    provider,
+    duration_ms: int,
+    meta: dict,
+) -> None:
+    """Append one ledger row; never let a ledger problem change the outcome.
+
+    Both the success and the failure path go through here. A ledger failure is
+    logged by exception type only (never the message, which could quote data) and
+    the caller's own result or error is left exactly as it was.
+    """
+    usage = _provider_usage(provider)
     try:
+        cost_kind, cost_micros, currency = _cost_fields(provider, usage)
+        total_tokens = usage.get("total_tokens")
         record_usage(
             db,
             user,
             operation=OPERATION_AI_GENERATE,
             idempotency_key=_ledger_key(),
             quantity=1,
+            unit=UNIT_TOKENS if total_tokens is not None else UNIT_REQUEST,
             duration_ms=duration_ms,
-            cost_kind=COST_UNKNOWN,
-            provider=provider,
+            cost_kind=cost_kind,
+            cost_micros=cost_micros,
+            currency=currency,
+            provider=getattr(provider, "name", None),
+            model=getattr(provider, "_model", None),
+            prompt_tokens=usage.get("prompt_tokens"),
+            completion_tokens=usage.get("completion_tokens"),
+            total_tokens=total_tokens,
             project_id=None,
-            meta={"furniture": spec.furniture.value},
+            meta=meta,
         )
     except Exception as exc:
         logger.warning("AI usage ledger write failed: %s", type(exc).__name__)
+
+
+def _record_failed_call(db: OrmSession, user: User, provider, started: float) -> None:
+    """Record a failed paid call, leaving the caller's error untouched.
+
+    Only providers that bill per request are recorded: an offline failure costs
+    nothing, so a ledger row would imply a charge that never happened.
+    """
+    if not getattr(provider, "bills_per_request", False):
+        return
+    duration_ms = int((time.perf_counter() - started) * 1000)
+    _write_ledger(
+        db,
+        user,
+        provider=provider,
+        duration_ms=duration_ms,
+        meta={"outcome": "error"},
+    )
 
 
 @router.post("/ai/design", response_model=AiDesignResponse)
@@ -156,9 +227,20 @@ def create_design(
 
     started = time.perf_counter()
     try:
-        spec = provider.generate_design(
-            DesignRequest(text=payload.text, image_filename=payload.image_filename)
-        )
+        try:
+            spec = provider.generate_design(
+                DesignRequest(text=payload.text, image_filename=payload.image_filename)
+            )
+        except ProviderNotConfigured:
+            # No call was made, so there is nothing to record; the mapped 503
+            # below already tells the operator what is missing.
+            raise
+        except Exception:
+            # F10: a call that reached a paying provider may have cost money even
+            # though it failed (and its retries may have too). Record it, then
+            # re-raise untouched so the status code below is unaffected.
+            _record_failed_call(db, user, provider, started)
+            raise
     except AiAmbiguousPrompt as exc:
         raise ApiError(
             "ai_ambiguous_type",
@@ -202,7 +284,13 @@ def create_design(
         ) from exc
 
     duration_ms = int((time.perf_counter() - started) * 1000)
-    _record_usage(db, user, spec, provider.name, duration_ms)
+    _write_ledger(
+        db,
+        user,
+        provider=provider,
+        duration_ms=duration_ms,
+        meta={"furniture": spec.furniture.value},
+    )
 
     return AiDesignResponse(provider=provider.name, spec=spec)
 

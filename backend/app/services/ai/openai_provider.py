@@ -149,6 +149,25 @@ def _wait_before_retry(attempt: int, retry_after: float | None) -> float:
     return min(RETRY_BACKOFF_SECONDS * (2 ** (attempt - 1)), MAX_RETRY_WAIT_SECONDS)
 
 
+def _token_count(value: object) -> int | None:
+    """A non-negative token count, or ``None`` for anything else.
+
+    ``bool`` is rejected explicitly: it is a subclass of ``int``, so ``True``
+    would otherwise be stored as one token.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and value >= 0:
+        return value
+    return None
+
+
+def _add_optional(current: int | None, increment: int | None) -> int | None:
+    if increment is None:
+        return current
+    return (current or 0) + increment
+
+
 class OpenAiCompatibleProvider:
     """Provider backed by an OpenAI-compatible chat completions endpoint."""
 
@@ -185,6 +204,13 @@ class OpenAiCompatibleProvider:
         self._budget = max(0.0, budget)
         # Monotonic clock, injected in tests to make deadline tests instant.
         self._clock = clock
+        # Token counts reported by the provider for the *current* request. Reset
+        # at the start of every call; kept as null when nothing was reported.
+        self.last_usage: dict[str, int | None] = {
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "total_tokens": None,
+        }
 
     @property
     def is_configured(self) -> bool:
@@ -238,13 +264,53 @@ class OpenAiCompatibleProvider:
             # Do not include the body/headers: they may leak provider detail.
             raise AiProviderError(f"AI provayderi HTTP {response.status_code} qaytardi.")
         data = response.json()
+        # Record what the provider reported *before* the content is validated, so
+        # a call whose answer fails validation still counts toward the total: the
+        # tokens were consumed whether or not we could use the answer.
+        self._add_usage(data.get("usage"))
         return data["choices"][0]["message"]["content"]
+
+    def _add_usage(self, usage: object) -> None:
+        """Add one response's token counts to this request's running total.
+
+        Only what the provider actually reported is counted; a missing or
+        malformed block contributes nothing rather than a guess. Counts add up
+        across retried and repaired calls because each of those calls really did
+        consume tokens — summing them is accurate, not double counting.
+        """
+        if not isinstance(usage, dict):
+            return
+        prompt = _token_count(usage.get("prompt_tokens"))
+        completion = _token_count(usage.get("completion_tokens"))
+        total = _token_count(usage.get("total_tokens"))
+        if total is None and (prompt is not None or completion is not None):
+            total = (prompt or 0) + (completion or 0)
+        if prompt is None and completion is None and total is None:
+            return
+
+        self.last_usage["prompt_tokens"] = _add_optional(
+            self.last_usage["prompt_tokens"], prompt
+        )
+        self.last_usage["completion_tokens"] = _add_optional(
+            self.last_usage["completion_tokens"], completion
+        )
+        self.last_usage["total_tokens"] = _add_optional(
+            self.last_usage["total_tokens"], total
+        )
 
     def generate_design(self, request: DesignRequest) -> DesignSpec:
         if not self.is_configured:
             raise ProviderNotConfigured(
                 "AI provayderi sozlanmagan (APP_AI_API_KEY/APP_AI_MODEL kerak)."
             )
+
+        # Reset before the first call: the provider instance may be reused, and a
+        # previous request's tokens must never be attributed to this one.
+        self.last_usage: dict[str, int | None] = {
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "total_tokens": None,
+        }
 
         messages = [
             {"role": "system", "content": _SYSTEM_PROMPT},
