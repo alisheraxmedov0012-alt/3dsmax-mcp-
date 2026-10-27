@@ -17,6 +17,28 @@ export interface BuiltMaterial {
   dispose: () => void;
 }
 
+/** Export-only knobs; interactive previews never pass these. */
+export interface PbrMaterialBuildOptions {
+  /** Bitmap size for the procedural maps. Omitted keeps the 128 px default. */
+  textureSize?: 128 | 512;
+}
+
+function resolveMaterialTextures(
+  input: MaterialSettingsInput | null | undefined,
+  options: PbrMaterialBuildOptions,
+): { settings: ReturnType<typeof resolvePresetSettings>; textures: ReturnType<typeof createProceduralTextures> } {
+  const settings = resolvePresetSettings(input);
+  const preset = getMaterialPreset(settings.materialId);
+  return {
+    settings,
+    textures: createProceduralTextures(
+      textureKindFor(preset.type),
+      settings.textureScale,
+      options.textureSize,
+    ),
+  };
+}
+
 /**
  * Build a material for the given base colour (the object's albedo) and material
  * settings. Base colour comes from the object's `params.color`, so the existing
@@ -25,14 +47,9 @@ export interface BuiltMaterial {
 export function buildPbrMaterial(
   baseColor: string,
   input?: MaterialSettingsInput | null,
+  options: PbrMaterialBuildOptions = {},
 ): BuiltMaterial {
-  const settings = resolvePresetSettings(input);
-  const preset = getMaterialPreset(settings.materialId);
-
-  const textures = createProceduralTextures(
-    textureKindFor(preset.type),
-    settings.textureScale,
-  );
+  const { settings, textures } = resolveMaterialTextures(input, options);
 
   const parameters: THREE.MeshStandardMaterialParameters = {
     color: new THREE.Color(baseColor),
@@ -57,4 +74,27 @@ export function buildPbrMaterial(
       material.dispose();
     },
   };
+}
+
+/**
+ * Export-only: swap the procedural maps on an existing material for maps at
+ * `textureSize`, leaving every other property (colour, metallic, roughness,
+ * opacity, normalScale, render state, name) untouched.
+ *
+ * Used on the fresh materials of an export scene, never on preview materials.
+ * Returns a disposer for the new maps, or null for a textureless preset.
+ */
+export function applyTextureResolution(
+  material: THREE.MeshStandardMaterial,
+  input: MaterialSettingsInput | null | undefined,
+  textureSize: 128 | 512,
+): (() => void) | null {
+  const { textures } = resolveMaterialTextures(input, { textureSize });
+  if (!textures) {
+    return null;
+  }
+  material.map = textures.map;
+  material.normalMap = textures.normalMap;
+  material.needsUpdate = true;
+  return textures.dispose;
 }
