@@ -39,25 +39,50 @@ def make_png(width: int = 128, height: int = 128) -> bytes:
     return PNG_SIGNATURE + chunk(b"IHDR", ihdr) + chunk(b"IDAT", idat) + chunk(b"IEND", b"")
 
 
-def build_bin(png: bytes) -> tuple[bytes, dict[str, int]]:
-    """BIN payload for a triangle plus one embedded image; returns offsets."""
+def build_bin(png: bytes | None) -> tuple[bytes, dict[str, int]]:
+    """BIN payload for a triangle plus optionally one embedded image."""
     positions = b"".join(
         struct.pack("<3f", *vertex) for vertex in ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0))
     )
     indices = struct.pack("<3H", 0, 1, 2)
     indices += b"\x00" * ((4 - len(indices) % 4) % 4)
-    payload = positions + indices + png
+    payload = positions + indices + (png or b"")
     return payload, {
         "positions": len(positions),
         "indices": 6,
-        "image": len(png),
+        "image": len(png) if png else 0,
         "imageOffset": len(positions) + len(indices),
     }
 
 
-def build_gltf(png: bytes, _off: dict[str, int], *, alpha_mode: str = "BLEND") -> dict:
+def build_gltf(
+    png: bytes | None,
+    _off: dict[str, int],
+    *,
+    alpha_mode: str = "BLEND",
+    base_texture: bool = True,
+    normal_texture: bool = True,
+    base_color_factor: list[float] | None = None,
+) -> dict:
     sizes = build_bin(png)[1]
-    return {
+    pbr: dict = {"metallicFactor": 0.05, "roughnessFactor": 0.6}
+    if base_texture:
+        pbr["baseColorTexture"] = {"index": 0}
+    if base_color_factor is not None:
+        pbr["baseColorFactor"] = base_color_factor
+    material: dict = {
+        "name": "triangle-material",
+        "alphaMode": alpha_mode,
+        "pbrMetallicRoughness": pbr,
+    }
+    if normal_texture:
+        material["normalTexture"] = {"index": 0}
+
+    views = [
+        {"buffer": 0, "byteOffset": 0, "byteLength": sizes["positions"]},
+        {"buffer": 0, "byteOffset": sizes["positions"], "byteLength": sizes["indices"]},
+    ]
+    gltf = {
         "asset": {"version": "2.0"},
         "scenes": [{"nodes": [0]}],
         "scene": 0,
@@ -68,32 +93,22 @@ def build_gltf(png: bytes, _off: dict[str, int], *, alpha_mode: str = "BLEND") -
                 "primitives": [{"attributes": {"POSITION": 0}, "indices": 1, "material": 0}],
             }
         ],
-        "materials": [
-            {
-                "name": "triangle-material",
-                "alphaMode": alpha_mode,
-                "pbrMetallicRoughness": {
-                    "baseColorTexture": {"index": 0},
-                    "metallicFactor": 0.05,
-                    "roughnessFactor": 0.6,
-                },
-                "normalTexture": {"index": 0},
-            }
-        ],
-        "textures": [{"source": 0, "sampler": 0}],
-        "images": [{"mimeType": "image/png", "bufferView": 2}],
-        "samplers": [{}],
+        "materials": [material],
         "accessors": [
             {"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3"},
             {"bufferView": 1, "componentType": 5123, "count": 3, "type": "SCALAR"},
         ],
-        "bufferViews": [
-            {"buffer": 0, "byteOffset": 0, "byteLength": sizes["positions"]},
-            {"buffer": 0, "byteOffset": sizes["positions"], "byteLength": sizes["indices"]},
-            {"buffer": 0, "byteOffset": sizes["imageOffset"], "byteLength": sizes["image"]},
-        ],
+        "bufferViews": views,
         "buffers": [{"byteLength": None}],
     }
+    if png is not None:
+        views.append(
+            {"buffer": 0, "byteOffset": sizes["imageOffset"], "byteLength": sizes["image"]}
+        )
+        gltf["textures"] = [{"source": 0, "sampler": 0}]
+        gltf["images"] = [{"mimeType": "image/png", "bufferView": 2}]
+        gltf["samplers"] = [{}]
+    return gltf
 
 
 def assemble(gltf: dict, payload: bytes, *, magic: int = GLB_MAGIC, declared: int | None = None) -> bytes:
@@ -111,10 +126,29 @@ def assemble(gltf: dict, payload: bytes, *, magic: int = GLB_MAGIC, declared: in
     return struct.pack("<III", magic, 2, declared if declared is not None else total) + body
 
 
-def make_glb(tmp_path: Path, *, png: bytes | None = None, alpha_mode: str = "BLEND", name: str = "m.glb", **kwargs) -> Path:
-    png = png if png is not None else make_png()
+def make_glb(
+    tmp_path: Path,
+    *,
+    png: bytes | None = None,
+    textured: bool = True,
+    alpha_mode: str = "BLEND",
+    name: str = "m.glb",
+    base_texture: bool = True,
+    normal_texture: bool = True,
+    base_color_factor: list[float] | None = None,
+    **kwargs,
+) -> Path:
+    if png is None and textured:
+        png = make_png()
     payload, offsets = build_bin(png)
-    gltf = build_gltf(png, offsets, alpha_mode=alpha_mode)
+    gltf = build_gltf(
+        png,
+        offsets,
+        alpha_mode=alpha_mode,
+        base_texture=base_texture,
+        normal_texture=normal_texture,
+        base_color_factor=base_color_factor,
+    )
     target = tmp_path / name
     target.write_bytes(assemble(gltf, payload, **kwargs))
     return target
@@ -147,6 +181,97 @@ def test_reports_texture_and_material_wiring(tmp_path: Path) -> None:
     assert report["materialDetails"][0]["normalTexture"] == 0
     assert report["materialDetails"][0]["metallicFactor"] == 0.05
     assert report["materialDetails"][0]["roughnessFactor"] == 0.6
+
+
+def test_accepts_textureless_material_with_base_color_factor(tmp_path: Path) -> None:
+    """painted/plastic presets ship colour + scalar PBR only; that is valid glTF."""
+    report = validate_glb(
+        make_glb(
+            tmp_path,
+            textured=False,
+            base_texture=False,
+            normal_texture=False,
+            base_color_factor=[0.75, 0.15, 0.1, 1.0],
+            alpha_mode="OPAQUE",
+        )
+    )
+
+    assert report["verdict"] == "PASS", report["errors"]
+    assert report["errors"] == []
+    assert report["counts"]["textures"] == 0
+    assert report["counts"]["images"] == 0
+    status = statuses(report)
+    assert status["baseColorTexture is wired"] == "NOT APPLICABLE"
+    assert status["normalTexture is wired"] == "NOT APPLICABLE"
+    assert report["materialDetails"][0]["baseColorTexture"] is None
+    assert report["materialDetails"][0]["normalTexture"] is None
+
+
+def test_accepts_textureless_blend_material(tmp_path: Path) -> None:
+    """The glass preset is transparent *and* textureless; both must hold."""
+    report = validate_glb(
+        make_glb(
+            tmp_path,
+            textured=False,
+            base_texture=False,
+            normal_texture=False,
+            base_color_factor=[0.5, 0.8, 0.9, 0.35],
+            alpha_mode="BLEND",
+        )
+    )
+
+    assert report["verdict"] == "PASS", report["errors"]
+    status = statuses(report)
+    assert status["alphaMode BLEND"] == "PASS"
+    assert status["baseColorTexture is wired"] == "NOT APPLICABLE"
+    assert status["normalTexture is wired"] == "NOT APPLICABLE"
+
+
+def test_accepts_base_colour_texture_without_normal_map(tmp_path: Path) -> None:
+    """A normal map is optional even when a base colour texture is present."""
+    report = validate_glb(make_glb(tmp_path, normal_texture=False, alpha_mode="OPAQUE"))
+
+    assert report["verdict"] == "PASS", report["errors"]
+    assert report["counts"]["textures"] == 1
+    status = statuses(report)
+    assert status["baseColorTexture is wired"] == "PASS"
+    assert status["normalTexture is wired"] == "NOT APPLICABLE"
+
+
+def test_rejects_texture_index_when_no_texture_table_exists(tmp_path: Path) -> None:
+    """Absence of textures is fine; a dangling reference to one is not."""
+    report = validate_glb(
+        make_glb(
+            tmp_path,
+            textured=False,
+            base_texture=True,
+            normal_texture=False,
+            alpha_mode="OPAQUE",
+        )
+    )
+
+    assert report["verdict"] == "FAIL"
+    assert any("baseColorTexture" in error and "out of range" in error for error in report["errors"])
+
+
+def test_rejects_texture_pointing_at_a_missing_image(tmp_path: Path) -> None:
+    path = make_glb(tmp_path)
+    _rewrite_json_chunk(path, lambda gltf: gltf["textures"][0].update({"source": 3}))
+
+    report = validate_glb(path)
+
+    assert report["verdict"] == "FAIL"
+    assert any("texture[0].source" in error for error in report["errors"])
+
+
+def test_rejects_image_whose_payload_is_not_a_png(tmp_path: Path) -> None:
+    path = make_glb(tmp_path)
+    _rewrite_json_chunk(path, lambda gltf: gltf["images"][0].update({"bufferView": 0}))
+
+    report = validate_glb(path)
+
+    assert report["verdict"] == "FAIL"
+    assert any("valid PNG" in error for error in report["errors"])
 
 
 def test_rejects_bad_magic(tmp_path: Path) -> None:

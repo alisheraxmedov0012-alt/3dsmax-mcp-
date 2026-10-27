@@ -368,14 +368,25 @@ def _check_materials(
             has_blend = True
 
     if materials:
+        # Both maps are optional in glTF 2.0: a material may carry only
+        # baseColorFactor and scalar metallic/roughness (the painted, glass and
+        # plastic presets do exactly that), and glTF has no normal map at all by
+        # default. Absence is therefore not a defect; a reference that *is*
+        # present is still checked above and still fails when it is broken.
         if has_base_colour:
             report.ok("baseColorTexture is wired", "a material points at a base colour texture")
         else:
-            report.fail("baseColorTexture is wired", "no material references a base colour texture")
+            report.skip(
+                "baseColorTexture is wired",
+                "no material uses a base colour texture (colour factors only)",
+            )
         if has_normal:
             report.ok("normalTexture is wired", "a material points at a normal map")
         else:
-            report.fail("normalTexture is wired", "no material references a normal map")
+            report.skip(
+                "normalTexture is wired",
+                "no material uses a normal map (textureless material)",
+            )
         if has_blend:
             report.ok("alphaMode BLEND", "a transparent material is exported as BLEND")
         else:
