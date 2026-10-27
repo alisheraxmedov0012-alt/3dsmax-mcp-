@@ -195,9 +195,14 @@ def enqueue_job(
     # GLB export, ...). Limits default to unset, so this only blocks when a limit
     # has been configured — it never invents a quota. Doing this after the
     # idempotency check means a repeated request does not consume the budget.
+    #
+    # ``commit=False`` keeps the increment in this transaction: the single
+    # ``db.commit()`` below saves the counter and the job together, so the
+    # idempotency-conflict path below cannot roll back the job while leaving a
+    # paid-for unit behind.
     metric = KIND_TO_METRIC.get(kind)
     if metric is not None:
-        enforce_limit(db, user, metric, increment=1)
+        enforce_limit(db, user, metric, increment=1, commit=False)
 
     settings = get_settings()
     job = Job(
