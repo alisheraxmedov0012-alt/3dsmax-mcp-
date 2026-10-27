@@ -48,6 +48,21 @@ function part(group: THREE.Group, id: string): Part {
   return found;
 }
 
+/**
+ * True when two parts share volume. Touching faces do not count, so a leg whose
+ * top meets the frame's bottom is not an overlap — only real interpenetration is.
+ */
+function intersects(a: Part, b: Part, tolerance = 0.05): boolean {
+  return (
+    a.min.x < b.max.x - tolerance &&
+    a.max.x > b.min.x + tolerance &&
+    a.min.y < b.max.y - tolerance &&
+    a.max.y > b.min.y + tolerance &&
+    a.min.z < b.max.z - tolerance &&
+    a.max.z > b.min.z + tolerance
+  );
+}
+
 function withParams(type: FurnitureType, overrides: Partial<FurnitureParams>): FurnitureParams {
   return { ...createFurnitureParams(type), ...overrides };
 }
@@ -274,6 +289,37 @@ describe('W3 part relations', () => {
     expect(frame.max.y).toBeCloseTo(mattress.min.y, 3);
     expect(headboard.min.y).toBeCloseTo(0, 3);
     built.dispose();
+  });
+
+  it('bed: the headboard does not pass through the frame, the mattress or the legs', () => {
+    // Regression: the frame used to span the whole depth while the headboard was
+    // laid over its back edge, so the headboard shared volume with the frame slab
+    // and with the mattress standing on it.
+    for (const params of inRangeMatrix('bed')) {
+      const built = buildFurniture('bed', params);
+      const headboard = part(built.group, 'bed-headboard');
+      const frame = part(built.group, 'bed-frame');
+      const mattress = part(built.group, 'bed-mattress');
+
+      expect(intersects(headboard, frame), 'headboard/frame').toBe(false);
+      expect(intersects(headboard, mattress), 'headboard/mattress').toBe(false);
+      for (const legPart of partList(built.group).filter((p) => p.id.startsWith('bed-leg-'))) {
+        expect(intersects(headboard, legPart), `headboard/${legPart.id}`).toBe(false);
+      }
+      built.dispose();
+    }
+  });
+
+  it('bed: the outer box still equals the declared width and depth', () => {
+    // The overlap fix must not push the piece past the parametric footprint: the
+    // headboard stays inside depthCm rather than hanging behind the frame.
+    for (const params of inRangeMatrix('bed')) {
+      const built = buildFurniture('bed', params);
+      const box = bounds(built.group);
+      expect(box.max.x - box.min.x).toBeCloseTo(params.widthCm, 5);
+      expect(box.max.z - box.min.z).toBeCloseTo(params.depthCm, 5);
+      built.dispose();
+    }
   });
 
   it('wardrobe: shelves sit strictly between the bottom and the top panel', () => {

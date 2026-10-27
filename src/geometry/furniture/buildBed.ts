@@ -31,12 +31,20 @@ export function buildBed(
   // offset made them stick out by 1 cm beyond the declared width/depth).
   const legInset = LEG_THICKNESS_CM / 2;
 
-  // Corner legs.
+  // The headboard takes the back strip of the declared depth, so the frame — and
+  // everything standing on it — starts at the headboard's front face. Previously
+  // the frame spanned the full depth and the headboard was laid over its back
+  // edge, which put the headboard inside the frame slab and the mattress.
+  const frameDepth = Math.max(depthCm - HEADBOARD_THICKNESS_CM, 10);
+  const frameZ = HEADBOARD_THICKNESS_CM / 2;
+
+  // Corner legs, under the frame's corners; the back pair clears the headboard.
   const insetX = Math.max(widthCm / 2 - legInset, 0);
-  const insetZ = Math.max(depthCm / 2 - legInset, 0);
+  const frontLegZ = frameZ + frameDepth / 2 - legInset;
+  const backLegZ = frameZ - frameDepth / 2 + legInset;
   let leg = 0;
   for (const x of [insetX, -insetX]) {
-    for (const z of [insetZ, -insetZ]) {
+    for (const z of [frontLegZ, backLegZ]) {
       leg += 1;
       builder.box(
         `bed-leg-${leg}`,
@@ -49,8 +57,8 @@ export function buildBed(
   // Frame slab.
   builder.box(
     'bed-frame',
-    [widthCm, FRAME_THICKNESS_CM, depthCm],
-    [0, legHeight + FRAME_THICKNESS_CM / 2, 0],
+    [widthCm, FRAME_THICKNESS_CM, frameDepth],
+    [0, legHeight + FRAME_THICKNESS_CM / 2, frameZ],
   );
 
   // Mattress (inset slightly from the frame).
@@ -61,14 +69,14 @@ export function buildBed(
     declaredDefault('bed', 'mattressHeightCm'),
   );
   const mattressWidth = Math.max(widthCm - 4, 10);
-  const mattressDepth = Math.max(depthCm - 4, 10);
+  const mattressDepth = Math.max(frameDepth - 4, 10);
   builder.box(
     'bed-mattress',
     [mattressWidth, mattressHeight, mattressDepth],
-    [0, frameTop + mattressHeight / 2, 0],
+    [0, frameTop + mattressHeight / 2, frameZ],
   );
 
-  // Headboard at the back, from the floor.
+  // Headboard at the back, from the floor, inside the declared depth.
   const headboardHeight = clampValue(
     gateParam('bed', 'headboardHeightCm', params.headboardHeightCm),
     20,
