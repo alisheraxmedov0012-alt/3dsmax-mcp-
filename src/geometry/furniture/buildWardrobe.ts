@@ -3,7 +3,7 @@
  * front doors.
  * Params: widthCm, heightCm, depthCm, wallThicknessCm, shelfCount, doorCount.
  */
-import { PartBuilder, clampValue, safeSize, type BuiltFurniture, type PartMaterialOptions } from './parts';
+import { PartBuilder, clampValue, type BuiltFurniture, type PartMaterialOptions } from './parts';
 import { gateParam } from './contract';
 import type { FurnitureParams } from './types';
 
@@ -47,15 +47,21 @@ export function buildWardrobe(
   const shelfCount = Math.round(
     clampValue(gateParam('wardrobe', 'shelfCount', params.shelfCount), 0, 8, 4),
   );
+  // The door fronts sit proud of the corpus, so the shelves must stop at their
+  // back face: a shelf as deep as the corpus would run into the closed door.
+  const doorThickness = Math.max(wall * 0.6, 0.5);
+  const shelfBackZ = -(depthCm / 2 - wall);
+  const shelfFrontZ = depthCm / 2 - doorThickness;
+  const shelfDepth = Math.max(shelfFrontZ - shelfBackZ, wall);
+  const shelfZ = (shelfFrontZ + shelfBackZ) / 2;
   if (shelfCount > 0) {
     const usable = Math.max(innerHeight, wall);
     const gap = usable / (shelfCount + 1);
-    const shelfDepth = Math.max(depthCm - wall, wall);
     for (let i = 1; i <= shelfCount; i += 1) {
       builder.box(
         `wardrobe-shelf-${i}`,
         [innerWidth, wall, shelfDepth],
-        [0, wall + gap * i, wall / 2],
+        [0, wall + gap * i, shelfZ],
       );
     }
   }
@@ -66,12 +72,12 @@ export function buildWardrobe(
   );
   const doorWidth = Math.max(innerWidth / doorCount - 1, wall);
   const doorHeight = Math.max(innerHeight - 1, wall);
-  const doorZ = depthCm / 2 - safeSize(wall * 0.6, 0.5) / 2;
+  const doorZ = depthCm / 2 - doorThickness / 2;
   for (let i = 0; i < doorCount; i += 1) {
     const x = -innerWidth / 2 + doorWidth / 2 + i * (innerWidth / doorCount);
     builder.box(
       `wardrobe-door-${i + 1}`,
-      [doorWidth, doorHeight, Math.max(wall * 0.6, 0.5)],
+      [doorWidth, doorHeight, doorThickness],
       [x, heightCm / 2, doorZ],
     );
   }

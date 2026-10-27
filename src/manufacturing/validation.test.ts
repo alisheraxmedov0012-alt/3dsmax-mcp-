@@ -264,11 +264,35 @@ describe('C4 — geometry bounds and overlaps', () => {
   });
 
   it('aggregates overlapping pairs into a single issue instead of flooding', () => {
-    const report = validateManufacturing('wardrobe', paramsFor('wardrobe'));
-    const overlaps = byCode(report.issues, 'geometry-overlap-suspected');
-    // The wardrobe has several embedded shelves/doors but reports once.
-    expect(overlaps).toHaveLength(1);
-    expect(Number(overlaps[0].details?.pairCount)).toBeGreaterThan(1);
+    // Fed synthetic boxes rather than a built model: the aggregation is the unit
+    // under test, and relying on a real piece having an overlap made this test
+    // pass only as long as the builders happened to interpenetrate. A: 0..10,
+    // B: 5..15, C: 12..22 — A/B and B/C overlap, A/C does not, so two pairs.
+    const cube = (partId: string, lo: number, hi: number): PartBox => ({
+      partId,
+      minX: lo,
+      minY: lo,
+      minZ: lo,
+      maxX: hi,
+      maxY: hi,
+      maxZ: hi,
+    });
+    const pairs = findOverlappingPairs([cube('a', 0, 10), cube('b', 5, 15), cube('c', 12, 22)]);
+    expect(pairs).toHaveLength(2);
+
+    const issue = overlapIssue(pairs);
+    expect(issue).not.toBeNull();
+    expect(issue!.code).toBe('geometry-overlap-suspected');
+    expect(Number(issue!.details?.pairCount)).toBe(2);
+    expect(issue!.level).toBe('warning');
+  });
+
+  it('reports no overlap issue for a model whose parts only touch', () => {
+    // The builders deliberately butt parts together; touching must stay silent.
+    for (const type of FURNITURE_TYPES) {
+      const report = validateManufacturing(type, paramsFor(type));
+      expect(byCode(report.issues, 'geometry-overlap-suspected'), type).toHaveLength(0);
+    }
   });
 
   it('does not turn the generators intentional joints into errors', () => {

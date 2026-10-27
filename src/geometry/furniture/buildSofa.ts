@@ -45,7 +45,10 @@ export function buildSofa(
   // Base/seat block.
   const baseBottom = LEG_HEIGHT_CM;
   const baseHeight = Math.max(seatTop - baseBottom, seatThickness);
-  builder.box('sofa-seat', [widthCm, baseHeight, depthCm], [0, baseBottom + baseHeight / 2, 0]);
+  // The seat block sits between the two armrests: full width would put it inside
+  // them, since the armrests occupy the outer ARM_THICKNESS_CM on each side.
+  const seatWidth = Math.max(widthCm - 2 * ARM_THICKNESS_CM, 10);
+  builder.box('sofa-seat', [seatWidth, baseHeight, depthCm], [0, baseBottom + baseHeight / 2, 0]);
 
   // Backrest.
   const available = Math.max(heightCm - seatTop, 8);

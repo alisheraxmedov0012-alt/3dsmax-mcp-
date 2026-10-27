@@ -259,13 +259,20 @@ describe('W3 part relations', () => {
     }
   });
 
-  it('armchair: arms rise from the floor and stay within height', () => {
-    const params = createFurnitureParams('armchair');
-    const built = buildFurniture('armchair', params);
-    const arm = part(built.group, 'armchair-arm-1');
-    expect(arm.min.y).toBeCloseTo(0, 3);
-    expect(arm.max.y).toBeLessThanOrEqual(params.heightCm + 0.01);
-    built.dispose();
+  it('armchair: the armrests stand on the seat frame, not on the floor', () => {
+    // Design decision (was: "arms rise from the floor"): armrests used to start at
+    // y = 0, which put each leg inside its armrest. They now start where the legs
+    // end, so they rest on the seat frame and the top height is unchanged.
+    for (const params of inRangeMatrix('armchair')) {
+      const built = buildFurniture('armchair', params);
+      const arm = part(built.group, 'armchair-arm-1');
+      const leg = part(built.group, 'armchair-leg-1');
+
+      expect(arm.min.y).toBeCloseTo(leg.max.y, 3);
+      expect(arm.min.y).toBeGreaterThan(0);
+      expect(arm.max.y).toBeLessThanOrEqual(params.heightCm + 0.01);
+      built.dispose();
+    }
   });
 
   it('sofa: legs meet the seat and the back rests on the seat', () => {
@@ -318,6 +325,134 @@ describe('W3 part relations', () => {
       const box = bounds(built.group);
       expect(box.max.x - box.min.x).toBeCloseTo(params.widthCm, 5);
       expect(box.max.z - box.min.z).toBeCloseTo(params.depthCm, 5);
+      built.dispose();
+    }
+  });
+
+  it('table: the six legs do not touch each other', () => {
+    // legCount = 6 adds a middle column; the columns must stay clear of one
+    // another at every in-range width/depth.
+    for (const params of inRangeMatrix('table')) {
+      const built = buildFurniture('table', { ...params, legCount: 6 });
+      const legs = partList(built.group).filter((p) => p.id.startsWith('table-leg-'));
+      expect(legs.length, 'leg count').toBe(6);
+      for (let i = 0; i < legs.length; i += 1) {
+        for (let j = i + 1; j < legs.length; j += 1) {
+          expect(intersects(legs[i], legs[j]), `${legs[i].id}/${legs[j].id}`).toBe(false);
+        }
+      }
+      built.dispose();
+    }
+  });
+
+  it('chair: the backrest does not pass through the seat or the legs', () => {
+    for (const params of inRangeMatrix('chair')) {
+      const built = buildFurniture('chair', params);
+      const back = part(built.group, 'chair-back');
+      const seat = part(built.group, 'chair-seat');
+      expect(intersects(back, seat), 'back/seat').toBe(false);
+      for (const leg of partList(built.group).filter((p) => p.id.startsWith('chair-leg-'))) {
+        expect(intersects(back, leg), `back/${leg.id}`).toBe(false);
+      }
+      built.dispose();
+    }
+  });
+
+  it('sofa: the seat block does not pass through the legs or the backrest', () => {
+    for (const params of inRangeMatrix('sofa')) {
+      const built = buildFurniture('sofa', params);
+      const seat = part(built.group, 'sofa-seat');
+      const back = part(built.group, 'sofa-back');
+      expect(intersects(seat, back), 'seat/back').toBe(false);
+      for (const leg of partList(built.group).filter((p) => p.id.startsWith('sofa-leg-'))) {
+        expect(intersects(seat, leg), `seat/${leg.id}`).toBe(false);
+      }
+      built.dispose();
+    }
+  });
+
+  it('shelf: the boards do not pass through the sides or the back', () => {
+    for (const params of inRangeMatrix('shelf')) {
+      const built = buildFurniture('shelf', params);
+      const sides = partList(built.group).filter((p) => p.id.startsWith('shelf-side-'));
+      const back = part(built.group, 'shelf-back');
+      const boards = partList(built.group).filter((p) => p.id.startsWith('shelf-board-'));
+      expect(boards.length).toBeGreaterThan(0);
+      for (const board of boards) {
+        for (const side of sides) {
+          expect(intersects(board, side), `${board.id}/${side.id}`).toBe(false);
+        }
+        expect(intersects(board, back), `${board.id}/back`).toBe(false);
+      }
+      built.dispose();
+    }
+  });
+
+  it('dresser: the drawer and door fronts do not pass through the body or the legs', () => {
+    for (const params of inRangeMatrix('dresser')) {
+      const built = buildFurniture('dresser', params);
+      const body = part(built.group, 'dresser-body');
+      const legs = partList(built.group).filter((p) => p.id.startsWith('dresser-leg-'));
+      const fronts = partList(built.group).filter(
+        (p) => p.id.startsWith('dresser-drawer-') || p.id.startsWith('dresser-door-'),
+      );
+      expect(fronts.length).toBeGreaterThan(0);
+      for (const front of fronts) {
+        expect(intersects(front, body), `${front.id}/body`).toBe(false);
+        for (const leg of legs) {
+          expect(intersects(front, leg), `${front.id}/${leg.id}`).toBe(false);
+        }
+      }
+      built.dispose();
+    }
+  });
+
+  it('armchair: the legs do not pass through the armrests', () => {
+    // AABB only (parts are axis-aligned boxes, so here it is exact): the leg box
+    // must not share volume with the armrest box.
+    for (const params of inRangeMatrix('armchair')) {
+      const built = buildFurniture('armchair', params);
+      const arms = partList(built.group).filter((p) => p.id.startsWith('armchair-arm-'));
+      const legs = partList(built.group).filter((p) => p.id.startsWith('armchair-leg-'));
+      expect(arms).toHaveLength(2);
+      expect(legs).toHaveLength(4);
+      for (const arm of arms) {
+        for (const leg of legs) {
+          expect(intersects(arm, leg), `${arm.id}/${leg.id}`).toBe(false);
+        }
+      }
+      built.dispose();
+    }
+  });
+
+  it('sofa: the seat block does not pass through the armrests', () => {
+    for (const params of inRangeMatrix('sofa')) {
+      const built = buildFurniture('sofa', params);
+      const seat = part(built.group, 'sofa-seat');
+      const arms = partList(built.group).filter((p) => p.id.startsWith('sofa-arm-'));
+      expect(arms).toHaveLength(2);
+      for (const arm of arms) {
+        expect(intersects(arm, seat), `${arm.id}/seat`).toBe(false);
+      }
+      built.dispose();
+    }
+  });
+
+  it('wardrobe: the door fronts do not pass through the shelves', () => {
+    for (const params of inRangeMatrix('wardrobe')) {
+      const built = buildFurniture('wardrobe', params);
+      const doors = partList(built.group).filter((p) => p.id.startsWith('wardrobe-door-'));
+      const shelves = partList(built.group).filter((p) => p.id.startsWith('wardrobe-shelf-'));
+      expect(doors.length).toBeGreaterThan(0);
+      for (const door of doors) {
+        for (const shelf of shelves) {
+          expect(intersects(door, shelf), `${door.id}/${shelf.id}`).toBe(false);
+        }
+        // The shelf stops behind the door but still reaches the back panel.
+        for (const shelf of shelves) {
+          expect(shelf.max.z).toBeLessThanOrEqual(door.min.z + 0.01);
+        }
+      }
       built.dispose();
     }
   });

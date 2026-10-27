@@ -25,9 +25,12 @@ export function buildArmchair(
   );
   const legHeight = Math.max(seatHeight - SEAT_THICKNESS_CM, 1);
 
+  // The seat sits between the armrests, so the armrests can start at the seat
+  // frame instead of the floor without the two solids occupying the same volume.
+  const seatWidth = Math.max(widthCm - 2 * ARM_THICKNESS_CM, 10);
   builder.box(
     'armchair-seat',
-    [widthCm, SEAT_THICKNESS_CM, depthCm],
+    [seatWidth, SEAT_THICKNESS_CM, depthCm],
     [0, legHeight + SEAT_THICKNESS_CM / 2, 0],
   );
 
@@ -64,12 +67,18 @@ export function buildArmchair(
     heightCm - 5,
   );
   const armLength = Math.max(depthCm - BACK_THICKNESS_CM, 5);
-  const armY = armHeight / 2;
+  // `armHeightCm` is the armrest's top height above the floor (it is clamped to
+  // [seatHeight + 2, heightCm]). The armrest starts where the legs end, so it
+  // rests on the seat frame rather than passing through the legs.
+  const armBottom = legHeight;
+  const armTop = Math.max(armHeight, armBottom + 1);
+  const armSpan = armTop - armBottom;
+  const armY = (armTop + armBottom) / 2;
   const armZ = BACK_THICKNESS_CM / 2;
   for (const [index, x] of [1, -1].entries()) {
     builder.box(
       `armchair-arm-${index + 1}`,
-      [ARM_THICKNESS_CM, armHeight, armLength],
+      [ARM_THICKNESS_CM, armSpan, armLength],
       [x * (widthCm / 2 - ARM_THICKNESS_CM / 2), armY, armZ],
     );
   }
