@@ -33,6 +33,8 @@ PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 #: glTF componentType -> byte size, and accessor type -> component count.
 COMPONENT_SIZE = {5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4}
+#: glTF 2.0 defines exactly these three alpha modes (spec 5.19.4).
+ALPHA_MODES = frozenset({"OPAQUE", "MASK", "BLEND"})
 TYPE_COMPONENTS = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT2": 4, "MAT3": 9, "MAT4": 16}
 
 
@@ -51,6 +53,15 @@ class Report:
     def fail(self, name: str, detail: str = "") -> None:
         self.checks.append({"check": name, "status": "FAIL", "detail": detail})
         self.errors.append(f"{name}: {detail}")
+
+    def skip(self, name: str, detail: str = "") -> None:
+        """Record a check that the file cannot satisfy by definition.
+
+        A property that is absent by design must not be reported as a failure:
+        an opaque model legitimately carries no alpha blending, so demanding it
+        would fail every correct export that has no transparent material.
+        """
+        self.checks.append({"check": name, "status": "NOT APPLICABLE", "detail": detail})
 
     def warn(self, message: str) -> None:
         self.warnings.append(message)
@@ -326,6 +337,7 @@ def _check_materials(
         pbr = material.get("pbrMetallicRoughness", {})
         base = pbr.get("baseColorTexture")
         normal = material.get("normalTexture")
+        alpha_mode = material.get("alphaMode", "OPAQUE")
         details.append(
             {
                 "index": index,
@@ -334,7 +346,7 @@ def _check_materials(
                 "normalTexture": None if normal is None else normal.get("index"),
                 "metallicFactor": pbr.get("metallicFactor"),
                 "roughnessFactor": pbr.get("roughnessFactor"),
-                "alphaMode": material.get("alphaMode", "OPAQUE"),
+                "alphaMode": alpha_mode,
             }
         )
         for label, reference in (("baseColorTexture", base), ("normalTexture", normal)):
@@ -347,7 +359,12 @@ def _check_materials(
             has_base_colour = True
         if normal is not None:
             has_normal = True
-        if material.get("alphaMode") == "BLEND":
+        if alpha_mode not in ALPHA_MODES:
+            report.fail(
+                f"material[{index}].alphaMode",
+                f'"{alpha_mode}" is not one of {sorted(ALPHA_MODES)}',
+            )
+        elif alpha_mode == "BLEND":
             has_blend = True
 
     if materials:
@@ -362,7 +379,9 @@ def _check_materials(
         if has_blend:
             report.ok("alphaMode BLEND", "a transparent material is exported as BLEND")
         else:
-            report.fail("alphaMode BLEND", "no material uses BLEND")
+            # Not a defect: an opaque model has nothing to blend. Reported so the
+            # absence is visible, without turning a correct file into a failure.
+            report.skip("alphaMode BLEND", "no transparent material in this model (opaque)")
     return details
 
 

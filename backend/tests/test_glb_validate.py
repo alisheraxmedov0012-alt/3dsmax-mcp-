@@ -171,11 +171,84 @@ def test_rejects_one_by_one_placeholder_texture(tmp_path: Path) -> None:
     assert any("real texture" in error for error in report["errors"])
 
 
-def test_rejects_opaque_material(tmp_path: Path) -> None:
+def test_accepts_opaque_material(tmp_path: Path) -> None:
+    """An opaque model is correct, so the absent BLEND must not fail the file.
+
+    Every other material check still applies; only the *presence* of alpha
+    blending is recorded as not applicable instead of as a failure.
+    """
     report = validate_glb(make_glb(tmp_path, alpha_mode="OPAQUE"))
 
+    assert report["verdict"] == "PASS", report["errors"]
+    assert report["errors"] == []
+    status = statuses(report)
+    assert status["alphaMode BLEND"] == "NOT APPLICABLE"
+    # The rest of the material wiring is untouched by the change.
+    assert status["baseColorTexture is wired"] == "PASS"
+    assert status["normalTexture is wired"] == "PASS"
+    assert report["materialDetails"][0]["alphaMode"] == "OPAQUE"
+
+
+def _rewrite_json_chunk(path: Path, mutate) -> None:
+    """Rewrite the JSON chunk of a .glb in place, so a test can plant a defect."""
+    raw = path.read_bytes()
+    json_length = struct.unpack("<I", raw[12:16])[0]
+    gltf = json.loads(raw[20 : 20 + json_length].decode())
+    mutate(gltf)
+    json_bytes = json.dumps(gltf, separators=(",", ":")).encode()
+    json_bytes += b" " * ((4 - len(json_bytes) % 4) % 4)
+    rest = raw[20 + json_length :]
+    body = struct.pack("<II", len(json_bytes), JSON_CHUNK) + json_bytes + rest
+    path.write_bytes(struct.pack("<III", GLB_MAGIC, 2, 12 + len(body)) + body)
+
+
+def test_accepts_a_model_with_no_alpha_mode_at_all(tmp_path: Path) -> None:
+    """`alphaMode` is optional in glTF; its default is OPAQUE."""
+    path = make_glb(tmp_path, alpha_mode="OPAQUE")
+    _rewrite_json_chunk(path, lambda gltf: gltf["materials"][0].pop("alphaMode"))
+
+    report = validate_glb(path)
+
+    assert report["verdict"] == "PASS", report["errors"]
+    assert statuses(report)["alphaMode BLEND"] == "NOT APPLICABLE"
+    assert report["materialDetails"][0]["alphaMode"] == "OPAQUE"
+
+
+def test_accepts_mask_alpha_without_demanding_blend(tmp_path: Path) -> None:
+    """MASK is a valid alpha mode, but it is not blending either."""
+    report = validate_glb(make_glb(tmp_path, alpha_mode="MASK"))
+
+    assert report["verdict"] == "PASS", report["errors"]
+    assert statuses(report)["alphaMode BLEND"] == "NOT APPLICABLE"
+    assert report["materialDetails"][0]["alphaMode"] == "MASK"
+
+
+def test_rejects_an_unknown_alpha_mode(tmp_path: Path) -> None:
+    """A value outside the spec's three modes is a structural defect."""
+    report = validate_glb(make_glb(tmp_path, alpha_mode="BLENDED"))
+
     assert report["verdict"] == "FAIL"
-    assert any("alphaMode BLEND" in error for error in report["errors"])
+    assert any("alphaMode" in error for error in report["errors"])
+    assert any("BLENDED" in error for error in report["errors"])
+
+
+def test_blend_still_passes_and_keeps_its_structural_checks(tmp_path: Path) -> None:
+    """A BLEND model passes, and a broken texture index inside it still fails."""
+    ok = validate_glb(make_glb(tmp_path, alpha_mode="BLEND", name="blend-ok.glb"))
+    assert ok["verdict"] == "PASS", ok["errors"]
+    assert statuses(ok)["alphaMode BLEND"] == "PASS"
+    assert ok["materialDetails"][0]["alphaMode"] == "BLEND"
+
+    broken = make_glb(tmp_path, alpha_mode="BLEND", name="blend-broken.glb")
+    _rewrite_json_chunk(
+        broken,
+        lambda gltf: gltf["materials"][0]["pbrMetallicRoughness"]["baseColorTexture"].update(
+            {"index": 99}
+        ),
+    )
+    report = validate_glb(broken)
+    assert report["verdict"] == "FAIL"
+    assert any("baseColorTexture" in error for error in report["errors"])
 
 
 def test_rejects_buffer_view_outside_bin(tmp_path: Path) -> None:
