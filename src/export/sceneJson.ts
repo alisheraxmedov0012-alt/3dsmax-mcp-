@@ -83,6 +83,13 @@ export type SceneJsonParseResult =
        * it without an undefined check; existing callers are unaffected.
        */
       normalizedObjects: number;
+      /**
+       * W14: assemblies that could not be read (wrong shape, unknown kind,
+       * duplicate id) or that exceeded the per-scene cap, and were therefore left
+       * out of the imported scene. Always present (0 when nothing was dropped) so
+       * the caller can warn without an undefined check.
+       */
+      droppedAssemblies: number;
     }
   | { ok: false; code: SceneJsonErrorCode; message: string };
 
@@ -143,5 +150,6 @@ export function parseSceneJson(text: string): SceneJsonParseResult {
     name,
     droppedObjects: result.droppedObjects,
     normalizedObjects: result.normalizations?.length ?? 0,
+    droppedAssemblies: result.droppedAssemblies ?? 0,
   };
 }

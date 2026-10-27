@@ -128,6 +128,40 @@ describe('parseSceneJson rejects untrusted input', () => {
     expect(result.droppedObjects).toBe(1);
   });
 
+  it('reports assemblies it had to leave behind', () => {
+    // W14: an unreadable assembly entry is dropped like an unreadable object, but
+    // silently losing it would let the user save a project smaller than the file.
+    const doc = JSON.parse(serializeSceneToJson(makeScene(), META));
+    doc.scene.assemblies = [
+      { id: 'a1', kind: 'wall-cabinet', params: { widthCm: 60 } },
+      { id: 'a2', kind: 'not-a-kind', params: {} },
+      { id: '', kind: 'wall-cabinet', params: {} },
+    ];
+    const result = parseSceneJson(JSON.stringify(doc));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.droppedAssemblies).toBe(2);
+    // The readable one survives.
+    expect(result.scene.assemblies?.map((entry) => entry.id)).toEqual(['a1']);
+  });
+
+  it('reports no dropped assemblies when every entry is readable', () => {
+    const doc = JSON.parse(serializeSceneToJson(makeScene(), META));
+    doc.scene.assemblies = [{ id: 'a1', kind: 'wall-cabinet', params: { widthCm: 60 } }];
+    const result = parseSceneJson(JSON.stringify(doc));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.droppedAssemblies).toBe(0);
+    expect(result.scene.assemblies).toHaveLength(1);
+  });
+
+  it('reports zero dropped assemblies for a scene that has none', () => {
+    const result = parseSceneJson(serializeSceneToJson(makeScene(), META));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.droppedAssemblies).toBe(0);
+  });
+
   it('never lets a non-finite value or bad parameter into the scene', () => {
     const doc = JSON.parse(serializeSceneToJson(makeScene(), META));
     // Corrupt one object's parameters and add a NaN transform.

@@ -189,9 +189,9 @@ export function AssemblyPanel({ assemblies, onAdd, onDelete }: AssemblyPanelProp
       )}
 
       <p className="visual__hint">
-        Hozircha faqat standart parametrlar bilan yaratish mumkin. Detallar ro'yxati
-        «Ishlab chiqarish» bo'limida ko'rinadi, lekin bu ishlab chiqarishga tayyor
-        hujjat emas.
+        Hozircha faqat standart parametrlar bilan yaratish mumkin. Assembly detallari
+        ro'yxati hozircha na 3D ko'rinishda, na «Ishlab chiqarish» bo'limida
+        ko'rsatilmaydi, va bu ishlab chiqarishga tayyor hujjat emas.
       </p>
     </section>
   );

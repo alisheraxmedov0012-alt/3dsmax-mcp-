@@ -202,6 +202,17 @@ describe('AssemblyPanel render', () => {
       expect(screen.getByText(/ishlab chiqarishga tayyor hujjat emas/)).toBeTruthy();
     });
 
+    it('does not claim the parts list is shown elsewhere', () => {
+      // The W14 assembly parts list is not rendered anywhere yet: not in the
+      // viewer, not in the export, and not in the manufacturing panel (that one
+      // shows the C6 furniture assembly steps). The hint must not promise it.
+      render(<Harness />);
+      const hint = screen.getByText(/Assembly detallari/);
+      expect(hint.textContent).not.toMatch(/ko'rinadi/i);
+      expect(hint.textContent).toMatch(/ko'rsatilmaydi/i);
+      expect(hint.textContent).toMatch(/3D ko'rinishda/i);
+    });
+
     it('labels the kind selector', () => {
       render(<Harness />);
       const select = screen.getByLabelText('Tur') as HTMLSelectElement;

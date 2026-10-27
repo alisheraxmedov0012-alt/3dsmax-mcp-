@@ -546,10 +546,17 @@ export default function App() {
         result.normalizedObjects > 0
           ? ` ${result.normalizedObjects} obyektning parametri ruxsat etilgan oraliqqa keltirildi.`
           : '';
+      // Say when assembly data did not survive. This is only added when something
+      // really was dropped, and the loss becomes permanent the first time the
+      // project is saved, so staying silent here would mislead the user.
+      const assembliesDropped =
+        result.droppedAssemblies > 0
+          ? ` ${result.droppedAssemblies} assembly o'qib bo'lmagani uchun tashlab yuborildi.`
+          : '';
       setExportMessage(
         result.droppedObjects > 0
-          ? `Import qilindi; ${result.droppedObjects} yaroqsiz obyekt o'tkazib yuborildi.${adjusted}`
-          : `JSON loyiha import qilindi.${adjusted}`,
+          ? `Import qilindi; ${result.droppedObjects} yaroqsiz obyekt o'tkazib yuborildi.${assembliesDropped}${adjusted}`
+          : `JSON loyiha import qilindi.${assembliesDropped}${adjusted}`,
       );
     } catch (error) {
       setExportStatus('error');
