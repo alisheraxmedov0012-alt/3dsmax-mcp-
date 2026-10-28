@@ -14,8 +14,33 @@ body,
   margin: 0;
 }
 
+/* Dynamic viewport height where supported; the percentage above stays the
+   fallback for browsers that do not understand dvh. */
+@supports (height: 100dvh) {
+  html,
+  body,
+  #root {
+    height: 100dvh;
+  }
+}
+
 body {
   background: #12161a;
   color: #e8edf2;
   overscroll-behavior: none;
+}
+
+/* Content must never introduce a horizontal scrollbar. These are width fixes,
+   not a blanket overflow mask: a control that cannot shrink is still visible. */
+img,
+canvas,
+svg {
+  max-width: 100%;
+}
+
+input,
+select,
+textarea {
+  max-width: 100%;
+  min-width: 0;
 }

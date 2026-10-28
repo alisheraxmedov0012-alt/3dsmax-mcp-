@@ -3,6 +3,12 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  // Keep legacy `@media (max-width: ...)` output instead of the range syntax
+  // that older Android WebViews cannot parse. This is CSS-only; JS targets are
+  // unchanged.
+  build: {
+    cssTarget: ['chrome87', 'safari15'],
+  },
   test: {
     // Unit tests run in Node. Component tests opt into jsdom per file with a
     // `// @vitest-environment jsdom` docblock, so the DOM library is only paid

@@ -355,7 +355,7 @@ input[type='color'] {
   cursor: progress;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 1023px) {
   .manufacturing__package-button {
     min-height: 44px;
     padding: 10px 12px;
@@ -559,7 +559,7 @@ input[type='color'] {
 
 .product__check {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 2px 8px;
   padding: 4px 6px;
   border-left: 2px solid #3a424c;
@@ -1039,7 +1039,7 @@ input[type='color'] {
 
 .axis {
   display: grid;
-  grid-template-columns: 18px 1fr 74px;
+  grid-template-columns: 18px minmax(0, 1fr) 74px;
   align-items: center;
   gap: 6px;
 }
@@ -1098,7 +1098,7 @@ input[type='color'] {
 
 .preset-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
 
@@ -1457,31 +1457,54 @@ input[type='color'] {
 
 /* ---------------- Mobile ---------------- */
 
-@media (max-width: 720px) {
+@media (max-width: 1023px) {
+  /* Below 1024px the desktop sidebar is gone: the panel takes the full width
+     above the 3D stage. The 320px desktop column is preserved at >= 1024px. */
   .app {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, auto) 1fr;
+    grid-template-rows: minmax(0, 46vh) 1fr;
+    padding-top: env(safe-area-inset-top);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
   }
 
   .panel {
+    width: 100%;
     max-height: 46vh;
+    min-height: 0;
     border-right: none;
     border-bottom: 1px solid #2a2f36;
+    overflow-x: hidden;
+  }
+
+  .panel > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .field__label {
+    flex-wrap: wrap;
   }
 
   .readout,
   .banner {
-    bottom: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
     font-size: 0.78rem;
   }
 
-  /* Comfortable touch targets and no horizontal overflow on small screens. */
-  .jobs-panel__toggle,
-  .server-panel__retry,
-  .job__retry,
-  .projects__save,
-  .projects__new {
-    min-height: 40px;
+  /* Touch targets. The previous list covered only some controls; these rules
+     cover every interactive control the mobile panel exposes. */
+  button,
+  select,
+  input[type='number'],
+  input[type='text'],
+  textarea {
+    min-height: 44px;
+  }
+
+  input[type='color'] {
+    height: 44px;
   }
 
   .job__row {
@@ -1491,6 +1514,19 @@ input[type='color'] {
 
   .visual__hint {
     overflow-wrap: anywhere;
+  }
+}
+
+/* Landscape phones are wider than 720px but shorter than a portrait tablet.
+   Stacking keeps the full-width panel readable instead of squeezing it into
+   the 320px desktop column; a 50/50 split keeps the 3D stage visible. */
+@media (max-width: 1023px) and (orientation: landscape) {
+  .app {
+    grid-template-rows: minmax(0, 50vh) 1fr;
+  }
+
+  .panel {
+    max-height: 50vh;
   }
 }
 
@@ -1559,7 +1595,7 @@ input[type='color'] {
   cursor: pointer;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 1023px) {
   .assembly-panel__add,
   .assembly-row__delete {
     min-height: 40px;
