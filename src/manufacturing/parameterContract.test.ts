@@ -30,6 +30,7 @@ import { gateParam, declaredRange, declaredDefault } from '../geometry/furniture
 import { buildFurniture } from '../geometry/furniture/buildFurniture';
 import { measurePartBoxes } from './partBoxes';
 import { buildBom } from './bom';
+import { buildCutList } from './cutList';
 import { buildManufacturingPackage } from './manufacturingPackage';
 import { buildProductPackage } from './productPackage';
 import { assessProductReadiness, type CuttingReason } from './productReadiness';
@@ -83,10 +84,11 @@ function paramsFor(type: FurnitureType, patch: Partial<FurnitureParams> = {}): F
 function materialsFor(type: FurnitureType, params: FurnitureParams): SheetMaterialEntry[] {
   const bom = buildBom(type, params);
   if (!bom.ok) return [];
+  const measured = new Map(buildCutList(bom.bom).rows.map((row) => [row.partId, row.thicknessMm]));
   return bom.bom.rows.map((row) => ({
     partId: row.partId,
     materialId: 'ldsp',
-    thicknessMm: 18,
+    thicknessMm: measured.get(row.partId) ?? 18,
     thicknessSource: 'user',
   }));
 }
@@ -428,7 +430,7 @@ describe('C8.6.2 P3-c — cutting readiness keeps its outcomes apart', () => {
       sheetMaterials: materialsFor('wardrobe', params),
       cuttingSettings: SHEET,
     }).checks.find((entry) => entry.id === 'cutting');
-    expect(check?.status).toBe('warning');
+    expect(check?.status).toBe('fail');
     expect(check?.reason).toBe<CuttingReason>('partially-placed');
   });
 
