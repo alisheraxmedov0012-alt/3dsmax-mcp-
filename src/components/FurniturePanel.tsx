@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { TABLE_COLORS } from '../geometry/tableParams';
 import {
   FURNITURE_FIELDS,
@@ -59,7 +59,17 @@ export function FurniturePanel({
 }: FurniturePanelProps) {
   const [addType, setAddType] = useState<FurnitureType>('table');
   const [activeSection, setActiveSection] = useState<PanelSectionId>('objects');
+  const panelRef = useRef<HTMLElement>(null);
   const colorIsValid = /^#[0-9a-fA-F]{6}$/.test(values.color ?? '');
+
+  const selectSection = (section: PanelSectionId) => {
+    setActiveSection(section);
+    // The panel is the scroll container; without this a tab switch would open
+    // somewhere in the middle of the newly selected section.
+    if (panelRef.current) {
+      panelRef.current.scrollTop = 0;
+    }
+  };
 
   /**
    * The finished piece's measured bounding box, derived from the *committed*
@@ -87,6 +97,7 @@ export function FurniturePanel({
 
   return (
     <aside
+      ref={panelRef}
       className="panel"
       data-mobile-section={mobileSections ? activeSection : undefined}
     >
@@ -107,7 +118,7 @@ export function FurniturePanel({
                   : 'panel__mobile-tab'
               }
               aria-pressed={entry.id === activeSection}
-              onClick={() => setActiveSection(entry.id)}
+              onClick={() => selectSection(entry.id)}
             >
               {entry.label}
             </button>

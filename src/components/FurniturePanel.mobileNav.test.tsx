@@ -77,6 +77,15 @@ describe('M2 mobile panel navigation', () => {
     expect(screen.getByText('Other content')).toBeTruthy();
   });
 
+  it('scrolls the panel back to the top when a tab is selected', () => {
+    const { panel } = renderMobilePanel();
+    panel.scrollTop = 420;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sahna' }));
+
+    expect(panel.scrollTop).toBe(0);
+  });
+
   it('preserves values entered in one section while another is open', () => {
     renderMobilePanel();
     const input = screen.getByLabelText('Nomi') as HTMLInputElement;
