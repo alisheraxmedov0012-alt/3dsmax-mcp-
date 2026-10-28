@@ -540,6 +540,7 @@ export async function buildProductPackage(
   const description = buildProductDescription(
     {
       type: object.type,
+      params: object.params,
       overallMm: drawing.overall,
       bom,
       cutList,

@@ -190,6 +190,7 @@ export function ProductPackagePanel({
               return buildProductDescription(
                 {
                   type: object.type,
+                  params: object.params,
                   overallMm: drawing.ok
                     ? drawing.overall
                     : { widthMm: 0, heightMm: 0, depthMm: 0 },

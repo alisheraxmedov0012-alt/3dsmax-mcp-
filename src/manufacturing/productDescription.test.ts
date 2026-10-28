@@ -53,6 +53,7 @@ function descriptionInput(
   const cutting = buildCuttingPlan({ cutList, bom: bom.bom, settings: SETTINGS });
   return {
     type,
+    params,
     overallMm: drawing.overall,
     bom: bom.bom,
     cutList,
@@ -150,6 +151,89 @@ describe('C8 description — content comes from the model', () => {
       DOCUMENTS,
     );
     expect(description.limitations[0]).toMatch(/error\(s\)/);
+  });
+});
+
+describe('C8 description — dresser purpose follows its counts', () => {
+  function dresserWith(drawerCount: number, doorCount: number) {
+    const params: FurnitureParams = {
+      ...createFurnitureParams('dresser'),
+      drawerCount,
+      doorCount,
+    };
+    return buildProductDescription(descriptionInput({ type: 'dresser' }, params), DOCUMENTS);
+  }
+
+  it('does not claim a door when doorCount is 0', () => {
+    const description = dresserWith(3, 0);
+
+    expect(description.purpose).toBe('A parametrically sized dresser with 3 drawers.');
+    expect(description.purpose).not.toMatch(/door/i);
+    expect(productDescriptionMarkdown(description)).not.toMatch(/door/i);
+  });
+
+  it('uses the singular door form when doorCount is 1', () => {
+    const description = dresserWith(3, 1);
+
+    expect(description.purpose).toBe(
+      'A parametrically sized dresser with 3 drawers and a door.',
+    );
+    expect(description.purpose).not.toMatch(/\bdoors\b/i);
+  });
+
+  it('uses the plural door form when doorCount is 2', () => {
+    const description = dresserWith(3, 2);
+
+    expect(description.purpose).toBe(
+      'A parametrically sized dresser with 3 drawers and 2 doors.',
+    );
+    expect(description.purpose).not.toMatch(/\ba door\b/i);
+  });
+
+  it('uses the singular drawer form when drawerCount is 1', () => {
+    expect(dresserWith(1, 0).purpose).toBe('A parametrically sized dresser with 1 drawer.');
+  });
+
+  it('reflects a different drawerCount', () => {
+    expect(dresserWith(5, 0).purpose).toBe('A parametrically sized dresser with 5 drawers.');
+  });
+
+  it('makes no drawer or door claim when params are unavailable', () => {
+    const params = createFurnitureParams('dresser');
+    const bom = buildBom('dresser', params);
+    if (!bom.ok) throw new Error(bom.reason);
+    const description = buildProductDescription(
+      {
+        type: 'dresser',
+        overallMm: { widthMm: 1200, heightMm: 800, depthMm: 470 },
+        bom: bom.bom,
+        cutList: buildCutList(bom.bom),
+        validation: validateManufacturing('dresser', params),
+        cuttingPlan: null,
+      },
+      DOCUMENTS,
+    );
+
+    expect(description.purpose).toBe('A parametrically sized dresser.');
+  });
+
+  it('changes the fingerprint when the counts change', () => {
+    const params: FurnitureParams = { ...createFurnitureParams('dresser'), doorCount: 0 };
+    const before = buildProductDescription(descriptionInput({ type: 'dresser' }, params), DOCUMENTS);
+    const changed: FurnitureParams = { ...params, doorCount: 2 };
+    const after = buildProductDescription(descriptionInput({ type: 'dresser' }, changed), DOCUMENTS);
+
+    expect(after.fingerprint).not.toBe(before.fingerprint);
+    expect(isProductDescriptionStale(before, after.fingerprint)).toBe(true);
+  });
+
+  it('leaves other product purposes unchanged', () => {
+    expect(buildProductDescription(descriptionInput(), DOCUMENTS).purpose).toBe(
+      'A parametrically sized table for dining or general interior use.',
+    );
+    expect(buildProductDescription(descriptionInput({ type: 'wardrobe' }), DOCUMENTS).purpose).toBe(
+      'A parametrically sized wardrobe with internal shelves and doors.',
+    );
   });
 });
 

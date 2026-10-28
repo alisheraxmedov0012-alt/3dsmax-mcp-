@@ -22,7 +22,7 @@ import type { CutListResult } from './cutList';
 import type { ValidationReport } from './validation';
 import type { AssemblyPlan } from './assemblyInstructions';
 import type { CuttingPlan } from './cuttingPlan';
-import type { FurnitureType } from '../geometry/furniture/types';
+import type { FurnitureType, FurnitureParams } from '../geometry/furniture/types';
 import { FURNITURE_TYPE_LABELS } from '../geometry/furniture/types';
 import { nameDigest } from '../export/exportNaming';
 
@@ -52,11 +52,17 @@ const PRODUCT_PURPOSE: Record<FurnitureType, string> = {
   bed: 'A parametrically sized bed frame with a headboard and a mattress opening.',
   wardrobe: 'A parametrically sized wardrobe with internal shelves and doors.',
   shelf: 'A parametrically sized open shelving unit.',
-  dresser: 'A parametrically sized dresser with drawers and a door.',
+  dresser: 'A parametrically sized dresser.',
 };
 
 export interface ProductDescriptionInput {
   type: FurnitureType;
+  /**
+   * The model parameters, when the caller has them. Used to describe a dresser
+   * from its actual drawer/door counts instead of a fixed sentence; callers that
+   * omit it get the neutral, claim-free purpose line.
+   */
+  params?: FurnitureParams;
   /** Overall size in millimetres, as measured from the built geometry. */
   overallMm: { widthMm: number; heightMm: number; depthMm: number };
   bom: BomResult;
@@ -92,6 +98,35 @@ const mm = (value: number): string => `${Math.round(value * 10) / 10} mm`;
 /** `1 piece` / `2 pieces`, so the generated English reads correctly. */
 const plural = (count: number, singular: string, pluralForm = `${singular}s`): string =>
   `${count} ${count === 1 ? singular : pluralForm}`;
+
+/**
+ * Purpose line for a dresser, built from the counts the model actually has.
+ *
+ * A fixed "drawers and a door" sentence was wrong for the default three-drawer
+ * dresser (`doorCount: 0`). Counts are only mentioned when the caller supplied
+ * parameters; without them the line makes no claim about either.
+ */
+function dresserPurpose(params: FurnitureParams | undefined): string {
+  const drawers = params?.drawerCount;
+  const doors = params?.doorCount;
+  const drawerText = typeof drawers === 'number' && drawers > 0 ? plural(drawers, 'drawer') : null;
+  const doorText =
+    typeof doors === 'number' && doors > 0 ? (doors === 1 ? 'a door' : `${doors} doors`) : null;
+  if (drawerText && doorText) {
+    return `A parametrically sized dresser with ${drawerText} and ${doorText}.`;
+  }
+  if (drawerText) {
+    return `A parametrically sized dresser with ${drawerText}.`;
+  }
+  if (doorText) {
+    return `A parametrically sized dresser with ${doorText}.`;
+  }
+  return PRODUCT_PURPOSE.dresser;
+}
+
+function productPurpose(type: FurnitureType, params: FurnitureParams | undefined): string {
+  return type === 'dresser' ? dresserPurpose(params) : PRODUCT_PURPOSE[type];
+}
 
 /** Distinct board materials actually assigned to at least one part. */
 function assignedMaterials(bom: BomResult): Array<{ name: string; thicknessMm: number; pieces: number }> {
@@ -139,8 +174,13 @@ function describeFingerprint(input: ProductDescriptionInput): string {
   const cutting = input.cuttingPlan
     ? `${input.cuttingPlan.status}:${input.cuttingPlan.summary.sheetCount}`
     : 'none';
+  // The dresser purpose now quotes these counts, so a change must invalidate it.
+  const counts =
+    input.type === 'dresser' && input.params
+      ? `|drawers:${input.params.drawerCount ?? 'unspecified'}|doors:${input.params.doorCount ?? 'unspecified'}`
+      : '';
   return nameDigest(
-    `${input.type}|${overall}|${parts.join('|')}|${assembly}|${cutting}|${input.validation.counts.error}`,
+    `${input.type}|${overall}|${parts.join('|')}|${assembly}|${cutting}|${input.validation.counts.error}${counts}`,
   );
 }
 
@@ -221,7 +261,7 @@ export function buildProductDescription(
   return {
     name,
     localName,
-    purpose: PRODUCT_PURPOSE[type],
+    purpose: productPurpose(type, input.params),
     features,
     dimensions,
     materials,
