@@ -42,6 +42,16 @@
   color: #7f8b98;
 }
 
+/* Sections are transparent wrappers on desktop: their children stay in the
+   original panel order. On mobile only the active section is displayed. */
+.panel__section {
+  display: contents;
+}
+
+.panel__mobile-nav {
+  display: none;
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -1462,7 +1472,7 @@ input[type='color'] {
      above the 3D stage. The 320px desktop column is preserved at >= 1024px. */
   .app {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 46vh) 1fr;
+    grid-template-rows: minmax(0, auto) 1fr;
     padding-top: env(safe-area-inset-top);
     padding-right: env(safe-area-inset-right);
     padding-bottom: env(safe-area-inset-bottom);
@@ -1478,9 +1488,58 @@ input[type='color'] {
     overflow-x: hidden;
   }
 
-  .panel > * {
+  .panel > *,
+  .panel > .panel__section > * {
     min-width: 0;
     max-width: 100%;
+  }
+
+  /* Six labels fit as a wrapping grid on a 360px phone; no tab is hidden in a
+     horizontal scroller and no page-level horizontal scroll is introduced. */
+  .panel__mobile-nav {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+    gap: 6px;
+    margin: 0 -4px;
+    padding: 4px;
+    background: #1b1f24;
+    border-bottom: 1px solid #2a2f36;
+  }
+
+  .panel__mobile-tab {
+    width: 100%;
+    min-height: 44px;
+    padding: 8px 10px;
+    border: 1px solid #333b44;
+    border-radius: 999px;
+    background: #262c33;
+    color: #e8edf2;
+    font-size: 0.8rem;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .panel__mobile-tab--active {
+    background: #4f9dff;
+    border-color: #4f9dff;
+    color: #0b1620;
+  }
+
+  .panel[data-mobile-section] .panel__section {
+    display: none;
+  }
+
+  .panel[data-mobile-section='scene'] .panel__section[data-section='scene'],
+  .panel[data-mobile-section='objects'] .panel__section[data-section='objects'],
+  .panel[data-mobile-section='materials'] .panel__section[data-section='materials'],
+  .panel[data-mobile-section='ai'] .panel__section[data-section='ai'],
+  .panel[data-mobile-section='export'] .panel__section[data-section='export'],
+  .panel[data-mobile-section='other'] .panel__section[data-section='other'] {
+    display: contents;
   }
 
   .field__label {
@@ -1517,12 +1576,12 @@ input[type='color'] {
   }
 }
 
-/* Landscape phones are wider than 720px but shorter than a portrait tablet.
-   Stacking keeps the full-width panel readable instead of squeezing it into
-   the 320px desktop column; a 50/50 split keeps the 3D stage visible. */
+/* Landscape phones are wider than the portrait tablet rule but much shorter.
+   Stacking keeps the full-width panel readable; the panel grows with its
+   active tab up to 50vh, so short tabs leave more room for the stage. */
 @media (max-width: 1023px) and (orientation: landscape) {
   .app {
-    grid-template-rows: minmax(0, 50vh) 1fr;
+    grid-template-rows: minmax(0, auto) 1fr;
   }
 
   .panel {

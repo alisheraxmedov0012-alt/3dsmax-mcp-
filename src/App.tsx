@@ -638,118 +638,145 @@ export default function App() {
         onChange={handleParamsChange}
         onReset={handleParamsReset}
         onAdd={handleAddFurniture}
+        mobileSections
       >
-        <RoomPanel
-          room={scene.data.room}
-          isRoomSelected={scene.selectedId === ROOM_OBJECT_ID}
-          layoutPreset={layoutPreset}
-          onApply={handleSetRoom}
-          onResetRoom={handleResetRoom}
-          onSelectRoom={handleSelectRoom}
-          onToggleCeiling={handleToggleCeiling}
-          onLayoutPresetChange={handleLayoutPresetChange}
-          onApplyLayout={handleApplyLayout}
-          onAddOpening={handleAddOpening}
-          onRemoveOpening={handleRemoveOpening}
-        />
-        <SceneSettingsPanel
-          background={settings.background}
-          cameraPreset={settings.cameraPreset}
-          roomMaterials={settings.roomMaterials}
-          lightingPreset={settings.lightingPreset}
-          exposure={settings.exposure}
-          toneMapping={settings.toneMapping}
-          onBackground={handleBackground}
-          onCameraPreset={handleCameraPreset}
-          onRoomMaterials={handleRoomMaterials}
-          onLightingPreset={handleLightingPreset}
-          onExposure={handleExposure}
-          onToneMapping={handleToneMapping}
-        />
-        <LightingPanel
-          lights={settings.lights}
-          onUpdate={handleLights}
-          onReset={handleResetLights}
-        />
-        <SceneHierarchyPanel
-          room={scene.data.room}
-          objects={scene.data.objects}
-          selectedId={scene.selectedId}
-          onSelect={handleSelect}
-          onToggleVisibility={handleToggleVisibility}
-          onDelete={handleDeleteObject}
-          onAddTable={handleAddTable}
-        />
-        <ObjectPanel
-          object={selectedObject}
-          onTransform={handleTransform}
-          onRename={handleRename}
-          onToggleVisibility={() => selectedObject && handleToggleVisibility(selectedObject.id)}
-          onDelete={() => selectedObject && handleDeleteObject(selectedObject.id)}
-          onPlaceAgainstWall={handlePlaceAgainstWall}
-        />
-        <MaterialPanel
-          object={selectedObject}
-          onMaterial={handleMaterial}
-          onApplyPreset={handleApplyMaterialPreset}
-          onReset={handleResetMaterial}
-        />
-        <AiPromptPanel onApply={applyDesign} />
-        <ImageReferencePanel onConfirm={handleImageReferenceConfirm} />
-        {/* C8.3: the manufacturing document stack is not needed for the first
-            screen, so it loads in its own chunk instead of the entry bundle. */}
-        <LazyManufacturingPanel
-          object={selectedObject}
-          projectName={projectName}
-          scene={scene.data}
-          onAssignSheetMaterial={handleAssignSheetMaterial}
-          onRemoveSheetMaterial={handleRemoveSheetMaterial}
-          onCapturePreview={handleCapturePreview}
-          onCaptureProductPreviews={handleCaptureProductPreviews}
-        />
-        <AccountPanel />
-        <ServerPanel />
-        <AssemblyPanel
-          assemblies={scene.data.assemblies ?? []}
-          onAdd={handleAddAssembly}
-          onDelete={handleDeleteAssembly}
-        />
-        <JobsPanel />
-        <ProjectsPanel
-          projects={projects}
-          activeId={activeProjectId}
-          name={projectName}
-          status={projectsStatus}
-          message={projectsMessage}
-          saving={savingProject}
-          unsaved={hasUnsavedWork}
-          onNameChange={setProjectName}
-          onSave={handleSaveProject}
-          onNew={handleNewProject}
-          onOpen={handleOpenProject}
-          onDelete={handleDeleteProject}
-        />
-        <ExportControls
-          format={exportFormat}
-          includeRoom={includeRoom}
-          status={exportStatus}
-          message={exportMessage}
-          disabled={!paramsValid}
-          onFormatChange={setExportFormat}
-          onIncludeRoomChange={setIncludeRoom}
-          onExport={handleExportFile}
-          onImportFile={handleImportJson}
-        />
-        <RenderExportPanel
-          preset={pngPreset}
-          quality={settings.qualityPreset}
-          status={renderStatus}
-          message={renderMessage}
-          disabled={false}
-          onPresetChange={setPngPreset}
-          onQualityChange={handleQuality}
-          onExport={handleExportPng}
-        />
+        <div className="panel__section" data-section="scene">
+          <RoomPanel
+            room={scene.data.room}
+            isRoomSelected={scene.selectedId === ROOM_OBJECT_ID}
+            layoutPreset={layoutPreset}
+            onApply={handleSetRoom}
+            onResetRoom={handleResetRoom}
+            onSelectRoom={handleSelectRoom}
+            onToggleCeiling={handleToggleCeiling}
+            onLayoutPresetChange={handleLayoutPresetChange}
+            onApplyLayout={handleApplyLayout}
+            onAddOpening={handleAddOpening}
+            onRemoveOpening={handleRemoveOpening}
+          />
+          <SceneSettingsPanel
+            background={settings.background}
+            cameraPreset={settings.cameraPreset}
+            roomMaterials={settings.roomMaterials}
+            lightingPreset={settings.lightingPreset}
+            exposure={settings.exposure}
+            toneMapping={settings.toneMapping}
+            onBackground={handleBackground}
+            onCameraPreset={handleCameraPreset}
+            onRoomMaterials={handleRoomMaterials}
+            onLightingPreset={handleLightingPreset}
+            onExposure={handleExposure}
+            onToneMapping={handleToneMapping}
+          />
+          <LightingPanel
+            lights={settings.lights}
+            onUpdate={handleLights}
+            onReset={handleResetLights}
+          />
+        </div>
+
+        <div className="panel__section" data-section="objects">
+          <SceneHierarchyPanel
+            room={scene.data.room}
+            objects={scene.data.objects}
+            selectedId={scene.selectedId}
+            onSelect={handleSelect}
+            onToggleVisibility={handleToggleVisibility}
+            onDelete={handleDeleteObject}
+            onAddTable={handleAddTable}
+          />
+          <ObjectPanel
+            object={selectedObject}
+            onTransform={handleTransform}
+            onRename={handleRename}
+            onToggleVisibility={() => selectedObject && handleToggleVisibility(selectedObject.id)}
+            onDelete={() => selectedObject && handleDeleteObject(selectedObject.id)}
+            onPlaceAgainstWall={handlePlaceAgainstWall}
+          />
+        </div>
+
+        <div className="panel__section" data-section="materials">
+          <MaterialPanel
+            object={selectedObject}
+            onMaterial={handleMaterial}
+            onApplyPreset={handleApplyMaterialPreset}
+            onReset={handleResetMaterial}
+          />
+        </div>
+
+        <div className="panel__section" data-section="ai">
+          <AiPromptPanel onApply={applyDesign} />
+          <ImageReferencePanel onConfirm={handleImageReferenceConfirm} />
+        </div>
+
+        <div className="panel__section" data-section="export">
+          {/* C8.3: the manufacturing document stack is not needed for the first
+              screen, so it loads in its own chunk instead of the entry bundle. */}
+          <LazyManufacturingPanel
+            object={selectedObject}
+            projectName={projectName}
+            scene={scene.data}
+            onAssignSheetMaterial={handleAssignSheetMaterial}
+            onRemoveSheetMaterial={handleRemoveSheetMaterial}
+            onCapturePreview={handleCapturePreview}
+            onCaptureProductPreviews={handleCaptureProductPreviews}
+          />
+        </div>
+
+        <div className="panel__section" data-section="other">
+          <AccountPanel />
+          <ServerPanel />
+          <AssemblyPanel
+            assemblies={scene.data.assemblies ?? []}
+            onAdd={handleAddAssembly}
+            onDelete={handleDeleteAssembly}
+          />
+        </div>
+
+        <div className="panel__section" data-section="ai">
+          <JobsPanel />
+        </div>
+
+        <div className="panel__section" data-section="other">
+          <ProjectsPanel
+            projects={projects}
+            activeId={activeProjectId}
+            name={projectName}
+            status={projectsStatus}
+            message={projectsMessage}
+            saving={savingProject}
+            unsaved={hasUnsavedWork}
+            onNameChange={setProjectName}
+            onSave={handleSaveProject}
+            onNew={handleNewProject}
+            onOpen={handleOpenProject}
+            onDelete={handleDeleteProject}
+          />
+        </div>
+
+        <div className="panel__section" data-section="export">
+          <ExportControls
+            format={exportFormat}
+            includeRoom={includeRoom}
+            status={exportStatus}
+            message={exportMessage}
+            disabled={!paramsValid}
+            onFormatChange={setExportFormat}
+            onIncludeRoomChange={setIncludeRoom}
+            onExport={handleExportFile}
+            onImportFile={handleImportJson}
+          />
+          <RenderExportPanel
+            preset={pngPreset}
+            quality={settings.qualityPreset}
+            status={renderStatus}
+            message={renderMessage}
+            disabled={false}
+            onPresetChange={setPngPreset}
+            onQualityChange={handleQuality}
+            onExport={handleExportPng}
+          />
+        </div>
       </FurniturePanel>
 
       <main className="stage">
