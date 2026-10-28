@@ -479,20 +479,48 @@ export function createTechnicalDrawingSvg(
     );
     cursor += step;
   };
+  // The title block spans the sheet. A long note used to run past the right edge
+  // (and out of the viewBox) on the default dresser drawing, so wrap at a
+  // conservative character budget derived from the available width.
+  const maxCharsFor = (size: number): number =>
+    Math.max(20, Math.floor((canvasWidth - MARGIN_LEFT - MARGIN_RIGHT) / (size * 0.6)));
+  const wrapText = (text: string, maxChars: number): string[] => {
+    const words = text.split(/\s+/);
+    const wrapped: string[] = [];
+    let current = '';
+    for (const word of words) {
+      const candidate = current === '' ? word : `${current} ${word}`;
+      if (candidate.length <= maxChars || current === '') {
+        current = candidate;
+      } else {
+        wrapped.push(current);
+        current = word;
+      }
+    }
+    if (current !== '') {
+      wrapped.push(current);
+    }
+    return wrapped;
+  };
+  const addWrappedLine = (text: string, size: number, fill: string, step: number) => {
+    for (const line of wrapText(text, maxCharsFor(size))) {
+      addLine(line, size, fill, step);
+    }
+  };
 
-  addLine(title, 15, '#e8edf2', 20);
-  addLine(`Turi: ${FURNITURE_TYPE_LABELS[type]} · Birlik: mm`, 11, '#aeb9c4', 16);
+  addWrappedLine(title, 15, '#e8edf2', 20);
+  addWrappedLine(`Turi: ${FURNITURE_TYPE_LABELS[type]} · Birlik: mm`, 11, '#aeb9c4', 16);
   if (options.date) {
-    addLine(`Sana: ${options.date}`, 11, '#8f9aa6', 16);
+    addWrappedLine(`Sana: ${options.date}`, 11, '#8f9aa6', 16);
   }
-  addLine(`Masshtab: ${scale.ratio} · O'lchamlar haqiqiy (mm)`, 11, '#aeb9c4', 18);
-  addLine(
+  addWrappedLine(`Masshtab: ${scale.ratio} · O'lchamlar haqiqiy (mm)`, 11, '#aeb9c4', 18);
+  addWrappedLine(
     `Umumiy: W ${overallWidthMm} x H ${overallHeightMm} x D ${overallDepthMm} mm (geometriyadan olchandi)`,
     11,
     '#8f9aa6',
     18,
   );
-  addLine(
+  addWrappedLine(
     'Dastlabki chizma: toleranslar, birlashma detallari va ishlab chiqarish standartlari tekshirilmagan.',
     10,
     '#c08a3e',
@@ -500,7 +528,7 @@ export function createTechnicalDrawingSvg(
   );
 
   const sheetWidth = Math.round(canvasWidth);
-  const sheetHeight = Math.round(canvasHeight);
+  const sheetHeight = Math.round(Math.max(canvasHeight, cursor + 8));
 
   const svg = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${sheetWidth}" height="${sheetHeight}" viewBox="0 0 ${sheetWidth} ${sheetHeight}" role="img" aria-label="Texnik chizma">`,

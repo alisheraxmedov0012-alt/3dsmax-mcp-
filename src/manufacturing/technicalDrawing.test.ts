@@ -33,6 +33,19 @@ describe('createTechnicalDrawingSvg', () => {
     expect(svg).toContain('Dastlabki chizma');
   });
 
+  it('wraps the long title-block note inside the sheet', () => {
+    const result = drawing('dresser');
+    const note =
+      'Dastlabki chizma: toleranslar, birlashma detallari va ishlab chiqarish standartlari tekshirilmagan.';
+    const textNodes = [...result.svg.matchAll(/<text[^>]*>(.*?)<\/text>/g)].map(
+      (match) => match[1],
+    );
+
+    expect(textNodes).not.toContain(note);
+    expect(textNodes.join(' ')).toContain('Dastlabki chizma');
+    expect(textNodes.join(' ')).toContain('tekshirilmagan.');
+  });
+
   it('reports measured overall dimensions in millimetres', () => {
     const { overall } = drawing('table');
     expect(overall.widthMm).toBeCloseTo(1200, 0);
