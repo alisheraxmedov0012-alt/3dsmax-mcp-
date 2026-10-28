@@ -163,6 +163,35 @@ describe('C8 package — contents', () => {
     expect(meta.skipped).toEqual([]);
   });
 
+  it('writes general listing metadata without inventing seller fields', async () => {
+    const outcome = await buildProductPackage({
+      ...packageInput(),
+      listing: {
+        title: '  Dining Table  ',
+        sku: 'TABLE-1',
+        tags: [' oak ', 'table', 'oak'],
+      },
+    });
+    if (!outcome.ok) throw new Error(outcome.reason);
+    const files = unzipSync(outcome.product.bytes);
+    const meta = JSON.parse(strFromU8(files['meta.json']));
+
+    expect(meta.listing.title).toBe('Dining Table');
+    expect(meta.listing.sku).toBe('TABLE-1');
+    expect(meta.listing.tags).toEqual(['oak', 'table']);
+    expect(meta.listing.formats).toEqual(expect.arrayContaining(['glb', 'pdf', 'svg']));
+    expect(meta.listing.dimensionsMm).toEqual({
+      widthMm: 1200,
+      heightMm: 750,
+      depthMm: 600,
+    });
+    expect(meta.listing.unit).toBe('mm');
+    // Not supplied, so not invented.
+    for (const key of ['version', 'category', 'author', 'license', 'textureResolutionPx']) {
+      expect(meta.listing).not.toHaveProperty(key);
+    }
+  });
+
   it('agrees with the BOM it was built from', async () => {
     const object = objectFor();
     const outcome = await buildProductPackage(packageInput(object));

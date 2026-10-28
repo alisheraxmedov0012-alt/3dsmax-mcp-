@@ -23,6 +23,7 @@ import { buildCutList, type CutListResult } from './cutList';
 import { buildFurnitureAssemblyPlan, type AssemblyPlan } from './assemblyInstructions';
 import { buildCuttingPlan, type CuttingPlan, type SheetSettingsInput } from './cuttingPlan';
 import { buildProductDescription, productDescriptionMarkdown } from './productDescription';
+import { buildProductListing, type ProductListingInput } from './productListing';
 import { PACKAGE_ENTRIES, buildManufacturingPackage, sceneForObject } from './manufacturingPackage';
 import { bomToCsv, cutListToCsv } from './manufacturingExport';
 import { groupByMaterial } from './sheetMaterial';
@@ -120,6 +121,12 @@ export interface ProductPackageInput {
    * refuses.
    */
   previews?: readonly ProductPreviewImage[] | null;
+  /**
+   * Optional general listing metadata for `meta.json`. Nothing is invented:
+   * seller, SKU, version, license and marketplace fields stay absent unless the
+   * caller supplies them.
+   */
+  listing?: ProductListingInput | null;
   generatedAt?: Date;
 }
 
@@ -334,6 +341,7 @@ function buildProductMeta(input: {
   projectName: string;
   type: FurnitureType;
   generatedAt: Date;
+  overallMm: { widthMm: number; heightMm: number; depthMm: number };
   bom: BomResult;
   cutList: CutListResult;
   validation: ValidationReport;
@@ -342,12 +350,20 @@ function buildProductMeta(input: {
   entries: readonly string[];
   previews: readonly string[];
   skipped: readonly { name: ProductPackageEntry; reason: string }[];
+  listing?: ProductListingInput | null;
 }): string {
   return JSON.stringify(
     {
       format: PRODUCT_PACKAGE_META_FORMAT,
       version: PRODUCT_PACKAGE_META_VERSION,
       project: input.projectName.trim() || 'Nomsiz loyiha',
+      listing: buildProductListing({
+        projectName: input.projectName,
+        type: input.type,
+        overallMm: input.overallMm,
+        entries: input.entries,
+        listing: input.listing,
+      }),
       furnitureType: input.type,
       furnitureTypeLabel: FURNITURE_TYPE_LABELS[input.type],
       exportedAt: input.generatedAt.toISOString(),
@@ -611,6 +627,7 @@ export async function buildProductPackage(
         projectName,
         type: object.type,
         generatedAt,
+        overallMm: drawing.overall,
         bom,
         cutList,
         validation,
@@ -619,6 +636,7 @@ export async function buildProductPackage(
         entries: productPackageEntries(previews),
         previews: previews.map((preview) => preview.name),
         skipped,
+        listing: input.listing,
       }),
     ),
     'README.txt': strToU8(
