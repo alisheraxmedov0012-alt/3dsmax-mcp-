@@ -15,6 +15,25 @@ export const API_BASE_URL: string =
   configuredBaseUrl?.replace(/\/$/, '') || DEFAULT_BASE_URL;
 
 /**
+ * Whether a backend origin was supplied at build time.
+ *
+ * This is deliberately only about configuration: an explicit URL says nothing
+ * about whether the backend is running. `apiBaseUrlProblem` uses the same
+ * predicate, so the request layer and the UI cannot disagree about what
+ * "configured" means.
+ */
+export function isBackendConfigured(configured: string | undefined): boolean {
+  return typeof configured === 'string' && configured.trim() !== '';
+}
+
+/**
+ * Build-time flag for server-only UI. A frontend-only deployment has no
+ * `VITE_API_BASE_URL`, so account, server-job and billing panels are hidden
+ * instead of leading the visitor into flows that cannot work.
+ */
+export const BACKEND_CONFIGURED: boolean = isBackendConfigured(configuredBaseUrl);
+
+/**
  * A deployed build must not silently call the visitor's own localhost when
  * `VITE_API_BASE_URL` was missing at build time. Local development keeps the
  * localhost default; any other hostname gets a clear configuration error.
@@ -23,7 +42,7 @@ export function apiBaseUrlProblem(
   configured: string | undefined,
   hostname: string,
 ): string | null {
-  if (configured && configured.trim() !== '') {
+  if (isBackendConfigured(configured)) {
     return null;
   }
   if (

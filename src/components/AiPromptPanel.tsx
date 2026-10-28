@@ -16,6 +16,13 @@ interface AiPromptPanelProps {
     params: FurnitureParams,
     materialPresetId: MaterialPresetId | null,
   ) => void;
+  /**
+   * False in a frontend-only build, where no server AI can exist. The cloud
+   * request is then skipped instead of failing first, and the panel says so.
+   * Defaults to true so the panel keeps its normal cloud path when embedded
+   * without the app-level flag.
+   */
+  backendConfigured?: boolean;
 }
 
 type PromptStatus = 'idle' | 'working' | 'done' | 'error';
@@ -29,7 +36,7 @@ const CONFIDENCE_LABEL: Record<ProposalConfidence, string> = {
 const EXAMPLES =
   'Masalan: "180x60x75 sm, yog\'och rangli stol" yoki "3 eshikli shkaf, 200 sm baland"';
 
-export function AiPromptPanel({ onApply }: AiPromptPanelProps) {
+export function AiPromptPanel({ onApply, backendConfigured = true }: AiPromptPanelProps) {
   const [text, setText] = useState('');
   const [status, setStatus] = useState<PromptStatus>('idle');
   const [message, setMessage] = useState('');
@@ -47,7 +54,7 @@ export function AiPromptPanel({ onApply }: AiPromptPanelProps) {
     if (unsupported.length > 0) {
       setStatus('error');
       setMessage(
-        `${reason} Mahalliy tahlil faqat stolni quradi, shuning uchun "${unsupported[0]}" ` +
+        `${reason} Mahalliy qoidalar faqat stolni quradi, shuning uchun "${unsupported[0]}" ` +
           "uchun natija yaratilmadi. Iltimos, qaytadan urinib ko'ring.",
       );
       setDetails([]);
@@ -59,7 +66,8 @@ export function AiPromptPanel({ onApply }: AiPromptPanelProps) {
     onApply('table', proposal.params, null);
     setStatus('done');
     setMessage(
-      `${reason} Mahalliy tahlil ishlatildi (ishonch: ${CONFIDENCE_LABEL[proposal.confidence]}).`,
+      `${reason} AI ishlatilmadi — natija mahalliy qoidalar asosida yaratildi ` +
+        `(ishonch: ${CONFIDENCE_LABEL[proposal.confidence]}).`,
     );
     setDetails([...proposal.notes, ...proposal.warnings]);
     return true;
@@ -95,6 +103,13 @@ export function AiPromptPanel({ onApply }: AiPromptPanelProps) {
     setDetails([]);
 
     try {
+      // No API origin was configured at build time, so a cloud request can only
+      // fail. Go straight to the local rules and say why.
+      if (!backendConfigured) {
+        await runLocalFallback('Server AI bu versiyada sozlanmagan.');
+        return;
+      }
+
       const outcome = await generateDesignFromCloud(text);
 
       if (outcome.kind === 'applied') {
@@ -181,12 +196,20 @@ export function AiPromptPanel({ onApply }: AiPromptPanelProps) {
         </ul>
       )}
 
-      <p className="ai__hint">
-        Serverda AI provayderi sozlangan bo‘lsa u ishlatiladi. Provayder javob
-        bermasa, matn tahlili mahalliy (oflayn) qoidaga asoslangan holda
-        bajariladi — lekin u faqat stolni quradi. Boshqa mebel turi so‘ralsa,
-        natija yaratilmaydi va sabab ko‘rsatiladi.
-      </p>
+      {backendConfigured ? (
+        <p className="ai__hint">
+          Serverda AI provayderi sozlangan bo‘lsa u ishlatiladi. Provayder javob
+          bermasa, matn tahlili mahalliy (oflayn) qoidaga asoslangan holda
+          bajariladi — lekin u faqat stolni quradi. Boshqa mebel turi so‘ralsa,
+          natija yaratilmaydi va sabab ko‘rsatiladi.
+        </p>
+      ) : (
+        <p className="ai__hint" data-testid="ai-backend-unavailable">
+          Bu versiyada server AI ulanmagan. So‘rov mahalliy qoidalar asosida
+          tahlil qilinadi va u faqat stol yaratadi. Boshqa mebel turi so‘ralsa,
+          natija yaratilmaydi va sabab ko‘rsatiladi.
+        </p>
+      )}
     </section>
   );
 }

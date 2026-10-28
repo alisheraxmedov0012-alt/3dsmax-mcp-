@@ -5,6 +5,7 @@ import {
   apiBaseUrlProblem,
   describeError,
   isAuthError,
+  isBackendConfigured,
   isBusyError,
   isLimitError,
   isServiceDownError,
@@ -32,6 +33,13 @@ describe('api base URL configuration', () => {
 
   it('accepts an explicitly configured API origin', () => {
     expect(apiBaseUrlProblem('https://api.example.com', '3dsmax-example.vercel.app')).toBeNull();
+  });
+
+  it('treats only a non-empty build-time URL as a configured backend', () => {
+    expect(isBackendConfigured('https://api.example.com')).toBe(true);
+    expect(isBackendConfigured(undefined)).toBe(false);
+    expect(isBackendConfigured('')).toBe(false);
+    expect(isBackendConfigured('   ')).toBe(false);
   });
 });
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { BACKEND_CONFIGURED } from './api/client';
 import { AccountPanel } from './components/AccountPanel';
 import { ServerPanel } from './components/ServerPanel';
 import { AssemblyPanel } from './components/AssemblyPanel';
@@ -32,6 +33,7 @@ import {
   type FurnitureType,
 } from './geometry/furniture';
 import { createLocalProjectRepository } from './projects/localProjectRepository';
+import { isStorageQuotaError } from './projects/storageErrors';
 import type { ProjectRepository, SavedProject } from './projects/types';
 import {
   hasUnsavedChanges,
@@ -414,7 +416,11 @@ export default function App() {
       await refreshProjects();
     } catch (error) {
       setProjectsStatus('error');
-      setProjectsMessage("Loyihani saqlab bo'lmadi.");
+      setProjectsMessage(
+        isStorageQuotaError(error)
+          ? "Brauzer xotirasi to'ldi. Eski loyihalarni o'chiring yoki JSON sifatida eksport qilib, qayta urinib ko'ring."
+          : "Loyihani saqlab bo'lmadi.",
+      );
       console.error('Loyihani saqlash xatosi:', error);
     } finally {
       setSavingProject(false);
@@ -705,7 +711,7 @@ export default function App() {
         </div>
 
         <div className="panel__section" data-section="ai">
-          <AiPromptPanel onApply={applyDesign} />
+          <AiPromptPanel onApply={applyDesign} backendConfigured={BACKEND_CONFIGURED} />
           <ImageReferencePanel onConfirm={handleImageReferenceConfirm} />
         </div>
 
@@ -724,8 +730,20 @@ export default function App() {
         </div>
 
         <div className="panel__section" data-section="other">
-          <AccountPanel />
-          <ServerPanel />
+          {/* Account, server readiness and server jobs are real backend flows.
+              Without VITE_API_BASE_URL they cannot work, so a frontend-only build
+              explains that instead of showing a login that always fails. */}
+          {BACKEND_CONFIGURED ? (
+            <>
+              <AccountPanel />
+              <ServerPanel />
+            </>
+          ) : (
+            <p className="panel__hint" data-testid="backend-unavailable-note">
+              Akkaunt, serverda saqlash, vazifalar va to‘lovlar bu versiyada mavjud emas.
+              Loyihalar shu qurilmada saqlanadi.
+            </p>
+          )}
           <AssemblyPanel
             assemblies={scene.data.assemblies ?? []}
             onAdd={handleAddAssembly}
@@ -733,9 +751,11 @@ export default function App() {
           />
         </div>
 
-        <div className="panel__section" data-section="ai">
-          <JobsPanel />
-        </div>
+        {BACKEND_CONFIGURED && (
+          <div className="panel__section" data-section="ai">
+            <JobsPanel />
+          </div>
+        )}
 
         <div className="panel__section" data-section="other">
           <ProjectsPanel

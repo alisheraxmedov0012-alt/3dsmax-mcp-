@@ -112,12 +112,12 @@ describe('A3.3 panel — a timeout leaves the waiting state', () => {
     fireEvent.click(screen.getByRole('button', { name: /AI orqali yaratish/ }));
     expect(screen.getByRole('button').textContent).toBe(WORKING_LABEL);
 
-    // A table prompt still gets an answer from the offline analyzer, so this ends
+    // A table prompt still gets an answer from the offline rules, so this ends
     // as a status message, not an error — but it must name the timeout first.
     // Wait for the *finished* text: a role="status" element is also present while
     // the request is still running.
     await waitFor(
-      () => expect(screen.getByRole('status').textContent).toMatch(/Mahalliy tahlil/),
+      () => expect(screen.getByRole('status').textContent).toMatch(/mahalliy qoidalar/),
       { timeout: 3000 },
     );
     // The waiting state is over: the button is usable and says so.
@@ -126,9 +126,9 @@ describe('A3.3 panel — a timeout leaves the waiting state', () => {
     // The message names the failure rather than claiming success.
     const status = screen.getByRole('status').textContent ?? '';
     expect(status).toMatch(/vaqtida javob bermadi/i);
-    // A table prompt may still use the offline analyzer, and it is labelled.
+    // A table prompt may still use the offline rules, and the result says so.
     expect(onApply).toHaveBeenCalledWith('table', expect.anything(), null);
-    expect(screen.getByRole('status').textContent).toMatch(/Mahalliy tahlil ishlatildi/);
+    expect(screen.getByRole('status').textContent).toMatch(/mahalliy qoidalar asosida/);
     vi.unstubAllEnvs();
   });
 });
@@ -268,7 +268,7 @@ describe('A3.3 panel — the offline fallback refuses prompts it cannot answer',
 
     await submit('180x60x75 sm, yog‘och rangli');
 
-    await waitForStatus(/Mahalliy tahlil ishlatildi/i);
+    await waitForStatus(/mahalliy qoidalar asosida/i);
     expect(onApply).toHaveBeenCalledWith('table', expect.anything(), null);
   });
 });
@@ -326,5 +326,44 @@ describe('A3.4 F3 — the AI material reaches the model', () => {
     await submit('180x60x75 sm stol');
 
     await waitFor(() => expect(onApply).toHaveBeenCalledWith('table', expect.anything(), null));
+  });
+});
+
+describe('M8 — frontend-only build explains that no server AI exists', () => {
+  it('skips the cloud request and labels the result as local rules', async () => {
+    const onApply = vi.fn();
+    render(<AiPromptPanel onApply={onApply} backendConfigured={false} />);
+
+    expect(screen.getByTestId('ai-backend-unavailable').textContent).toMatch(
+      /server AI ulanmagan/i,
+    );
+
+    await submit('180x60x75 sm stol');
+    await waitForStatus(/mahalliy qoidalar asosida/i);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onApply).toHaveBeenCalledWith('table', expect.anything(), null);
+    expect(screen.getByRole('status').textContent).toMatch(
+      /Server AI bu versiyada sozlanmagan/,
+    );
+  });
+
+  it('refuses an unsupported type instead of reporting a successful local build', async () => {
+    const onApply = vi.fn();
+    render(<AiPromptPanel onApply={onApply} backendConfigured={false} />);
+
+    await submit('3 eshikli shkaf, 200 sm baland');
+
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onApply).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert').textContent).toMatch(/shkaf/i);
+  });
+
+  it('keeps the cloud hint when a backend is configured', () => {
+    render(<AiPromptPanel onApply={vi.fn()} />);
+
+    expect(screen.queryByTestId('ai-backend-unavailable')).toBeNull();
+    expect(screen.getByText(/Serverda AI provayderi sozlangan bo/)).toBeTruthy();
   });
 });
