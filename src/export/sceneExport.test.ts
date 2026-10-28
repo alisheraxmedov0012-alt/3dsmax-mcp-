@@ -167,6 +167,26 @@ describe('exportSceneToGlb', () => {
     expect(node?.matrix?.[14]).toBeCloseTo(40, 3);
   });
 
+  it('converts centimetres to metres at the GLB boundary', async () => {
+    const buffer = await exportSceneToGlb(
+      makeScene({
+        objects: [createTableSceneObject('t1', { position: { x: 120, y: 0, z: 40 } })],
+      }),
+    );
+    const { json } = parseGlb(buffer);
+
+    const root = (json.nodes ?? []).find((entry) => entry.name === 'scene-root');
+    expect(root?.matrix).toBeDefined();
+    // One root scale, cm -> m; child local coordinates stay untouched.
+    expect(root?.matrix?.[0]).toBeCloseTo(0.01, 6);
+    expect(root?.matrix?.[5]).toBeCloseTo(0.01, 6);
+    expect(root?.matrix?.[10]).toBeCloseTo(0.01, 6);
+
+    const object = (json.nodes ?? []).find((entry) => entry.name === 'object:t1');
+    expect(object?.matrix?.[12]).toBeCloseTo(120, 3);
+    expect(object?.matrix?.[14]).toBeCloseTo(40, 3);
+  });
+
   it('exposes a meaningful default filename', () => {
     expect(SCENE_EXPORT_FILENAME).toBe('3d-studio-ai-scene.glb');
   });

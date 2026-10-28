@@ -143,6 +143,25 @@ async function loadGltfExporter() {
 }
 
 /**
+ * glTF linear units are metres, while the scene model stores centimetres.
+ *
+ * Wrap the export scene in a single root that scales centimetres to metres. The
+ * child node coordinates stay untouched (so local transforms, normals, UVs and
+ * material data are unchanged); only the root transform carries the conversion.
+ * `buildExportScene` itself is not changed, so OBJ/STL and the viewer keep their
+ * existing centimetre convention.
+ */
+function addMetreScaleRoot(scene: THREE.Scene): void {
+  const root = new THREE.Group();
+  root.name = 'scene-root';
+  root.scale.setScalar(0.01);
+  for (const child of scene.children.slice()) {
+    root.add(child);
+  }
+  scene.add(root);
+}
+
+/**
  * Serialises the whole scene to binary glTF (.glb) bytes using Three.js'
  * official GLTFExporter. No backend or external API is involved. The temporary
  * export scene is disposed afterwards.
@@ -158,6 +177,7 @@ export async function exportSceneToGlb(
 
   try {
     assertFiniteGeometry(scene);
+    addMetreScaleRoot(scene);
     const GltfExporter = await loadGltfExporter();
     const exporter = new GltfExporter();
     const result = await exporter.parseAsync(scene, { binary: true });
