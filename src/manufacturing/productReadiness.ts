@@ -37,6 +37,7 @@ import { buildCutList, type CutListResult } from './cutList';
 import { buildFurnitureAssemblyPlan, type AssemblyPlan } from './assemblyInstructions';
 import {
   CUTTING_PLAN_LIMITATIONS,
+  UNPLACED_REASON_LABELS,
   buildCuttingPlan,
   type CuttingPlan,
   type SheetSettingsInput,
@@ -97,6 +98,9 @@ export type ReadinessCheckId =
  * - `no-material`          — a board material has not been assigned yet.
  * - `not-computed`         — no layout was requested, so there is nothing to show.
  * - `layout-failed`        — a layout was requested and could not be produced.
+ * - `thickness-mismatch`   — the layout was produced from a nominal board whose
+ *                            thickness disagrees with a cut-list part, so the
+ *                            package is not manufacturing-ready.
  * - `partially-placed`     — a layout exists but some pieces did not fit.
  * - `complete`             — every piece was placed.
  */
@@ -106,6 +110,7 @@ export type CuttingReason =
   | 'no-material'
   | 'not-computed'
   | 'layout-failed'
+  | 'thickness-mismatch'
   | 'partially-placed'
   | 'complete';
 
@@ -116,6 +121,7 @@ export const CUTTING_REASON_LABELS: Record<CuttingReason, string> = {
   'no-material': "Material tanlanmagan",
   'not-computed': 'Kesish rejasi hali hisoblanmagan',
   'layout-failed': 'Kesish rejasi tuzilmadi',
+  'thickness-mismatch': "Material qalinligi geometriyaga mos emas",
   'partially-placed': "Ayrim detallar listga sig'madi",
   complete: "To'liq joylashtirildi",
 };
@@ -479,6 +485,20 @@ function checkCutting(
       detail: 'Kesish rejasi hisoblanmadi (natija berilmagan).',
     };
   }
+  // A plan computed from a nominal board that disagrees with a cut-list part is
+  // not a layout a shop can cut: the placement exists, but the part thickness is
+  // wrong. This is a blocker, not a cosmetic warning, so the package must not be
+  // presented as manufacturing-ready.
+  const thicknessMismatches = plan.issues.filter((issue) => issue.code === 'thickness-mismatch');
+  if (thicknessMismatches.length > 0) {
+    return {
+      id: 'cutting',
+      label,
+      status: 'fail',
+      reason: 'thickness-mismatch',
+      detail: `${thicknessMismatches.map((issue) => issue.message).join(' ')} Kesish rejasi nominal qalinlik bo‘yicha tuzilgan, shuning uchun paket ishlab chiqarishga tayyor emas.`,
+    };
+  }
   if (plan.status === 'unavailable') {
     // "Nothing could be placed because nothing has a board yet" is a consequence
     // of the materials check above, not an independent defect: C3 keeps material
@@ -507,12 +527,13 @@ function checkCutting(
     };
   }
   if (plan.status === 'partial') {
+    const reasons = [...new Set(plan.unplaced.map((piece) => UNPLACED_REASON_LABELS[piece.reason]))];
     return {
       id: 'cutting',
       label,
-      status: 'warning',
+      status: 'fail',
       reason: 'partially-placed',
-      detail: `${plan.summary.placedCount}/${plan.summary.pieceCount} detal joylashtirildi, ${plan.summary.unplacedCount} detal listga sig‘madi.`,
+      detail: `${plan.summary.placedCount}/${plan.summary.pieceCount} detal joylashtirildi, ${plan.summary.unplacedCount} detal listga sig‘madi${reasons.length > 0 ? ` (${reasons.join(', ')})` : ''} — kesish rejasi to‘liq emas.`,
     };
   }
   return {

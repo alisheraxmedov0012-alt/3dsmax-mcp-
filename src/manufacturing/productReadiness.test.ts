@@ -12,6 +12,8 @@ import {
 } from './productReadiness';
 import { createFurnitureParams, type FurnitureParams } from '../geometry/furniture/types';
 import type { SheetMaterialEntry } from './sheetMaterial';
+import { buildBom } from './bom';
+import { buildCutList } from './cutList';
 
 const SETTINGS = {
   sheetLengthMm: 2440,
@@ -21,7 +23,7 @@ const SETTINGS = {
 } as const;
 
 const MATERIALS: SheetMaterialEntry[] = [
-  { partId: 'table-top', materialId: 'ldsp', thicknessMm: 18, thicknessSource: 'user' },
+  { partId: 'table-top', materialId: 'ldsp', thicknessMm: 40, thicknessSource: 'user' },
   { partId: 'table-leg', materialId: 'ldsp', thicknessMm: 18, thicknessSource: 'user' },
 ];
 
@@ -122,6 +124,104 @@ describe('C8 readiness — a complete product', () => {
   });
 });
 
+describe('C8 readiness — cutting plan thickness mismatch', () => {
+  const DRESSER = createFurnitureParams('dresser');
+
+  function dresserMaterials(drawerThicknessMm: number): SheetMaterialEntry[] {
+    const bom = buildBom('dresser', DRESSER);
+    if (!bom.ok) throw new Error(bom.reason);
+    return bom.bom.rows.map((row) => ({
+      partId: row.partId,
+      materialId: 'ldsp',
+      thicknessMm: row.partId === 'dresser-drawer' ? drawerThicknessMm : 18,
+      thicknessSource: 'user',
+    }));
+  }
+
+  it('fails and is not presentable when the board thickness disagrees with the cut list', () => {
+    const report = assessProductReadiness({
+      type: 'dresser',
+      params: DRESSER,
+      sheetMaterials: dresserMaterials(18),
+      cuttingSettings: SETTINGS,
+    });
+    const cutting = checkById(report.checks, 'cutting');
+
+    expect(cutting.status).toBe('fail');
+    expect(cutting.reason).toBe('thickness-mismatch');
+    expect(cutting.detail).toContain('18');
+    expect(cutting.detail).toContain('20');
+    expect(cutting.detail).toContain('Tortma');
+    expect(report.status).toBe('fail');
+    expect(combineReadiness(report, []).presentable).toBe(false);
+  });
+
+  it('keeps the correct panel thickness passing as before', () => {
+    const report = assessProductReadiness({
+      type: 'dresser',
+      params: DRESSER,
+      sheetMaterials: dresserMaterials(20),
+      cuttingSettings: SETTINGS,
+    });
+
+    expect(checkById(report.checks, 'validation').status).toBe('pass');
+    expect(checkById(report.checks, 'cutting').status).toBe('pass');
+    expect(checkById(report.checks, 'cutting').reason).toBe('complete');
+    expect(report.status).toBe('pass');
+    expect(combineReadiness(report, []).presentable).toBe(true);
+  });
+
+  it('does not block a product that has no cut list', () => {
+    const params = createFurnitureParams('sofa');
+    const report = assessProductReadiness({
+      type: 'sofa',
+      params,
+      sheetMaterials: [],
+      cuttingSettings: SETTINGS,
+    });
+    const cutting = checkById(report.checks, 'cutting');
+
+    expect(cutting.status).toBe('not_applicable');
+    expect(cutting.reason).toBe('not-sheet-goods');
+    expect(report.status).not.toBe('fail');
+  });
+});
+
+describe('C8 readiness — partially placed cutting plan', () => {
+  const WARDROBE = createFurnitureParams('wardrobe');
+
+  function wardrobeMaterials(): SheetMaterialEntry[] {
+    const bom = buildBom('wardrobe', WARDROBE);
+    if (!bom.ok) throw new Error(bom.reason);
+    const cutList = buildCutList(bom.bom);
+    const measured = new Map(cutList.rows.map((row) => [row.partId, row.thicknessMm]));
+    return bom.bom.rows.map((row) => ({
+      partId: row.partId,
+      materialId: 'ldsp',
+      thicknessMm: measured.get(row.partId) ?? 18,
+      thicknessSource: 'user',
+    }));
+  }
+
+  it('fails and is not presentable when some pieces do not fit', () => {
+    const report = assessProductReadiness({
+      type: 'wardrobe',
+      params: WARDROBE,
+      sheetMaterials: wardrobeMaterials(),
+      cuttingSettings: { ...SETTINGS, maxSheets: 1 },
+    });
+    const cutting = checkById(report.checks, 'cutting');
+
+    expect(cutting.status).toBe('fail');
+    expect(cutting.reason).toBe('partially-placed');
+    expect(cutting.detail).toMatch(/\d+\/\d+ detal joylashtirildi/);
+    expect(cutting.detail).toMatch(/sig‘madi/);
+    expect(cutting.detail).toMatch(/to‘liq emas/);
+    expect(report.status).toBe('fail');
+    expect(combineReadiness(report, []).presentable).toBe(false);
+  });
+});
+
 describe('C8 readiness — missing and invalid data', () => {
   it('fails on invalid parameters and says why', () => {
     const params = { ...createFurnitureParams('table'), widthCm: 1 } as FurnitureParams;
@@ -151,7 +251,15 @@ describe('C8 readiness — missing and invalid data', () => {
 
   it('warns when C4 reports warnings but no errors', () => {
     const params = { ...createFurnitureParams('table'), heightCm: 40 } as FurnitureParams;
-    const report = assessProductReadiness(input({ params }));
+    const report = assessProductReadiness(
+      input({
+        params,
+        sheetMaterials: [
+          { partId: 'table-top', materialId: 'ldsp', thicknessMm: 18, thicknessSource: 'user' },
+          { partId: 'table-leg', materialId: 'ldsp', thicknessMm: 18, thicknessSource: 'user' },
+        ],
+      }),
+    );
     expect(checkById(report.checks, 'validation').status).toBe('warning');
   });
 
@@ -159,7 +267,7 @@ describe('C8 readiness — missing and invalid data', () => {
     const report = assessProductReadiness(
       input({
         sheetMaterials: [
-          { partId: 'table-top', materialId: 'ldsp', thicknessMm: 18, thicknessSource: 'user' },
+          { partId: 'table-top', materialId: 'ldsp', thicknessMm: 40, thicknessSource: 'user' },
         ],
       }),
     );
