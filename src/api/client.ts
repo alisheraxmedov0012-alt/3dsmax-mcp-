@@ -9,9 +9,36 @@
  */
 
 const DEFAULT_BASE_URL = 'http://localhost:8000';
+const configuredBaseUrl = (import.meta.env?.VITE_API_BASE_URL as string | undefined)?.trim();
 
 export const API_BASE_URL: string =
-  (import.meta.env?.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') || DEFAULT_BASE_URL;
+  configuredBaseUrl?.replace(/\/$/, '') || DEFAULT_BASE_URL;
+
+/**
+ * A deployed build must not silently call the visitor's own localhost when
+ * `VITE_API_BASE_URL` was missing at build time. Local development keeps the
+ * localhost default; any other hostname gets a clear configuration error.
+ */
+export function apiBaseUrlProblem(
+  configured: string | undefined,
+  hostname: string,
+): string | null {
+  if (configured && configured.trim() !== '') {
+    return null;
+  }
+  if (
+    hostname === '' ||
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '[::1]'
+  ) {
+    return null;
+  }
+  return (
+    "Server manzili sozlanmagan (VITE_API_BASE_URL). " +
+    "Administratorga murojaat qiling."
+  );
+}
 
 /**
  * How long an AI request may take before the client gives up.
@@ -115,6 +142,12 @@ interface RequestOptions {
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, csrfToken, timeoutMs, signal } = options;
+
+  const hostname = typeof location !== 'undefined' ? location.hostname : '';
+  const baseUrlProblem = apiBaseUrlProblem(configuredBaseUrl, hostname);
+  if (baseUrlProblem) {
+    throw new ApiRequestError('unconfigured', baseUrlProblem, 0);
+  }
 
   const headers: Record<string, string> = {};
   if (body !== undefined) {

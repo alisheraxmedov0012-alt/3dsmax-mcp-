@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ApiRequestError,
   api,
+  apiBaseUrlProblem,
   describeError,
   isAuthError,
   isBusyError,
@@ -15,6 +16,24 @@ function jsonResponse(body: unknown, status = 200, headers: Record<string, strin
     headers: { 'Content-Type': 'application/json', ...headers },
   });
 }
+
+describe('api base URL configuration', () => {
+  it('keeps the localhost default for local development', () => {
+    expect(apiBaseUrlProblem(undefined, 'localhost')).toBeNull();
+    expect(apiBaseUrlProblem(undefined, '127.0.0.1')).toBeNull();
+    expect(apiBaseUrlProblem(undefined, '')).toBeNull();
+  });
+
+  it('shows a clear error on a deployed host without VITE_API_BASE_URL', () => {
+    expect(apiBaseUrlProblem(undefined, '3dsmax-example.vercel.app')).toContain(
+      'VITE_API_BASE_URL',
+    );
+  });
+
+  it('accepts an explicitly configured API origin', () => {
+    expect(apiBaseUrlProblem('https://api.example.com', '3dsmax-example.vercel.app')).toBeNull();
+  });
+});
 
 describe('api client', () => {
   const fetchMock = vi.fn();
