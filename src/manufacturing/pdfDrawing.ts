@@ -73,7 +73,9 @@ function attributes(body: string): Record<string, string> {
 }
 
 function num(value: string | undefined, fallback = 0): number {
-  const parsed = Number(value);
+  // SVG dimensions may carry a unit (`594mm`); the numeric part is what the
+  // drawing uses. `Number('594mm')` is NaN and used to reject a valid sheet.
+  const parsed = typeof value === 'string' ? Number.parseFloat(value) : Number.NaN;
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 

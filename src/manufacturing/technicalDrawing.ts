@@ -542,7 +542,7 @@ export function createTechnicalDrawingSvg(
   const sheetHeight = Math.round(Math.max(canvasHeight, cursor + 8));
 
   const svg = [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${sheetWidth}" height="${sheetHeight}" viewBox="0 0 ${sheetWidth} ${sheetHeight}" role="img" aria-label="Texnik chizma">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${sheetWidth}mm" height="${sheetHeight}mm" viewBox="0 0 ${sheetWidth} ${sheetHeight}" role="img" aria-label="Texnik chizma">`,
     `<rect x="0" y="0" width="${sheetWidth}" height="${sheetHeight}" fill="#12161b" />`,
     body.join('\n'),
     lines.join('\n'),

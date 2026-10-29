@@ -46,6 +46,13 @@ describe('createTechnicalDrawingSvg', () => {
     expect(textNodes.join(' ')).toContain('tekshirilmagan.');
   });
 
+  it('declares the sheet in millimetres so the stated scale has physical meaning', () => {
+    const { svg } = drawing('table');
+    expect(svg).toMatch(/<svg[^>]*width="\d+mm"/);
+    expect(svg).toMatch(/<svg[^>]*height="\d+mm"/);
+    expect(svg).toContain('viewBox="0 0 ');
+  });
+
   it('lists the part names and counts so the drawing is not just outlines', () => {
     const { svg } = drawing('table');
     expect(svg).toContain('Detallar:');
