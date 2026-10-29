@@ -831,3 +831,28 @@ describe('C3.1 — manufacturing material assignment', () => {
     ]);
   });
 });
+
+describe('C6 — SET_HARDWARE', () => {
+  it('stores hardware on the selected object and removes the field when cleared', () => {
+    const state = initialState();
+    const id = state.data.objects[0].id;
+    const next = sceneReducer(state, {
+      type: 'SET_HARDWARE',
+      id,
+      hardware: [
+        {
+          kind: 'screw',
+          name: 'Konfirmat',
+          quantity: 12,
+          unit: 'pcs',
+          size: null,
+          stepIds: ['step-1'],
+        },
+      ],
+    });
+    expect(findSceneObject(next, id)?.hardware?.[0].name).toBe('Konfirmat');
+
+    const cleared = sceneReducer(next, { type: 'SET_HARDWARE', id, hardware: [] });
+    expect(findSceneObject(cleared, id)?.hardware).toBeUndefined();
+  });
+});

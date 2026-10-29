@@ -20,9 +20,11 @@ import {
 import type { CuttingPlan } from '../manufacturing/cuttingPlan';
 import type { PngPreset } from '../export/sceneImage';
 import { AssemblyInstructionsPanel } from './AssemblyInstructionsPanel';
+import { HardwarePanel } from './HardwarePanel';
 import { CuttingPlanPanel } from './CuttingPlanPanel';
 import { ProductPackagePanel } from './ProductPackagePanel';
 import { SheetMaterialPanel } from './SheetMaterialPanel';
+import { buildHardwareBom, validateHardwareSteps, type HardwareItem } from '../manufacturing/hardware';
 
 interface ManufacturingPanelProps {
   object: SceneObject | null;
@@ -37,6 +39,8 @@ interface ManufacturingPanelProps {
   ) => void;
   /** C3.1: remove one part's manufacturing material. */
   onRemoveSheetMaterial?: (partId: string) => void;
+  /** C6: replace the selected object's hardware list. */
+  onUpdateHardware?: (hardware: HardwareItem[]) => void;
   /** C8: capture the live 3D view for the product panel (owned by the app). */
   onCapturePreview?: (preset: PngPreset) => Promise<Blob | null>;
   /** A2.2: multi-angle product shots for the ZIP, or null when unavailable. */
@@ -69,6 +73,7 @@ export function ManufacturingPanel({
   scene,
   onAssignSheetMaterial,
   onRemoveSheetMaterial,
+  onUpdateHardware,
   onCapturePreview,
   onCaptureProductPreviews,
 }: ManufacturingPanelProps) {
@@ -194,6 +199,19 @@ export function ManufacturingPanel({
         return;
       }
 
+      const hardwareOutcome = buildHardwareBom(object.hardware ?? []);
+      if (!hardwareOutcome.ok) {
+        setStatus('error');
+        setMessage(hardwareOutcome.reason);
+        return;
+      }
+      const stepErrors = validateHardwareSteps(hardwareOutcome.hardware, computed.assembly.steps);
+      if (stepErrors.length > 0) {
+        setStatus('error');
+        setMessage(stepErrors.join(' '));
+        return;
+      }
+
       // Loaded on demand: pdf-lib and the embedded fonts are only worth their
       // weight when someone actually exports a PDF, so they stay out of the
       // initial bundle.
@@ -211,6 +229,7 @@ export function ManufacturingPanel({
         // A fresh plan, never the one on screen: a PDF must describe the model as
         // it is now, even when the reader left a stale plan open.
         assembly: computed.assembly,
+        hardware: hardwareOutcome.hardware,
         // C7 is different: its sheet settings live in the panel, so the parent
         // only ever holds the plan the reader last calculated.
         cuttingPlan,
@@ -409,8 +428,17 @@ export function ManufacturingPanel({
           <AssemblyInstructionsPanel
             plan={shownPlan}
             stale={planStale}
+            hardware={object.hardware ?? []}
             onGenerate={handleGenerateAssembly}
           />
+
+          {onUpdateHardware && (
+            <HardwarePanel
+              hardware={object.hardware ?? []}
+              steps={currentPlan?.steps ?? []}
+              onChange={onUpdateHardware}
+            />
+          )}
 
           {/* C7: material usage and cutting layout. The panel owns its own sheet
               settings, because a board size is a shop decision that has no place

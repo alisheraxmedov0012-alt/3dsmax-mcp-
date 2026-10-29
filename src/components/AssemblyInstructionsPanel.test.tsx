@@ -181,3 +181,33 @@ describe('AssemblyInstructionsPanel', () => {
     );
   });
 });
+
+describe('AssemblyInstructionsPanel — C6 hardware links', () => {
+  it('shows a hardware row only under the step it points at', () => {
+    const plan = planFor('table');
+    const first = plan.steps[0];
+    const second = plan.steps[1];
+    render(
+      <AssemblyInstructionsPanel
+        plan={plan}
+        stale={false}
+        onGenerate={vi.fn()}
+        hardware={[
+          {
+            kind: 'screw',
+            name: 'Konfirmat',
+            quantity: 4,
+            unit: 'pcs',
+            size: '4×40 mm',
+            stepIds: [first.id],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByTestId(`assembly-hardware-${first.order}`).textContent).toContain(
+      'Konfirmat',
+    );
+    expect(screen.queryByTestId(`assembly-hardware-${second.order}`)).toBeNull();
+  });
+});

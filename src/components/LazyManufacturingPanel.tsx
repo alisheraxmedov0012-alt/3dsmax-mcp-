@@ -23,6 +23,7 @@ import { Component, Suspense, lazy, type ReactNode } from 'react';
 import type { SceneData, SceneObject } from '../scene/types';
 import type { SheetMaterialId } from '../manufacturing/sheetMaterial';
 import type { PngPreset } from '../export/sceneImage';
+import type { HardwareItem } from '../manufacturing/hardware';
 
 const ManufacturingPanel = lazy(() =>
   import('./ManufacturingPanel').then((module) => ({ default: module.ManufacturingPanel })),
@@ -34,6 +35,7 @@ interface LazyManufacturingPanelProps {
   scene: SceneData;
   onAssignSheetMaterial?: (partId: string, materialId: SheetMaterialId, thicknessMm: number) => void;
   onRemoveSheetMaterial?: (partId: string) => void;
+  onUpdateHardware?: (hardware: HardwareItem[]) => void;
   onCapturePreview?: (preset: PngPreset) => Promise<Blob | null>;
   /** A2.2: multi-angle product shots for the ZIP, or null when unavailable. */
   onCaptureProductPreviews?: () => Promise<Array<{ name: string; bytes: Uint8Array }> | null>;

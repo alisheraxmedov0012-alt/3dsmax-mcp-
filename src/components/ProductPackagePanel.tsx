@@ -170,6 +170,7 @@ export function ProductPackagePanel({
         projectName,
         cuttingPlan,
         previews,
+        hardware: object.hardware ?? [],
         verifyC1Package: true,
       });
       const readiness = combineReadiness(structural, verification.checks);

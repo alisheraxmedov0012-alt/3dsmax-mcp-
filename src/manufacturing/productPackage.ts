@@ -27,7 +27,13 @@ import { buildProductListing, type ProductListingInput } from './productListing'
 import { PACKAGE_ENTRIES, buildManufacturingPackage, sceneForObject } from './manufacturingPackage';
 import { bomToCsv, cutListToCsv } from './manufacturingExport';
 import { groupByMaterial } from './sheetMaterial';
-import { buildHardwareBom, hardwareCsv, type HardwareBom, type HardwareItem } from './hardware';
+import {
+  buildHardwareBom,
+  hardwareCsv,
+  validateHardwareSteps,
+  type HardwareBom,
+  type HardwareItem,
+} from './hardware';
 import {
   PRODUCT_PREVIEW_FILENAMES,
   isPngBytes,
@@ -405,6 +411,15 @@ function buildProductMeta(input: {
         items: input.hardware.items.length,
         totalPieces: input.hardware.totalPieces,
         limitations: input.hardware.limitations,
+        list: input.hardware.items.map((item) => ({
+          kind: item.kind,
+          name: item.name,
+          quantity: item.quantity,
+          unit: item.unit,
+          size: item.size,
+          note: item.note ?? null,
+          stepIds: item.stepIds ?? [],
+        })),
       },
       cutting: input.cuttingPlan
         ? {
@@ -540,6 +555,10 @@ export async function buildProductPackage(
     return { ok: false, reason: hardwareOutcome.reason };
   }
   const hardware = hardwareOutcome.hardware;
+  const hardwareStepErrors = validateHardwareSteps(hardware, assembly.steps);
+  if (hardwareStepErrors.length > 0) {
+    return { ok: false, reason: hardwareStepErrors.join(' ') };
+  }
 
   // A supplied plan wins: it is the layout the reader is looking at. Otherwise
   // compute from the user's settings, and if there are none, ship no layout.

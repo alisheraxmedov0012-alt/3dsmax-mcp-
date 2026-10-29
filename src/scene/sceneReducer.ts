@@ -9,6 +9,7 @@ import {
   validateSheetThickness,
   type SheetMaterialEntry,
 } from '../manufacturing/sheetMaterial';
+import { buildHardwareBom, type HardwareItem } from '../manufacturing/hardware';
 import { MAX_SHEET_MATERIALS_PER_OBJECT } from './types';
 import { PBR_LIMITS, type MaterialPresetId, type NumericRange } from '../materials/types';
 import { validateRoomConfig, validateSceneObject } from './sceneValidation';
@@ -88,6 +89,7 @@ export type SceneAction =
       };
     }
   | { type: 'REMOVE_SHEET_MATERIAL'; id: string; partId: string }
+  | { type: 'SET_HARDWARE'; id: string; hardware: readonly HardwareItem[] }
   | { type: 'APPLY_MATERIAL_PRESET'; id: string; presetId: string }
   | { type: 'RESET_MATERIAL'; id: string }
   | { type: 'TOGGLE_VISIBILITY'; id: string }
@@ -412,6 +414,20 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
           return rest;
         }
         return { ...object, sheetMaterials: remaining };
+      });
+    }
+
+    case 'SET_HARDWARE': {
+      const result = buildHardwareBom(action.hardware);
+      if (!result.ok) {
+        return state;
+      }
+      return replaceObject(state, action.id, (object) => {
+        if (!result.hardware.specified) {
+          const { hardware: _removed, ...rest } = object;
+          return rest;
+        }
+        return { ...object, hardware: result.hardware.items };
       });
     }
 

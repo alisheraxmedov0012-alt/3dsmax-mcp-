@@ -29,6 +29,11 @@ export interface HardwareItem {
   /** Free-text size (e.g. user-entered "4×40 mm"), or null when unspecified. */
   size: string | null;
   note?: string | null;
+  /**
+   * Assembly steps this item belongs to. References, not quantities: the same
+   * item linked to two steps is still counted once in `totalPieces`.
+   */
+  stepIds?: string[];
 }
 
 export interface HardwareBom {
@@ -106,6 +111,9 @@ function normalizeItem(value: HardwareItem, index: number): HardwareItem | strin
     unit: value.unit,
     size: typeof value.size === 'string' && value.size.trim() !== '' ? value.size.trim() : null,
     note: typeof value.note === 'string' && value.note.trim() !== '' ? value.note.trim() : null,
+    stepIds: Array.isArray(value.stepIds)
+      ? [...new Set(value.stepIds.filter((id): id is string => typeof id === 'string' && id.trim() !== '').map((id) => id.trim()))]
+      : [],
   };
 }
 
@@ -159,7 +167,7 @@ function csvCell(value: string | number | null): string {
 
 /** Hardware CSV for the product archive. */
 export function hardwareCsv(hardware: HardwareBom): string {
-  const header = 'kind,name,quantity,unit,size,note,status';
+  const header = 'kind,name,quantity,unit,size,note,steps,status';
   const rows = hardware.items.map((item) =>
     [
       item.kind,
@@ -168,6 +176,7 @@ export function hardwareCsv(hardware: HardwareBom): string {
       item.unit,
       item.size,
       item.note ?? null,
+      (item.stepIds ?? []).join(';'),
       hardware.specified ? 'specified' : 'not-specified',
     ]
       .map(csvCell)
@@ -176,8 +185,17 @@ export function hardwareCsv(hardware: HardwareBom): string {
   return `${[header, ...rows].join('\n')}\n`;
 }
 
+export interface HardwareStepLabel {
+  id: string;
+  order: number;
+  title: string;
+}
+
 /** Human-readable hardware section for assembly.txt and PDF. */
-export function hardwareLines(hardware: HardwareBom): string[] {
+export function hardwareLines(
+  hardware: HardwareBom,
+  steps: readonly HardwareStepLabel[] = [],
+): string[] {
   if (!hardware.specified) {
     return [
       "Mahkamlagichlar: ko'rsatilmagan (modelda birikma ma'lumoti yo'q).",
@@ -187,6 +205,28 @@ export function hardwareLines(hardware: HardwareBom): string[] {
   return hardware.items.map((item) => {
     const quantity = item.quantity === null ? "soni ko'rsatilmagan" : `${item.quantity} ${item.unit}`;
     const size = item.size ? `, ${item.size}` : '';
-    return `${item.name} — ${quantity}${size}${item.note ? ` (${item.note})` : ''}`;
+    const labels = (item.stepIds ?? [])
+      .map((id) => steps.find((step) => step.id === id))
+      .filter((step): step is HardwareStepLabel => Boolean(step))
+      .map((step) => `${step.order}. ${step.title}`);
+    const where = labels.length > 0 ? `; qadamlar: ${labels.join(', ')}` : '';
+    return `${item.name} — ${quantity}${size}${where}${item.note ? ` (${item.note})` : ''}`;
   });
+}
+
+/** Errors when a hardware row points at a step the current plan does not have. */
+export function validateHardwareSteps(
+  hardware: HardwareBom,
+  steps: readonly { id: string }[],
+): string[] {
+  const known = new Set(steps.map((step) => step.id));
+  const errors: string[] = [];
+  for (const item of hardware.items) {
+    for (const stepId of item.stepIds ?? []) {
+      if (!known.has(stepId)) {
+        errors.push(`"${item.name}" noma'lum montaj qadamiga bog'langan: ${stepId}.`);
+      }
+    }
+  }
+  return errors;
 }

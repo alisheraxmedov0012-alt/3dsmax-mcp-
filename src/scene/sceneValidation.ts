@@ -19,6 +19,7 @@ import {
   type SheetMaterialEntry,
   type ThicknessSource,
 } from '../manufacturing/sheetMaterial';
+import { buildHardwareBom, type HardwareItem } from '../manufacturing/hardware';
 import {
   MATERIAL_DEFAULTS,
   MATERIAL_LIMITS,
@@ -258,6 +259,17 @@ export function validateRoomConfig(value: unknown): RoomConfig {
   return room;
 }
 
+function normalizeHardware(value: unknown): { hardware: HardwareItem[] } | undefined {
+  if (!Array.isArray(value) || value.length === 0) {
+    return undefined;
+  }
+  const result = buildHardwareBom(value as HardwareItem[]);
+  if (!result.ok || !result.hardware.specified) {
+    return undefined;
+  }
+  return { hardware: result.hardware.items };
+}
+
 /** Validates one stored scene object. Returns null when it is unusable. */
 export function validateSceneObject(value: unknown): SceneObject | null {
   return validateSceneObjectDetailed(value)?.object ?? null;
@@ -303,6 +315,9 @@ function validateSceneObjectDetailed(
     // Manufacturing material (C3) travels with the object so assignments survive
     // save/load; it is a different field from the PBR `material` above.
     sheetMaterials: normalizeSheetMaterials(value.sheetMaterials),
+    // Invalid stored hardware is omitted rather than allowed to reach exports;
+    // the package then reports the explicit "not specified" state.
+    ...normalizeHardware(value.hardware),
   };
 
   return {

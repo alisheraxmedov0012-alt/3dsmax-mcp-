@@ -212,7 +212,14 @@ describe('C6 hardware in the product package', () => {
     const outcome = await buildProductPackage({
       ...packageInput(),
       hardware: [
-        { kind: 'screw', name: 'Konfirmat', quantity: 12, unit: 'pcs', size: '4×40 mm' },
+        {
+          kind: 'screw',
+          name: 'Konfirmat',
+          quantity: 12,
+          unit: 'pcs',
+          size: '4×40 mm',
+          stepIds: ['step-1'],
+        },
       ],
     });
     if (!outcome.ok) throw new Error(outcome.reason);
@@ -222,7 +229,28 @@ describe('C6 hardware in the product package', () => {
     const meta = JSON.parse(strFromU8(files['meta.json']));
     expect(meta.hardware.specified).toBe(true);
     expect(meta.hardware.totalPieces).toBe(12);
+    expect(meta.hardware.list[0].stepIds).toEqual(['step-1']);
+    expect(strFromU8(files['hardware.csv'])).toContain('step-1');
     expect(strFromU8(files['README.txt'])).toContain('Furnitura: 1 yozuv');
+  });
+
+  it('rejects a hardware row linked to a step the plan does not contain', async () => {
+    const outcome = await buildProductPackage({
+      ...packageInput(),
+      hardware: [
+        {
+          kind: 'screw',
+          name: 'Konfirmat',
+          quantity: 4,
+          unit: 'pcs',
+          size: null,
+          stepIds: ['step-99'],
+        },
+      ],
+    });
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.reason).toMatch(/noma'lum montaj qadamiga/i);
   });
 
   it('states when hardware is not specified instead of printing an empty table', async () => {

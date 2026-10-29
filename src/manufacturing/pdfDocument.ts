@@ -1032,7 +1032,7 @@ export async function buildManufacturingPdf(input: PdfDocumentInput): Promise<Pd
     if (input.hardware) {
       layout.gap(2);
       layout.subheading('Mahkamlagichlar va furnitura', 10);
-      for (const line of hardwareLines(input.hardware)) {
+      for (const line of hardwareLines(input.hardware, assemblyPlan.steps)) {
         layout.paragraph(line, 8.6, input.hardware.specified ? INK : WARN_INK);
       }
     }

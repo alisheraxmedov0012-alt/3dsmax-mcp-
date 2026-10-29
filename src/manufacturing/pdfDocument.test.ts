@@ -76,7 +76,16 @@ describe('C6 — hardware section', () => {
       validation: input.validation,
     });
     const base = await buildManufacturingPdf({ ...input, assembly });
-    const hardware = buildHardwareBom();
+    const hardware = buildHardwareBom([
+      {
+        kind: 'screw',
+        name: 'Konfirmat',
+        quantity: 12,
+        unit: 'pcs',
+        size: '4×40 mm',
+        stepIds: ['step-1'],
+      },
+    ]);
     expect(hardware.ok).toBe(true);
     if (!hardware.ok) return;
     const withHardware = await buildManufacturingPdf({

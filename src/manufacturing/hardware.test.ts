@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildHardwareBom, hardwareCsv, hardwareLines } from './hardware';
+import { buildHardwareBom, hardwareCsv, hardwareLines, validateHardwareSteps } from './hardware';
 
 describe('C6 hardware BOM', () => {
   it('never invents fasteners when no data is supplied', () => {
@@ -23,6 +23,7 @@ describe('C6 hardware BOM', () => {
         quantity: 12,
         unit: 'pcs',
         size: '4×40 mm',
+        stepIds: ['step-1', 'step-2'],
       },
       { kind: 'dowel', name: 'Dowel', quantity: 8, unit: 'pcs', size: null },
       { kind: 'glue', name: 'Yelim', quantity: 50, unit: 'ml', size: null },
@@ -32,7 +33,26 @@ describe('C6 hardware BOM', () => {
 
     expect(outcome.hardware.specified).toBe(true);
     expect(outcome.hardware.items).toHaveLength(3);
+    // The same row linked to two steps is still counted once.
     expect(outcome.hardware.totalPieces).toBe(20);
+    expect(outcome.hardware.items[0].stepIds).toEqual(['step-1', 'step-2']);
+    expect(hardwareCsv(outcome.hardware)).toContain('step-1;step-2');
+  });
+
+  it('reports step links that do not exist in the current plan', () => {
+    const outcome = buildHardwareBom([
+      {
+        kind: 'screw',
+        name: 'Konfirmat',
+        quantity: 4,
+        unit: 'pcs',
+        size: null,
+        stepIds: ['step-9'],
+      },
+    ]);
+    if (!outcome.ok) throw new Error(outcome.reason);
+    expect(validateHardwareSteps(outcome.hardware, [{ id: 'step-1' }])).toHaveLength(1);
+    expect(validateHardwareSteps(outcome.hardware, [{ id: 'step-9' }])).toEqual([]);
   });
 
   it('rejects malformed rows instead of silently dropping them', () => {
@@ -46,7 +66,7 @@ describe('C6 hardware BOM', () => {
     const outcome = buildHardwareBom();
     if (!outcome.ok) throw new Error(outcome.reason);
     const csv = hardwareCsv(outcome.hardware);
-    expect(csv.split('\n')[0]).toBe('kind,name,quantity,unit,size,note,status');
+    expect(csv.split('\n')[0]).toBe('kind,name,quantity,unit,size,note,steps,status');
     expect(csv).toContain('not-specified');
   });
 

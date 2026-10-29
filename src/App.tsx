@@ -21,6 +21,7 @@ import { SceneSettingsPanel } from './components/SceneSettingsPanel';
 import { LazyViewer } from './components/LazyViewer';
 import { downloadBlob } from './export/downloadFile';
 import type { SheetMaterialId } from './manufacturing/sheetMaterial';
+import type { HardwareItem } from './manufacturing/hardware';
 import { exportSceneToFormat } from './export/sceneFileExport';
 import { parseSceneJson } from './export/sceneJson';
 import { ExportError } from './export/exportTypes';
@@ -334,6 +335,12 @@ export default function App() {
   const handleRemoveSheetMaterial = (partId: string) => {
     if (selectedObject) {
       dispatch({ type: 'REMOVE_SHEET_MATERIAL', id: selectedObject.id, partId });
+    }
+  };
+
+  const handleUpdateHardware = (hardware: HardwareItem[]) => {
+    if (selectedObject) {
+      dispatch({ type: 'SET_HARDWARE', id: selectedObject.id, hardware });
     }
   };
 
@@ -727,6 +734,7 @@ export default function App() {
             scene={scene.data}
             onAssignSheetMaterial={handleAssignSheetMaterial}
             onRemoveSheetMaterial={handleRemoveSheetMaterial}
+            onUpdateHardware={handleUpdateHardware}
             onCapturePreview={handleCapturePreview}
             onCaptureProductPreviews={handleCaptureProductPreviews}
           />

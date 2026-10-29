@@ -17,6 +17,9 @@ import {
   type AssemblyPlan,
   type AssemblyStep,
 } from '../manufacturing/assemblyInstructions';
+import type { HardwareItem } from '../manufacturing/hardware';
+
+const NO_HARDWARE: readonly HardwareItem[] = [];
 
 interface AssemblyInstructionsPanelProps {
   /** The plan currently shown, or null before one has been generated. */
@@ -25,6 +28,8 @@ interface AssemblyInstructionsPanelProps {
   stale: boolean;
   /** Build (or rebuild) a plan from the current model. */
   onGenerate: () => void;
+  /** C6: hardware rows linked to a step are shown under that step. */
+  hardware?: readonly HardwareItem[];
 }
 
 function partSummary(step: AssemblyStep): string[] {
@@ -36,7 +41,8 @@ function partSummary(step: AssemblyStep): string[] {
   });
 }
 
-function StepItem({ step }: { step: AssemblyStep }) {
+function StepItem({ step, hardware }: { step: AssemblyStep; hardware: readonly HardwareItem[] }) {
+  const stepHardware = hardware.filter((item) => (item.stepIds ?? []).includes(step.id));
   return (
     <li className="assembly-step" data-testid={`assembly-step-${step.order}`}>
       <p className="assembly-step__title">
@@ -54,6 +60,17 @@ function StepItem({ step }: { step: AssemblyStep }) {
           <li key={line}>{line}</li>
         ))}
       </ul>
+      {stepHardware.length > 0 && (
+        <ul className="assembly-step__parts" data-testid={`assembly-hardware-${step.order}`}>
+          {stepHardware.map((item) => (
+            <li key={`${item.kind}-${item.name}`}>
+              Furnitura: {item.name}
+              {item.size ? ` · ${item.size}` : ''} ·{' '}
+              {item.quantity === null ? "miqdor ko'rsatilmagan" : `${item.quantity} ${item.unit}`}
+            </li>
+          ))}
+        </ul>
+      )}
       {step.dependsOn.length > 0 && (
         <p className="assembly-step__depends">
           Avval bajarilishi kerak: {step.dependsOn.join(', ')}
@@ -67,6 +84,7 @@ export function AssemblyInstructionsPanel({
   plan,
   stale,
   onGenerate,
+  hardware = NO_HARDWARE,
 }: AssemblyInstructionsPanelProps) {
   return (
     <div className="field assembly" data-testid="assembly-instructions">
@@ -107,7 +125,7 @@ export function AssemblyInstructionsPanel({
           ) : (
             <ol className="assembly__steps" data-testid="assembly-steps">
               {plan.steps.map((step) => (
-                <StepItem key={step.id} step={step} />
+                <StepItem key={step.id} step={step} hardware={hardware} />
               ))}
             </ol>
           )}

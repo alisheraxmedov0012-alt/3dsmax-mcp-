@@ -452,3 +452,50 @@ describe('C3.1 — manufacturing material persistence', () => {
     expect(result.scene?.objects[0].sheetMaterials?.[0].materialId).toBe('mdf');
   });
 });
+
+describe('C6 — hardware persistence', () => {
+  const base = () => {
+    const object = createFurnitureSceneObject('table', 't-1');
+    return { ...object } as Record<string, unknown>;
+  };
+
+  it('keeps valid hardware and its step links through save/load', () => {
+    const stored = {
+      ...base(),
+      hardware: [
+        {
+          kind: 'screw',
+          name: 'Konfirmat',
+          quantity: 12,
+          unit: 'pcs',
+          size: '4×40 mm',
+          note: 'user value',
+          stepIds: ['step-1'],
+        },
+      ],
+    };
+    expect(validateSceneObject(stored)?.hardware).toEqual([
+      {
+        kind: 'screw',
+        name: 'Konfirmat',
+        quantity: 12,
+        unit: 'pcs',
+        size: '4×40 mm',
+        note: 'user value',
+        stepIds: ['step-1'],
+      },
+    ]);
+  });
+
+  it('keeps the pre-C6 "no hardware" shape', () => {
+    expect(validateSceneObject(base())?.hardware).toBeUndefined();
+  });
+
+  it('does not let an invalid stored row reach the scene', () => {
+    const stored = {
+      ...base(),
+      hardware: [{ kind: 'screw', name: '', quantity: 12, unit: 'pcs', size: null }],
+    };
+    expect(validateSceneObject(stored)?.hardware).toBeUndefined();
+  });
+});

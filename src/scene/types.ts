@@ -7,6 +7,7 @@ import {
 } from '../geometry/furniture/types';
 import type { MaterialPresetId } from '../materials/types';
 import type { SheetMaterialEntry } from '../manufacturing/sheetMaterial';
+import type { HardwareItem } from '../manufacturing/hardware';
 import { createDefaultSettings, type SceneSettings } from './sceneSettings';
 
 /**
@@ -144,6 +145,11 @@ export interface SceneObject {
    * before C3 stay valid; absent means "no material assigned", not a default.
    */
   sheetMaterials?: SheetMaterialEntry[];
+  /**
+   * C6 fastening hardware for this piece. Optional so existing projects load
+   * unchanged; absent/empty means the explicit "not specified" state.
+   */
+  hardware?: HardwareItem[];
 }
 
 export interface ObjectMaterial {
