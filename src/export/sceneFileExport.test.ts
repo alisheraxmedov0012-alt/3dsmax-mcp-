@@ -47,6 +47,27 @@ afterAll(() => {
   vi.unstubAllGlobals();
 });
 
+function stlBounds(buffer: ArrayBuffer): { min: [number, number, number]; max: [number, number, number] } {
+  const view = new DataView(buffer);
+  const count = view.getUint32(80, true);
+  const min: [number, number, number] = [Infinity, Infinity, Infinity];
+  const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+  let offset = 84;
+  for (let triangle = 0; triangle < count; triangle += 1) {
+    offset += 12; // facet normal
+    for (let vertex = 0; vertex < 3; vertex += 1) {
+      for (let axis = 0; axis < 3; axis += 1) {
+        const value = view.getFloat32(offset, true);
+        min[axis] = Math.min(min[axis], value);
+        max[axis] = Math.max(max[axis], value);
+        offset += 4;
+      }
+    }
+    offset += 2; // attribute byte count
+  }
+  return { min, max };
+}
+
 describe('exportSceneToFormat', () => {
   it('produces a GLB with the expected name and MIME', async () => {
     const artifact = await exportSceneToFormat('glb', makeScene(), META);
@@ -87,6 +108,16 @@ describe('exportSceneToFormat', () => {
     expect((bytes.byteLength - 84) % 50).toBe(0);
     expect(bytes.byteLength).toBeGreaterThan(84);
   });
+  it('writes STL in millimetres, not scene centimetres', async () => {
+    const scene = makeScene();
+    scene.objects = [createTableSceneObject('t1')];
+    const artifact = await exportSceneToFormat('stl', scene, META, { includeRoom: false });
+    const bounds = stlBounds(await artifact.blob.arrayBuffer());
+    expect(bounds.max[0] - bounds.min[0]).toBeCloseTo(1200, 0);
+    expect(bounds.max[1] - bounds.min[1]).toBeCloseTo(750, 0);
+    expect(bounds.max[2] - bounds.min[2]).toBeCloseTo(600, 0);
+  });
+
 
   it('exports every furniture type without throwing', async () => {
     for (const type of FURNITURE_TYPES) {

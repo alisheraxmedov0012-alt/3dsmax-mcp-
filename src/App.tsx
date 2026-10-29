@@ -14,6 +14,7 @@ import { LazyManufacturingPanel } from './components/LazyManufacturingPanel';
 import { ObjectPanel } from './components/ObjectPanel';
 import { ProjectsPanel, type ProjectsStatus } from './components/ProjectsPanel';
 import { RenderExportPanel, type RenderStatus } from './components/RenderExportPanel';
+import { PrintReadinessPanel } from './components/PrintReadinessPanel';
 import { RoomPanel } from './components/RoomPanel';
 import { SceneHierarchyPanel } from './components/SceneHierarchyPanel';
 import { SceneSettingsPanel } from './components/SceneSettingsPanel';
@@ -86,6 +87,7 @@ export default function App() {
   const [exportStatus, setExportStatus] = useState<ExportStatus>('idle');
   const [exportFormat, setExportFormat] = useState<ExportFormatId>('glb');
   const [includeRoom, setIncludeRoom] = useState(true);
+  const [exportTextureSize, setExportTextureSize] = useState<128 | 512>(128);
   const [exportMessage, setExportMessage] = useState('');
   const [pngPreset, setPngPreset] = useState<PngPreset>('standard');
   const [renderStatus, setRenderStatus] = useState<RenderStatus>('idle');
@@ -502,6 +504,7 @@ export default function App() {
     try {
       const artifact = await exportSceneToFormat(exportFormat, scene.data, metadata, {
         includeRoom,
+        textureSize: exportFormat === 'glb' ? exportTextureSize : undefined,
       });
       downloadBlob(artifact.blob, artifact.filename);
       setExportStatus('success');
@@ -781,7 +784,9 @@ export default function App() {
             status={exportStatus}
             message={exportMessage}
             disabled={!paramsValid}
+            textureSize={exportTextureSize}
             onFormatChange={setExportFormat}
+            onTextureSizeChange={setExportTextureSize}
             onIncludeRoomChange={setIncludeRoom}
             onExport={handleExportFile}
             onImportFile={handleImportJson}
@@ -796,6 +801,7 @@ export default function App() {
             onQualityChange={handleQuality}
             onExport={handleExportPng}
           />
+          <PrintReadinessPanel object={selectedObject} />
         </div>
       </FurniturePanel>
 

@@ -7,14 +7,17 @@ import { DATA_EXPORT_FORMATS } from '../export/sceneFileExport';
 
 export type ExportStatus = 'idle' | 'exporting' | 'success' | 'error';
 
-interface ExportControlsProps {
+export interface ExportControlsProps {
   format: ExportFormatId;
   includeRoom: boolean;
   status: ExportStatus;
   message: string;
   disabled: boolean;
+  /** GLB texture resolution; 128 keeps the historical default. */
+  textureSize?: 128 | 512;
   onFormatChange: (format: ExportFormatId) => void;
   onIncludeRoomChange: (include: boolean) => void;
+  onTextureSizeChange?: (size: 128 | 512) => void;
   onExport: () => void;
   onImportFile: (file: File) => void;
 }
@@ -25,8 +28,10 @@ export function ExportControls({
   status,
   message,
   disabled,
+  textureSize = 128,
   onFormatChange,
   onIncludeRoomChange,
+  onTextureSizeChange,
   onExport,
   onImportFile,
 }: ExportControlsProps) {
@@ -74,6 +79,18 @@ export function ExportControls({
         />
         Interyerni (xona) qo&apos;shish
       </label>
+
+      {format === 'glb' && onTextureSizeChange && (
+        <label className="toggle">
+          <input
+            type="checkbox"
+            checked={textureSize === 512}
+            aria-label="Yuqori sifatli teksturalar (512)"
+            onChange={(event) => onTextureSizeChange(event.target.checked ? 512 : 128)}
+          />
+          Yuqori sifatli teksturalar (512×512) — fayl kattaroq
+        </label>
+      )}
 
       <button
         type="button"

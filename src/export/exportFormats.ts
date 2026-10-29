@@ -119,7 +119,7 @@ export const EXPORT_FORMATS: Record<ExportFormatId, ExportFormatSpec> = {
   },
   stl: {
     id: 'stl',
-    label: 'STL (faqat geometriya)',
+    label: 'STL (mm, faqat geometriya)',
     extension: 'stl',
     mimeType: 'model/stl',
     kind: 'file',
@@ -132,8 +132,8 @@ export const EXPORT_FORMATS: Record<ExportFormatId, ExportFormatSpec> = {
       render: false,
     },
     notes: [
-      'Faqat mesh geometriyasi (ikkilik STL).',
-      'Rang, material va tekstura SAQLANMAYDI.',
+      'Faqat mesh geometriyasi (ikkilik STL, millimetrda).',
+      'Rang, material va tekstura SAQLANMAYDI. Sahna santimetrda saqlanadi; STL uchun 10× masshtab qo‘llanadi.',
       'Manifold/ishlab chiqarishga tayyorligi kafolatlanmaydi (tekshirilmagan).',
     ],
   },

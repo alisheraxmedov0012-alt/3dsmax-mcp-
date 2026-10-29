@@ -13,6 +13,7 @@
  * carries no colour/material. The limitation is surfaced in the UI via
  * `exportFormats`.
  */
+import * as THREE from 'three';
 import type { SceneData } from '../scene/types';
 import { buildExportScene, exportSceneToGlb, type BuildExportOptions } from './sceneExport';
 import { EXPORT_FORMATS, type ExportFormatId } from './exportFormats';
@@ -52,6 +53,22 @@ function stripObjMaterialReferences(obj: string): string {
     .split('\n')
     .filter((line) => !line.startsWith('usemtl ') && !line.startsWith('mtllib '))
     .join('\n');
+}
+
+/**
+ * STL has no unit metadata and slicers conventionally read millimetres. The
+ * scene stores centimetres, so wrap the export in a 10x root and bake it into
+ * world matrices before the exporter reads them.
+ */
+function addMillimetreScaleRoot(scene: THREE.Scene): void {
+  const root = new THREE.Group();
+  root.name = 'stl-mm-root';
+  root.scale.setScalar(10);
+  for (const child of scene.children.slice()) {
+    root.add(child);
+  }
+  scene.add(root);
+  scene.updateMatrixWorld(true);
 }
 
 function toBlob(data: string | ArrayBuffer | DataView, mimeType: string): Blob {
@@ -106,6 +123,7 @@ export async function exportSceneToFormat(
       const { scene, dispose } = buildExportScene(data, options);
       try {
         assertFiniteGeometry(scene);
+        addMillimetreScaleRoot(scene);
         // Binary STL is compact; ASCII is available but rarely wanted for meshes.
         const { STLExporter } = await loadExporter(
           () => import('three/examples/jsm/exporters/STLExporter.js'),

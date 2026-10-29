@@ -136,6 +136,17 @@ describe('exportSceneToGlb', () => {
     expect(parsed.hasBin).toBe(true);
   });
 
+  it('writes readable, unique mesh names derived from node names', async () => {
+    const buffer = await exportSceneToGlb(makeScene());
+    const parsed = parseGlb(buffer);
+    const names = (parsed.json.meshes as Array<{ name?: string }>).map((mesh) => mesh.name ?? '');
+    expect(names.length).toBeGreaterThan(0);
+    expect(names.every((name) => name.length > 0)).toBe(true);
+    expect(new Set(names).size).toBe(names.length);
+    expect(names).toContain('table-top');
+    expect(names).toContain('table-leg');
+  });
+
   it('contains the room and object geometry plus materials', async () => {
     const buffer = await exportSceneToGlb(makeScene());
     const { json } = parseGlb(buffer);

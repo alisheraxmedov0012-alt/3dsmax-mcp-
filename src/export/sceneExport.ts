@@ -142,6 +142,108 @@ async function loadGltfExporter() {
   }
 }
 
+const GLB_JSON_CHUNK = 0x4e4f534a;
+
+/**
+ * Give glTF meshes stable, readable names without touching geometry or buffers.
+ *
+ * Three.js r186 only writes node names, so `mesh.name` is null in the file. The
+ * node names are already meaningful (`table-top`, `table-leg-1`, ...), so the
+ * names are derived from them. A mesh shared by several nodes (all table legs)
+ * uses their common prefix plus a collision suffix, never one arbitrary node.
+ * Only the JSON chunk is rewritten; the BIN chunk and every bufferView offset
+ * stay byte-identical.
+ */
+export function nameExportedMeshes(glb: ArrayBuffer): ArrayBuffer {
+  try {
+    const view = new DataView(glb);
+    if (view.getUint32(0, true) !== 0x46546c67) return glb;
+
+    const totalLength = view.getUint32(8, true);
+    const chunks: Array<{ type: number; bytes: Uint8Array }> = [];
+    let offset = 12;
+    while (offset + 8 <= totalLength) {
+      const length = view.getUint32(offset, true);
+      const type = view.getUint32(offset + 4, true);
+      chunks.push({ type, bytes: new Uint8Array(glb, offset + 8, length) });
+      offset += 8 + length;
+    }
+
+    const jsonChunk = chunks.find((chunk) => chunk.type === GLB_JSON_CHUNK);
+    if (!jsonChunk) return glb;
+    const json = JSON.parse(new TextDecoder().decode(jsonChunk.bytes)) as {
+      meshes?: Array<{ name?: string }>;
+      nodes?: Array<{ name?: string; mesh?: number }>;
+    };
+    const meshes = json.meshes ?? [];
+    const nodes = json.nodes ?? [];
+
+    const nodesByMesh = new Map<number, string[]>();
+    for (const node of nodes) {
+      if (typeof node.mesh !== 'number') continue;
+      const names = nodesByMesh.get(node.mesh) ?? [];
+      if (typeof node.name === 'string' && node.name.trim() !== '') names.push(node.name);
+      nodesByMesh.set(node.mesh, names);
+    }
+
+    const commonPrefix = (values: string[]): string => {
+      if (values.length === 0) return '';
+      let prefix = values[0];
+      for (const value of values.slice(1)) {
+        while (!value.startsWith(prefix)) prefix = prefix.slice(0, -1);
+      }
+      return prefix.replace(/[-_.\s]+$/, '');
+    };
+
+    const used = new Set<string>();
+    meshes.forEach((mesh, index) => {
+      if (typeof mesh.name === 'string' && mesh.name.trim() !== '') {
+        used.add(mesh.name);
+        return;
+      }
+      const names = nodesByMesh.get(index) ?? [];
+      let candidate = names.length === 1 ? names[0] : commonPrefix(names);
+      if (candidate.length < 3) candidate = `mesh-${index}`;
+      let unique = candidate;
+      let suffix = 2;
+      while (used.has(unique)) unique = `${candidate}-${suffix++}`;
+      mesh.name = unique;
+      used.add(unique);
+    });
+
+    const encoded = new TextEncoder().encode(JSON.stringify(json));
+    const rebuilt: Array<{ type: number; bytes: Uint8Array }> = chunks.map((chunk) =>
+      chunk.type === GLB_JSON_CHUNK ? { type: chunk.type, bytes: encoded } : chunk,
+    );
+    const padded = rebuilt.map((chunk) => {
+      const pad = (4 - (chunk.bytes.length % 4)) % 4;
+      const bytes = new Uint8Array(chunk.bytes.length + pad);
+      bytes.set(chunk.bytes);
+      if (chunk.type === GLB_JSON_CHUNK) bytes.fill(0x20, chunk.bytes.length);
+      return { type: chunk.type, bytes };
+    });
+    const length = 12 + padded.reduce((sum, chunk) => sum + 8 + chunk.bytes.length, 0);
+    const output = new ArrayBuffer(length);
+    const out = new DataView(output);
+    const outBytes = new Uint8Array(output);
+    out.setUint32(0, 0x46546c67, true);
+    out.setUint32(4, 2, true);
+    out.setUint32(8, length, true);
+    let cursor = 12;
+    for (const chunk of padded) {
+      out.setUint32(cursor, chunk.bytes.length, true);
+      out.setUint32(cursor + 4, chunk.type, true);
+      outBytes.set(chunk.bytes, cursor + 8);
+      cursor += 8 + chunk.bytes.length;
+    }
+    return output;
+  } catch {
+    // Naming is an interoperability improvement; never fail an otherwise valid
+    // export because the post-processing could not read it.
+    return glb;
+  }
+}
+
 /**
  * glTF linear units are metres, while the scene model stores centimetres.
  *
@@ -186,7 +288,7 @@ export async function exportSceneToGlb(
       throw new Error('GLB eksport natijasi kutilgan ikkilik formatda emas.');
     }
 
-    return result;
+    return nameExportedMeshes(result);
   } finally {
     dispose();
   }
