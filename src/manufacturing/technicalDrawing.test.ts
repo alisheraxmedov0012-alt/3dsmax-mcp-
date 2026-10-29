@@ -46,6 +46,13 @@ describe('createTechnicalDrawingSvg', () => {
     expect(textNodes.join(' ')).toContain('tekshirilmagan.');
   });
 
+  it('lists the part names and counts so the drawing is not just outlines', () => {
+    const { svg } = drawing('table');
+    expect(svg).toContain('Detallar:');
+    expect(svg).toContain('Oyoq ×4');
+    expect(svg).toContain('Ust paneli ×1');
+  });
+
   it('reports measured overall dimensions in millimetres', () => {
     const { overall } = drawing('table');
     expect(overall.widthMm).toBeCloseTo(1200, 0);

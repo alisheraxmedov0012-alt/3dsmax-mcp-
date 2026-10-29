@@ -474,7 +474,7 @@ function buildProductReadme(input: {
     lines.push(`- ${entry}`);
   }
   if (input.skipped.length > 0) {
-    lines.push('', 'Yaratilmagan fayllar:');
+    lines.push('', "To'liq hisoblanmagan fayllar:");
     for (const item of input.skipped) {
       lines.push(`- ${item.name}: ${item.reason}`);
     }
@@ -802,7 +802,7 @@ export async function verifyProductExports(
     status: product.skipped.length > 0 ? 'warning' : 'pass',
     detail:
       product.skipped.length > 0
-        ? `Arxiv yaratildi (${product.bytes.length} bayt), lekin ${product.skipped.map((item) => item.name).join(', ')} yaratilmadi.`
+        ? `Arxiv yaratildi (${product.bytes.length} bayt), lekin quyidagi fayl to'liq hisoblanmagan: ${product.skipped.map((item) => item.name).join(', ')}.`
         : `Arxiv yaratildi: ${product.entries.length} fayl, ${product.bytes.length} bayt.`,
   });
 

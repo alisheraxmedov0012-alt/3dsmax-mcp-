@@ -283,8 +283,14 @@ class Layout {
   /** Draw a paragraph. `color` lets validation errors and warnings stand apart. */
   paragraph(text: string, size = 9.5, color = MUTED, indent = 0): void {
     const lines = this.wrap(text, size, this.regular, this.contentWidth - indent);
-    this.ensure(lines.length * (size + 2.5));
+    // A single paragraph can be longer than a page (a long hardware note, for
+    // example). Draw line by line and start a new page when the next line would
+    // cross the footer; `ensure(total height)` would otherwise leave the tail of
+    // the paragraph outside the page.
     for (const line of lines) {
+      if (this.cursorY - (size + 2.5) < this.bottomLimit) {
+        this.addPage();
+      }
       this.page.drawText(line, {
         x: MARGIN + indent,
         y: this.cursorY - size,

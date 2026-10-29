@@ -30,6 +30,7 @@ import {
 } from '../geometry/furniture/types';
 import { convertLength, roundLength } from './units';
 import { envelopeMm, measurePartBoxes, type PartBox } from './partBoxes';
+import { PART_KIND_LABELS, partKindFromId } from './parts';
 
 // Re-exported so existing consumers (`validation.ts`, tests) keep one import
 // path; the implementation now lives in `partBoxes.ts` because the parameters
@@ -520,6 +521,16 @@ export function createTechnicalDrawingSvg(
     '#8f9aa6',
     18,
   );
+  const partCounts = new Map<string, number>();
+  for (const box of boxes) {
+    const baseId = box.partId.replace(/-\d+$/, '');
+    const label = PART_KIND_LABELS[partKindFromId(type, baseId)] ?? baseId;
+    partCounts.set(label, (partCounts.get(label) ?? 0) + 1);
+  }
+  const partLegend = [...partCounts.entries()]
+    .map(([label, count]) => `${label} ×${count}`)
+    .join(', ');
+  addWrappedLine(`Detallar: ${partLegend}`, 10, '#aeb9c4', 16);
   addWrappedLine(
     'Dastlabki chizma: toleranslar, birlashma detallari va ishlab chiqarish standartlari tekshirilmagan.',
     10,

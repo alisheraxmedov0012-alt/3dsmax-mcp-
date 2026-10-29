@@ -99,6 +99,37 @@ describe('C6 — hardware section', () => {
   });
 });
 
+describe('C5 — long paragraphs paginate', () => {
+  it('moves a very long hardware note onto additional pages instead of off the page', async () => {
+    const input = inputFor('table');
+    const assembly = buildFurnitureAssemblyPlan({
+      bom: input.bom,
+      validation: input.validation,
+    });
+    const short = buildHardwareBom([
+      { kind: 'screw', name: 'Konfirmat', quantity: 12, unit: 'pcs', size: null, note: 'qisqa' },
+    ]);
+    const long = buildHardwareBom([
+      {
+        kind: 'screw',
+        name: 'Konfirmat',
+        quantity: 12,
+        unit: 'pcs',
+        size: null,
+        note: 'uzun izoh '.repeat(1200),
+      },
+    ]);
+    if (!short.ok || !long.ok) throw new Error('hardware fixture failed');
+
+    const compact = await buildManufacturingPdf({ ...input, assembly, hardware: short.hardware });
+    const expanded = await buildManufacturingPdf({ ...input, assembly, hardware: long.hardware });
+    expect(compact.ok && expanded.ok).toBe(true);
+    if (!compact.ok || !expanded.ok) return;
+    expect(expanded.pageCount).toBeGreaterThan(compact.pageCount);
+    expect(expanded.bytes.length).toBeGreaterThan(compact.bytes.length);
+  });
+});
+
 describe('C5 — PDF structure', () => {
   it('produces a non-empty file with a valid PDF signature and trailer', async () => {
     const out = await pdfFor('table');
