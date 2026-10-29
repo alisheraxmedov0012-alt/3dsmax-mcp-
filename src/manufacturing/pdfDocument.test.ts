@@ -26,6 +26,7 @@ import { buildCutList } from './cutList';
 import { buildCuttingPlan } from './cuttingPlan';
 import { groupByMaterial } from './sheetMaterial';
 import { validateManufacturing } from './validation';
+import { buildHardwareBom } from './hardware';
 import { createTechnicalDrawingSvg } from './technicalDrawing';
 import { createFurnitureParams, type FurnitureType } from '../geometry/furniture/types';
 
@@ -66,6 +67,28 @@ async function pdfFor(type: FurnitureType, projectName?: string) {
 function asText(bytes: Uint8Array): string {
   return new TextDecoder('latin1').decode(bytes);
 }
+
+describe('C6 — hardware section', () => {
+  it('changes the document when a hardware BOM is supplied', async () => {
+    const input = inputFor('table');
+    const assembly = buildFurnitureAssemblyPlan({
+      bom: input.bom,
+      validation: input.validation,
+    });
+    const base = await buildManufacturingPdf({ ...input, assembly });
+    const hardware = buildHardwareBom();
+    expect(hardware.ok).toBe(true);
+    if (!hardware.ok) return;
+    const withHardware = await buildManufacturingPdf({
+      ...input,
+      assembly,
+      hardware: hardware.hardware,
+    });
+    expect(base.ok && withHardware.ok).toBe(true);
+    if (!base.ok || !withHardware.ok) return;
+    expect(Array.from(withHardware.bytes)).not.toEqual(Array.from(base.bytes));
+  });
+});
 
 describe('C5 — PDF structure', () => {
   it('produces a non-empty file with a valid PDF signature and trailer', async () => {

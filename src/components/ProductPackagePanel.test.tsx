@@ -271,7 +271,7 @@ describe('A2.2 panel — preview shots reach the package', () => {
     expect(onCaptureProductPreviews).toHaveBeenCalledTimes(1);
     // Two shots requested, so the package reports fourteen files, not twelve.
     const pkg = screen.getByTestId('product-check-package').textContent ?? '';
-    expect(pkg).toMatch(/14 fayl/);
+    expect(pkg).toMatch(/15 fayl/);
   });
 
   it('packages without previews when the viewer is not ready', async () => {
@@ -289,7 +289,7 @@ describe('A2.2 panel — preview shots reach the package', () => {
     await waitFor(() => expect(screen.getByTestId('product-verdict')).toBeTruthy());
 
     const pkg = screen.getByTestId('product-check-package').textContent ?? '';
-    expect(pkg).toMatch(/12 fayl/);
+    expect(pkg).toMatch(/13 fayl/);
   });
 
   it('surfaces a capture failure instead of shipping a text-only bundle silently', async () => {

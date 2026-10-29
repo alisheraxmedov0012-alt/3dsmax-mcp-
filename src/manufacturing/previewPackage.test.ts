@@ -6,7 +6,7 @@
  * 1. The *vocabulary* (`productPreviewViews.ts`) — file names, the camera preset
  *    behind each shot, and the PNG test. Pure, no renderer.
  * 2. The *packaging* — that the builder writes those bytes into the ZIP, keeps
- *    the twelve-entry contract when no shots are supplied, and refuses a file that
+ *    the thirteen-entry contract when no shots are supplied, and refuses a file that
  *    is not really a PNG.
  *
  * What these tests do NOT prove is that a browser renders three different-looking
@@ -212,7 +212,7 @@ describe('A2.2 preview vocabulary', () => {
 describe('A2.2 package entries', () => {
   it('is unchanged without previews', () => {
     expect(productPackageEntries()).toEqual([...PRODUCT_PACKAGE_ENTRIES]);
-    expect(productPackageEntries().length).toBe(12);
+    expect(productPackageEntries().length).toBe(13);
   });
 
   it('appends previews in canonical order regardless of input order', () => {
@@ -238,13 +238,13 @@ describe('A2.2 package entries', () => {
 });
 
 describe('A2.2 previews in the ZIP', () => {
-  it('keeps exactly twelve entries when no previews are supplied', async () => {
+  it('keeps exactly thirteen entries when no previews are supplied', async () => {
     const outcome = await buildProductPackage(packageInput(undefined));
     expect(outcome.ok, outcome.ok ? '' : outcome.reason).toBe(true);
     if (!outcome.ok) return;
 
     const names = Object.keys(unzipSync(outcome.product.bytes));
-    expect(names).toHaveLength(12);
+    expect(names).toHaveLength(13);
     expect(names.sort()).toEqual([...PRODUCT_PACKAGE_ENTRIES].sort());
   });
 
@@ -252,10 +252,10 @@ describe('A2.2 previews in the ZIP', () => {
     const outcome = await buildProductPackage(packageInput(null));
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
-    expect(Object.keys(unzipSync(outcome.product.bytes))).toHaveLength(12);
+    expect(Object.keys(unzipSync(outcome.product.bytes))).toHaveLength(13);
   });
 
-  it('writes all three images as real PNGs, alongside the twelve documents', async () => {
+  it('writes all three images as real PNGs, alongside the thirteen documents', async () => {
     const outcome = await buildProductPackage(packageInput(previewSet()));
     expect(outcome.ok, outcome.ok ? '' : outcome.reason).toBe(true);
     if (!outcome.ok) return;
@@ -263,7 +263,7 @@ describe('A2.2 previews in the ZIP', () => {
     // unzipSync verifies each entry's CRC while inflating.
     const files = unzipSync(outcome.product.bytes);
     const names = Object.keys(files);
-    expect(names).toHaveLength(15);
+    expect(names).toHaveLength(16);
 
     for (const name of PRODUCT_PREVIEW_FILENAMES) {
       expect(files[name], name).toBeDefined();
@@ -273,7 +273,7 @@ describe('A2.2 previews in the ZIP', () => {
       expect(isPngBytes(bytes), `${name} is a PNG`).toBe(true);
     }
 
-    // Nothing was displaced: all twelve base entries are still present.
+    // Nothing was displaced: all thirteen base entries are still present.
     for (const base of PRODUCT_PACKAGE_ENTRIES) {
       expect(files[base], base).toBeDefined();
     }
@@ -325,7 +325,7 @@ describe('A2.2 previews in the ZIP', () => {
     expect(outcome.product.entries.map((entry) => entry.name)).toEqual(
       outcome.product.expectedEntries,
     );
-    expect(outcome.product.expectedEntries).toHaveLength(15);
+    expect(outcome.product.expectedEntries).toHaveLength(16);
   });
 });
 

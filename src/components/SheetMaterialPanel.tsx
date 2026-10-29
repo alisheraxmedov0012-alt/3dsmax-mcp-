@@ -141,7 +141,9 @@ export function SheetMaterialPanel({ object, parts, onAssign, onRemove }: SheetM
       <span className="field__label">Ishlab chiqarish materiali (detal bo‘yicha)</span>
       <p className="visual__hint">
         Ko‘rinish (PBR) materialidan alohida: bu detal qaysi taxtadan kesilishi va nominal
-        qalinligi.
+        qalinligi. Nominal qalinlik model geometriyasini avtomatik o‘zgartirmaydi; geometriya
+        qalinligi mebel parametrlarida alohida beriladi. Ikkalasi mos kelmasa, tekshiruv
+        ogohlantiradi va tayyorlikni bloklaydi.
       </p>
 
       {/* noValidate: the browser's own constraint bubble would replace the

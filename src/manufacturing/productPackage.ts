@@ -27,6 +27,7 @@ import { buildProductListing, type ProductListingInput } from './productListing'
 import { PACKAGE_ENTRIES, buildManufacturingPackage, sceneForObject } from './manufacturingPackage';
 import { bomToCsv, cutListToCsv } from './manufacturingExport';
 import { groupByMaterial } from './sheetMaterial';
+import { buildHardwareBom, hardwareCsv, type HardwareBom, type HardwareItem } from './hardware';
 import {
   PRODUCT_PREVIEW_FILENAMES,
   isPngBytes,
@@ -54,6 +55,7 @@ export const PRODUCT_PACKAGE_ENTRIES = [
   'BOM.csv',
   'cutlist.csv',
   'materials.csv',
+  'hardware.csv',
   'drawing.svg',
   'assembly.txt',
   'cutting-plan.csv',
@@ -95,7 +97,7 @@ export function productPackageEntries(
 }
 
 export const PRODUCT_PACKAGE_META_FORMAT = '3d-studio-ai-product-package';
-export const PRODUCT_PACKAGE_META_VERSION = 1;
+export const PRODUCT_PACKAGE_META_VERSION = 2;
 
 /** Thickness the C8 sample product is documented with. A user value, not a standard. */
 export const DEFAULT_SAMPLE_THICKNESS_MM = 18;
@@ -127,6 +129,12 @@ export interface ProductPackageInput {
    * caller supplies them.
    */
   listing?: ProductListingInput | null;
+  /**
+   * Optional hardware supplied by the caller. Omitted means "not specified":
+   * the package then carries one explicit not-specified row instead of an empty
+   * table or an invented screw list.
+   */
+  hardware?: readonly HardwareItem[] | null;
   generatedAt?: Date;
 }
 
@@ -161,6 +169,7 @@ export interface ProductArtifacts {
   assembly: AssemblyPlan;
   cuttingPlan: CuttingPlan | null;
   drawing: { svg: string; scale: { ratio: string; standard: boolean }; overall: { widthMm: number; heightMm: number; depthMm: number } };
+  hardware: HardwareBom;
   documentCount: number;
 }
 
@@ -347,6 +356,7 @@ function buildProductMeta(input: {
   validation: ValidationReport;
   assembly: AssemblyPlan;
   cuttingPlan: CuttingPlan | null;
+  hardware: HardwareBom;
   entries: readonly string[];
   previews: readonly string[];
   skipped: readonly { name: ProductPackageEntry; reason: string }[];
@@ -390,6 +400,12 @@ function buildProductMeta(input: {
         status: input.assembly.status,
         steps: input.assembly.steps.length,
       },
+      hardware: {
+        specified: input.hardware.specified,
+        items: input.hardware.items.length,
+        totalPieces: input.hardware.totalPieces,
+        limitations: input.hardware.limitations,
+      },
       cutting: input.cuttingPlan
         ? {
             status: input.cuttingPlan.status,
@@ -421,6 +437,7 @@ function buildProductReadme(input: {
   validation: ValidationReport;
   assembly: AssemblyPlan;
   cuttingPlan: CuttingPlan | null;
+  hardware: HardwareBom;
   /** Every entry in the archive, including previews. */
   entries: readonly string[];
   skipped: readonly { name: ProductPackageEntry; reason: string }[];
@@ -449,6 +466,9 @@ function buildProductReadme(input: {
     `Kesish: ${input.cutList.totalPieces} panel · ${input.cutList.panelAreaM2} m2`,
     `Tekshiruv: ${input.validation.counts.error} xatolik · ${input.validation.counts.warning} ogohlantirish`,
     `Montaj: ${input.assembly.steps.length} qadam (${input.assembly.status})`,
+    input.hardware.specified
+      ? `Furnitura: ${input.hardware.items.length} yozuv${input.hardware.totalPieces === null ? ", soni qisman" : `, ${input.hardware.totalPieces} dona`}`
+      : "Furnitura: ko'rsatilmagan (modelda birikma ma'lumoti yo'q).",
   );
   if (input.cuttingPlan) {
     lines.push(
@@ -514,6 +534,12 @@ export async function buildProductPackage(
   }
 
   const assembly = buildFurnitureAssemblyPlan({ bom, validation });
+
+  const hardwareOutcome = buildHardwareBom(input.hardware ?? []);
+  if (!hardwareOutcome.ok) {
+    return { ok: false, reason: hardwareOutcome.reason };
+  }
+  const hardware = hardwareOutcome.hardware;
 
   // A supplied plan wins: it is the layout the reader is looking at. Otherwise
   // compute from the user's settings, and if there are none, ship no layout.
@@ -582,6 +608,7 @@ export async function buildProductPackage(
     overall: drawing.overall,
     assembly,
     cuttingPlan,
+    hardware,
     generatedAt,
   });
   if (!pdf.ok) {
@@ -616,6 +643,7 @@ export async function buildProductPackage(
     'BOM.csv': strToU8(bomToCsv(bom)),
     'cutlist.csv': strToU8(cutListToCsv(cutList)),
     'materials.csv': strToU8(materialsCsv(bom)),
+    'hardware.csv': strToU8(hardwareCsv(hardware)),
     'drawing.svg': strToU8(drawing.svg),
     'assembly.txt': strToU8(assemblyText(assembly)),
     'cutting-plan.csv': strToU8(cuttingPlanCsv(cuttingPlan)),
@@ -633,6 +661,7 @@ export async function buildProductPackage(
         validation,
         assembly,
         cuttingPlan,
+        hardware,
         entries: productPackageEntries(previews),
         previews: previews.map((preview) => preview.name),
         skipped,
@@ -648,6 +677,7 @@ export async function buildProductPackage(
         validation,
         assembly,
         cuttingPlan,
+        hardware,
         entries: productPackageEntries(previews),
         skipped,
       }),
@@ -697,6 +727,7 @@ export async function buildProductPackage(
       assembly,
       cuttingPlan,
       drawing: { svg: drawing.svg, scale: drawing.scale, overall: drawing.overall },
+      hardware,
       documentCount: documents.length,
     },
   };

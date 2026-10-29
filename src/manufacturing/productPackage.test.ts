@@ -207,6 +207,33 @@ describe('C8 package — contents', () => {
   });
 });
 
+describe('C6 hardware in the product package', () => {
+  it('ships supplied hardware in its own CSV and metadata row', async () => {
+    const outcome = await buildProductPackage({
+      ...packageInput(),
+      hardware: [
+        { kind: 'screw', name: 'Konfirmat', quantity: 12, unit: 'pcs', size: '4×40 mm' },
+      ],
+    });
+    if (!outcome.ok) throw new Error(outcome.reason);
+    const files = unzipSync(outcome.product.bytes);
+    expect(strFromU8(files['hardware.csv'])).toContain('Konfirmat');
+    expect(strFromU8(files['hardware.csv'])).toContain('specified');
+    const meta = JSON.parse(strFromU8(files['meta.json']));
+    expect(meta.hardware.specified).toBe(true);
+    expect(meta.hardware.totalPieces).toBe(12);
+    expect(strFromU8(files['README.txt'])).toContain('Furnitura: 1 yozuv');
+  });
+
+  it('states when hardware is not specified instead of printing an empty table', async () => {
+    const outcome = await buildProductPackage(packageInput());
+    if (!outcome.ok) throw new Error(outcome.reason);
+    const files = unzipSync(outcome.product.bytes);
+    expect(strFromU8(files['hardware.csv'])).toContain('not-specified');
+    expect(strFromU8(files['README.txt'])).toContain("ko'rsatilmagan");
+  });
+});
+
 describe('C8 package — integrity and determinism', () => {
   it('survives a round trip, which is what verifies the CRCs', async () => {
     const outcome = await buildProductPackage(packageInput());

@@ -31,6 +31,8 @@ import {
   ASSEMBLY_STATUS_LABELS,
   type AssemblyPlan,
 } from './assemblyInstructions';
+import type { HardwareBom } from './hardware';
+import { hardwareLines } from './hardware';
 import {
   CUTTING_STATUS_LABELS,
   UNPLACED_REASON_LABELS,
@@ -72,6 +74,12 @@ export interface PdfDocumentInput {
    * section is inserted after the material list and the numbers below shift.
    */
   cuttingPlan?: CuttingPlan | null;
+  /**
+   * C6 hardware. Omitted keeps pre-hardware documents byte-identical; when the
+   * assembly section is present the list is printed there, including the
+   * explicit "not specified" state.
+   */
+  hardware?: HardwareBom | null;
   /** Export timestamp; injected so the same input yields identical bytes. */
   generatedAt: Date;
 }
@@ -1018,6 +1026,14 @@ export async function buildManufacturingPdf(input: PdfDocumentInput): Promise<Pd
             issue.level === 'error' ? ERROR_INK : WARN_INK,
           );
         }
+      }
+    }
+
+    if (input.hardware) {
+      layout.gap(2);
+      layout.subheading('Mahkamlagichlar va furnitura', 10);
+      for (const line of hardwareLines(input.hardware)) {
+        layout.paragraph(line, 8.6, input.hardware.specified ? INK : WARN_INK);
       }
     }
 
