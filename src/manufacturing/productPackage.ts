@@ -419,6 +419,10 @@ function buildProductMeta(input: {
           size: item.size,
           note: item.note ?? null,
           stepIds: item.stepIds ?? [],
+          stepLabels: (item.stepIds ?? []).map((id) => {
+            const step = input.assembly.steps.find((entry) => entry.id === id);
+            return step ? `${step.order}. ${step.title}` : `${id} (noma'lum qadam)`;
+          }),
         })),
       },
       cutting: input.cuttingPlan
@@ -662,7 +666,7 @@ export async function buildProductPackage(
     'BOM.csv': strToU8(bomToCsv(bom)),
     'cutlist.csv': strToU8(cutListToCsv(cutList)),
     'materials.csv': strToU8(materialsCsv(bom)),
-    'hardware.csv': strToU8(hardwareCsv(hardware)),
+    'hardware.csv': strToU8(hardwareCsv(hardware, assembly.steps)),
     'drawing.svg': strToU8(drawing.svg),
     'assembly.txt': strToU8(assemblyText(assembly)),
     'cutting-plan.csv': strToU8(cuttingPlanCsv(cuttingPlan)),

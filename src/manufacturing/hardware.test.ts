@@ -36,7 +36,12 @@ describe('C6 hardware BOM', () => {
     // The same row linked to two steps is still counted once.
     expect(outcome.hardware.totalPieces).toBe(20);
     expect(outcome.hardware.items[0].stepIds).toEqual(['step-1', 'step-2']);
-    expect(hardwareCsv(outcome.hardware)).toContain('step-1;step-2');
+    expect(
+      hardwareCsv(outcome.hardware, [
+        { id: 'step-1', order: 1, title: 'Oyoqlar' },
+        { id: 'step-2', order: 2, title: 'Ustki panel' },
+      ]),
+    ).toContain('step-1:1. Oyoqlar;step-2:2. Ustki panel');
   });
 
   it('reports step links that do not exist in the current plan', () => {
@@ -74,5 +79,23 @@ describe('C6 hardware BOM', () => {
     const outcome = buildHardwareBom();
     if (!outcome.ok) throw new Error(outcome.reason);
     expect(hardwareLines(outcome.hardware)[0]).toMatch(/ko'rsatilmagan/i);
+  });
+
+  it('prints step names, not only ids, in the human-readable section', () => {
+    const outcome = buildHardwareBom([
+      {
+        kind: 'screw',
+        name: 'Konfirmat',
+        quantity: 12,
+        unit: 'pcs',
+        size: null,
+        stepIds: ['step-leg'],
+      },
+    ]);
+    if (!outcome.ok) throw new Error(outcome.reason);
+    const lines = hardwareLines(outcome.hardware, [
+      { id: 'step-leg', order: 1, title: 'Oyoqlar' },
+    ]);
+    expect(lines[0]).toContain('qadamlar: 1. Oyoqlar');
   });
 });

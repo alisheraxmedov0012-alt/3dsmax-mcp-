@@ -68,6 +68,25 @@ describe('C6 hardware UI', () => {
     expect(screen.getByTestId('hardware-error').textContent).toMatch(/musbat son/i);
   });
 
+  it('labels an old numeric link as legacy instead of silently remapping it', () => {
+    render(
+      <Harness
+        initial={[
+          {
+            kind: 'screw',
+            name: 'Eski vint',
+            quantity: 4,
+            unit: 'pcs',
+            size: null,
+            stepIds: ['step-1'],
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByTestId('hardware-list').textContent).toMatch(/eski formatdagi qadam/);
+    expect(screen.getByTestId('hardware-list').textContent).toMatch(/qayta bog‘lang/);
+  });
+
   it('counts a row once even when it is linked to two steps', () => {
     render(<Harness />);
     fireEvent.change(screen.getByLabelText('Nomi'), { target: { value: 'Konfirmat' } });

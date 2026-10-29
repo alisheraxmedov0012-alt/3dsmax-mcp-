@@ -166,8 +166,12 @@ function csvCell(value: string | number | null): string {
 }
 
 /** Hardware CSV for the product archive. */
-export function hardwareCsv(hardware: HardwareBom): string {
+export function hardwareCsv(
+  hardware: HardwareBom,
+  steps: readonly HardwareStepLabel[] = [],
+): string {
   const header = 'kind,name,quantity,unit,size,note,steps,status';
+  const labels = new Map(steps.map((step) => [step.id, `${step.order}. ${step.title}`]));
   const rows = hardware.items.map((item) =>
     [
       item.kind,
@@ -176,7 +180,9 @@ export function hardwareCsv(hardware: HardwareBom): string {
       item.unit,
       item.size,
       item.note ?? null,
-      (item.stepIds ?? []).join(';'),
+      (item.stepIds ?? [])
+        .map((id) => `${id}:${labels.get(id) ?? 'noma’lum qadam'}`)
+        .join(';'),
       hardware.specified ? 'specified' : 'not-specified',
     ]
       .map(csvCell)
@@ -224,7 +230,11 @@ export function validateHardwareSteps(
   for (const item of hardware.items) {
     for (const stepId of item.stepIds ?? []) {
       if (!known.has(stepId)) {
-        errors.push(`"${item.name}" noma'lum montaj qadamiga bog'langan: ${stepId}.`);
+        errors.push(
+          /^step-\d+$/.test(stepId)
+            ? `"${item.name}" eski formatdagi qadamga bog'langan: ${stepId} — qayta bog'lang.`
+            : `"${item.name}" noma'lum montaj qadamiga bog'langan: ${stepId}.`,
+        );
       }
     }
   }

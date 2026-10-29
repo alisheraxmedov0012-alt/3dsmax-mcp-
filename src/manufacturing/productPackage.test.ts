@@ -218,7 +218,7 @@ describe('C6 hardware in the product package', () => {
           quantity: 12,
           unit: 'pcs',
           size: '4×40 mm',
-          stepIds: ['step-1'],
+          stepIds: ['step-leg'],
         },
       ],
     });
@@ -229,9 +229,30 @@ describe('C6 hardware in the product package', () => {
     const meta = JSON.parse(strFromU8(files['meta.json']));
     expect(meta.hardware.specified).toBe(true);
     expect(meta.hardware.totalPieces).toBe(12);
-    expect(meta.hardware.list[0].stepIds).toEqual(['step-1']);
-    expect(strFromU8(files['hardware.csv'])).toContain('step-1');
+    expect(meta.hardware.list[0].stepIds).toEqual(['step-leg']);
+    expect(meta.hardware.list[0].stepLabels).toEqual(['1. Oyoqlar']);
+    expect(strFromU8(files['hardware.csv'])).toContain('step-leg:1. Oyoqlar');
     expect(strFromU8(files['README.txt'])).toContain('Furnitura: 1 yozuv');
+  });
+
+  it('rejects a legacy numeric link with a rebind instruction', async () => {
+    const outcome = await buildProductPackage({
+      ...packageInput(),
+      hardware: [
+        {
+          kind: 'screw',
+          name: 'Konfirmat',
+          quantity: 4,
+          unit: 'pcs',
+          size: null,
+          stepIds: ['step-1'],
+        },
+      ],
+    });
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.reason).toMatch(/eski formatdagi qadam/);
+    expect(outcome.reason).toMatch(/qayta bog'lang/);
   });
 
   it('rejects a hardware row linked to a step the plan does not contain', async () => {
@@ -244,7 +265,7 @@ describe('C6 hardware in the product package', () => {
           quantity: 4,
           unit: 'pcs',
           size: null,
-          stepIds: ['step-99'],
+          stepIds: ['step-missing'],
         },
       ],
     });

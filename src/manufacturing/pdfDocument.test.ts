@@ -83,7 +83,7 @@ describe('C6 — hardware section', () => {
         quantity: 12,
         unit: 'pcs',
         size: '4×40 mm',
-        stepIds: ['step-1'],
+        stepIds: ['step-leg'],
       },
     ]);
     expect(hardware.ok).toBe(true);

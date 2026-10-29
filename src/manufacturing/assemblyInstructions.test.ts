@@ -72,7 +72,7 @@ describe('C6 furniture instructions — generation', () => {
       expect(plan.status, type).toBe('ok');
       plan.steps.forEach((step, index) => {
         expect(step.order, `${type} ${step.id}`).toBe(index + 1);
-        expect(step.id, type).toBe(`step-${index + 1}`);
+        expect(step.id, type).toMatch(/^step-[a-z0-9-]+$/);
       });
       // Every step but the first waits for the one before it.
       plan.steps.slice(1).forEach((step, index) => {

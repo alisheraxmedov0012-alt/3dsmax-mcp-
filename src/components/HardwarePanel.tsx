@@ -171,6 +171,7 @@ export function HardwarePanel({ hardware = NO_HARDWARE, steps, onChange }: Hardw
             const unknownSteps = linkedIds.filter(
               (id) => !steps.some((step) => step.id === id),
             );
+            const legacySteps = unknownSteps.filter((id) => /^step-\d+$/.test(id));
             return (
               <li key={`${item.kind}-${item.name}-${index}`} data-testid={`hardware-item-${index}`}>
                 {item.name} · {KIND_LABELS[item.kind]}
@@ -178,7 +179,9 @@ export function HardwarePanel({ hardware = NO_HARDWARE, steps, onChange }: Hardw
                 {item.quantity === null ? "miqdor ko'rsatilmagan" : `${item.quantity} ${item.unit}`}
                 {stepLabels.length > 0 ? ` · qadamlar: ${stepLabels.join(', ')}` : ''}
                 {unknownSteps.length > 0
-                  ? ` · noma'lum qadam: ${unknownSteps.join(', ')} — qayta bog‘lang`
+                  ? legacySteps.length > 0
+                    ? ` · eski formatdagi qadam: ${legacySteps.join(', ')} — qayta bog‘lang`
+                    : ` · noma'lum qadam: ${unknownSteps.join(', ')} — qayta bog‘lang`
                   : ''}
                 {item.note ? ` · ${item.note}` : ''}
                 <button type="button" className="visual-reset" onClick={() => startEdit(index)}>

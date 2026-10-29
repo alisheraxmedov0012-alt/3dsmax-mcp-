@@ -106,6 +106,7 @@ export interface AssemblyPartRef {
 }
 
 export interface AssemblyStep {
+  /** Semantic id (`step-leg`, `step-top`), independent of display order. */
   id: string;
   /** 1-based position; mirrors the array order and is validated against it. */
   order: number;
@@ -476,6 +477,29 @@ function statusFor(steps: readonly AssemblyStep[], issues: readonly AssemblyIssu
   return issues.some((entry) => entry.level !== 'info') ? 'limited' : 'ok';
 }
 
+/**
+ * Stable step id derived from the semantic role set, not the array position.
+ *
+ * The same template therefore keeps its id when another step is added, removed
+ * or reordered. A collision (two templates claiming the same roles) gets a
+ * deterministic suffix; it is a generation bug, not something to guess around.
+ */
+function stableStepId(key: string, used: Set<string>): string {
+  const slug = key
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  const base = `step-${slug === '' ? 'extra' : slug}`;
+  let id = base;
+  let suffix = 2;
+  while (used.has(id)) {
+    id = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  used.add(id);
+  return id;
+}
+
 export interface FurnitureAssemblyInput {
   /** The BOM the panel already computed; the plan never recomputes it. */
   bom: BomResult;
@@ -516,6 +540,7 @@ export function buildFurnitureAssemblyPlan(input: FurnitureAssemblyInput): Assem
   }
 
   const claimed = new Set<string>();
+  const usedIds = new Set<string>();
   for (const template of templates) {
     const rows = bom.rows.filter((row) => template.kinds.includes(row.kind));
     rows.forEach((row) => claimed.add(row.partId));
@@ -523,7 +548,7 @@ export function buildFurnitureAssemblyPlan(input: FurnitureAssemblyInput): Assem
       continue;
     }
     const parts = mergeRows(rows);
-    const id = `step-${steps.length + 1}`;
+    const id = stableStepId(template.kinds.join('-'), usedIds);
     const previous = steps.length > 0 ? steps[steps.length - 1].id : null;
     for (const part of parts) {
       if (part.sizeMm === null) {
@@ -550,7 +575,7 @@ export function buildFurnitureAssemblyPlan(input: FurnitureAssemblyInput): Assem
   const leftovers = bom.rows.filter((row) => !claimed.has(row.partId));
   if (leftovers.length > 0) {
     const parts = mergeRows(leftovers);
-    const id = `step-${steps.length + 1}`;
+    const id = stableStepId('extra', usedIds);
     const previous = steps.length > 0 ? steps[steps.length - 1].id : null;
     steps.push({
       id,
@@ -700,6 +725,7 @@ export function buildAssemblyPlan(input: AssemblyInstructionsInput): AssemblyPla
 
   const nodes = buildPartGraph(kind, checked);
   const claimed = new Set<string>();
+  const usedIds = new Set<string>();
   const steps: AssemblyStep[] = [];
   /** graph part id -> the step that builds it, for dependency resolution. */
   const stepOfPart = new Map<string, string>();
@@ -710,7 +736,7 @@ export function buildAssemblyPlan(input: AssemblyInstructionsInput): AssemblyPla
     if (selected.length === 0) {
       continue;
     }
-    const id = `step-${steps.length + 1}`;
+    const id = stableStepId(template.roles.join('-'), usedIds);
     const parents = selected
       .map((node) => node.parentId)
       .filter((parentId): parentId is string => parentId !== null)
@@ -731,7 +757,7 @@ export function buildAssemblyPlan(input: AssemblyInstructionsInput): AssemblyPla
 
   const leftovers = nodes.filter((node) => !claimed.has(node.id));
   if (leftovers.length > 0) {
-    const id = `step-${steps.length + 1}`;
+    const id = stableStepId('extra', usedIds);
     steps.push({
       id,
       order: steps.length + 1,
