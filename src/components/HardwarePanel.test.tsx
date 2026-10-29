@@ -85,6 +85,12 @@ describe('C6 hardware UI', () => {
     );
     expect(screen.getByTestId('hardware-list').textContent).toMatch(/eski formatdagi qadam/);
     expect(screen.getByTestId('hardware-list').textContent).toMatch(/qayta bog‘lang/);
+
+    // Editing allows the legacy link to be cleared explicitly; it is never
+    // mapped to a guessed step.
+    fireEvent.click(screen.getByText('Tahrirlash'));
+    fireEvent.click(screen.getByTestId('hardware-save'));
+    expect(screen.getByTestId('hardware-list').textContent).not.toMatch(/eski formatdagi/);
   });
 
   it('counts a row once even when it is linked to two steps', () => {

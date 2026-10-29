@@ -135,7 +135,10 @@ export function HardwarePanel({ hardware = NO_HARDWARE, steps, onChange }: Hardw
       quantity: item.quantity === null ? '' : String(item.quantity),
       unit: item.unit ?? 'pcs',
       note: item.note ?? '',
-      stepIds: item.stepIds ?? [],
+      // Drop stale/legacy ids from the editable draft. They stay in the stored
+      // row until the user saves; saving then performs an explicit rebind, never
+      // a guessed remap.
+      stepIds: (item.stepIds ?? []).filter((id) => steps.some((step) => step.id === id)),
     });
     setError('');
   };
