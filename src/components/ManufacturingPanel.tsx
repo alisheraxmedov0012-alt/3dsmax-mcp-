@@ -17,7 +17,7 @@ import {
   isAssemblyPlanStale,
   type AssemblyPlan,
 } from '../manufacturing/assemblyInstructions';
-import type { CuttingPlan } from '../manufacturing/cuttingPlan';
+import { currentCuttingPlan, type TaggedCuttingPlan } from '../manufacturing/cuttingPlanState';
 import type { PngPreset } from '../export/sceneImage';
 import { AssemblyInstructionsPanel } from './AssemblyInstructionsPanel';
 import { HardwarePanel } from './HardwarePanel';
@@ -95,9 +95,7 @@ export function ManufacturingPanel({
    * The tag is what keeps a layout for a previously selected piece out of the PDF;
    * the panel already withholds a plan whose settings changed.
    */
-  const [cuttingState, setCuttingState] = useState<{ objectId: string; plan: CuttingPlan } | null>(
-    null,
-  );
+  const [cuttingState, setCuttingState] = useState<TaggedCuttingPlan | null>(null);
 
   const computed = useMemo(() => {
     if (!object) {
@@ -133,8 +131,11 @@ export function ManufacturingPanel({
   const planStale = Boolean(
     shownPlan && currentPlan && isAssemblyPlanStale(shownPlan, currentPlan.fingerprint),
   );
-  const cuttingPlan =
-    cuttingState && cuttingState.objectId === object?.id ? cuttingState.plan : null;
+  const cuttingPlan = currentCuttingPlan(
+    cuttingState,
+    object?.id,
+    computed && !('error' in computed) ? computed.cutList : null,
+  );
 
   if (!object) {
     return (
@@ -447,7 +448,9 @@ export function ManufacturingPanel({
             cutList={computed.cutList}
             bom={computed.bom}
             onPlanChange={(plan) =>
-              setCuttingState(plan ? { objectId: object.id, plan } : null)
+              setCuttingState(
+                plan ? { objectId: object.id, cutList: computed.cutList, plan } : null,
+              )
             }
           />
 
