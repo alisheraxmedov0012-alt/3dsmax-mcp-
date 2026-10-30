@@ -350,12 +350,95 @@ python -m loadtest.loadtest --base-url http://127.0.0.1:8010 --vus 25 --duration
 # boshqa hostga ruxsat beriladi (tavsiya etilmaydi).
 ```
 
+## A bosqichi — professional 3D aktivlar (A1–A4)
+
+Bu bosqich `release/a-3d-glb` branchida bajarilgan; `main`ga merge qilinmagan va
+deploy qilinmagan.
+
+### A1 — geometriya va eksport mustahkamlash
+
+- Yashirin subtree'lar GLB, OBJ va STL eksportidan oldin olib tashlanadi.
+- OBJ ham STL kabi millimetrda yoziladi.
+- Bo'sh sahna fayl yozish o'rniga rad etiladi.
+- Geometry guard indeks chegaralari, degeneratsiya, normal atributlari va
+  chegaralarni tekshiradi.
+- `npm run test:glb` haqiqiy brauzerda GLB eksport → `GLTFLoader` qayta o'qish
+  invariantlarini tekshiradi.
+
+### A2 — materiallar, teksturalar va UV xaritalari
+
+- PBR presetlar (yog'och, metall, mato, charm, shisha, plastmassa, bo'yalgan)
+  barcha sakkiz mebel turida ishlaydi; asosiy rang `params.color`.
+- **Jismoniy UV kafel** (`src/materials/uv.ts`): har bir quti yuzasi 50 sm'lik
+  kafelga keltiriladi. Ilgari har bir yuz 0..1 UV olardi, shuning uchun tekstura
+  katta stol ustida cho'zilib, 4 sm oyoqda siqilardi. Endi bir UV birligi hamma
+  yuzada bir xil santimetrni qoplaydi; `textureScale` faqat detal chastotasini
+  ko'paytiradi.
+- Teksturalar protsedural va deterministik: standart 128×128, eksportda ixtiyoriy
+  512×512 (fayl kattaroq).
+- Cheklovlar: ORM (occlusion/roughness/metalness) xaritasi yo'q; ixtiyoriy unwrap
+  yo'q — faqat quti yuzalari; xona geometriyasi o'z UV'larida qoladi (uning
+  materiallarida tekstura yo'q).
+
+### A3 — AI adapteri va lokal fallback
+
+- Server provayderi (`POST /api/ai/design`) API kalitini faqat serverda saqlaydi;
+  kunlik limit, umumiy chegara, retry, deadline, JSON tuzatish va token hisobi
+  serverda.
+- Mahalliy (oflayn) analizator endi **sakkiz turning hammasini** quradi
+  (`src/ai/localDesignAdapter.ts`): tur, o'lchamlar, sonlar (eshik/tortma/javon/
+  oyoq), rang va material — o'zbek, rus va ingliz so'zlari bilan. Natija UI bilan
+  bir xil `validateFurnitureParams` tekshiruvidan o'tadi.
+- Noma'lum tur so'zi (`oshxona`, `office`, ...) jadval yasab bermaydi — sabab
+  ko'rsatiladi.
+- Fallback siyosati bitta joyda (`src/ai/generateDesign.ts`): xizmat **mavjud
+  bo'lmasa** (timeout, tarmoq, band, provayder xatosi, sozlanmagan) lokal
+  analizator javob beradi; so'rov **rad etilgan** (limit, noto'g'ri kirish) yoki
+  tur qo'llab-quvvatlanmasa — sabab ko'rsatiladi, almashtirilmaydi.
+
+### A4 — marketplace uchun 3D aktiv paketi
+
+Mahsulot paketi (C8) ustaxonaga BOM, kesish va PDF beradi; 3D aktiv xaridori esa
+boshqa arxiv oladi. `ProductPackagePanel` ichidagi **“3D aktiv paketini yuklab
+olish (ZIP)”** quyidagini yig'adi:
+
+| Fayl | Mazmuni |
+| --- | --- |
+| `model.glb` | faqat tanlangan mebel (xona emas), A1 eksportchisi bilan |
+| `metadata.json` | o'lchamlar (mm), geometriya/uchburchak/material/tekstura soni, UV, preview va SHA-256 |
+| `preview-*.png` | viewport'dan olingan real rakurslar (ixtiyoriy) |
+| `README.txt` | tarkib, birliklar va cheklovlar |
+| `checksums.txt` | har bir faylning SHA-256 qiymati |
+
+- Metadata **faylning o'zidan** o'qiladi: `src/export/glbSummary.ts` GLB JSON/BIN
+  chunk'larini ochib, mesh/uchburchak/material/tekstura o'lchamlarini va tashqi
+  URI sonini hisoblaydi.
+- O'lchamlar C2 chizma bilan bir xil o'lchovdan olinadi (ikki xil raqam chiqmasligi
+  uchun).
+- `verifyAssetPackage` arxivni qayta ochib, fayl ro'yxati, hajmlar va barcha
+  SHA-256 qiymatlarini solishtiradi.
+- Noto'g'ri preview nomi, PNG bo'lmagan rasm yoki o'lchanmagan o'lcham rad etiladi.
+- Cheklovlar: paket faqat GLB beradi (OBJ/STL materialni yo'qotadi); preview —
+  brauzer ko'rinishi, fotosurat emas; litsenziya va sotuvchi maydonlari faqat
+  foydalanuvchi kiritganda yoziladi; marketplace tekshiruvi o'tkazilmagan.
+
+### Tekshirish (A yakuni)
+
+```bash
+npm run typecheck && npm run lint && npm test && npm run build && npm run test:glb
+cd backend && python -m ruff check app tests scripts && python -m pytest
+```
+
+Natijalar `docs/A4_2_GLB_VALIDATION_REPORT.md` ning “A2–A4 update” bo'limida
+yozilgan.
+
 ## Texnologiyalar
 
 - **Frontend:** React + TypeScript, Vite.
 - **Brauzerdagi 3D ko'rish qatlami:** Three.js (`WebGLRenderer`, `OrbitControls`).
 - **Eksport:** Three.js `GLTFExporter` (`.glb`, binary) — faqat brauzerda ishlaydi.
-- **AI qatlami:** adapter interfeysi + mahalliy (oflayn) qoidaga asoslangan implementatsiya.
+- **AI qatlami:** server provayderi (OpenAI-mos) + sakkiz turni quradigan mahalliy
+  (oflayn) adapter va yagona fallback siyosati.
 - **Sahna modeli (Stage 5-6):** Three.js'siz `scene/` qatlami (validatsiya + reducer).
 - **Vizualizatsiya sozlamalari (Stage 6):** fon, yorug'lik, material va kamera presetlari
   (`scene/sceneSettings.ts`) - sof, testlanadi.
@@ -387,14 +470,23 @@ src/
   scene/sceneValidation.ts  # sahna validatsiyasi + eski loyihani migratsiya
   scene/sceneReducer.ts     # sof sahna amallari (qo'shish/tanlash/transform/sozlama)
   scene/buildSceneObject.ts # SceneObject -> Three.js obyekt + transform + material
+  scene/sceneSelection.ts   # eksport uchun bitta obyektni tanlash
   viewer/cameraFraming.ts   # stol/xona kamera ramkasi va presetlar (sof funksiya)
   viewer/SceneViewer.ts     # ko'rish qatlami: scena, kamera, yorug'lik, tanlash, PNG
+  materials/uv.ts           # jismoniy UV kafel (har bir quti yuzasi 50 sm)
   export/sceneExport.ts     # butun sahna .glb baytlariga (GLTFExporter)
   export/sceneImage.ts      # PNG rezolyutsiya + eksport orkestratsiyasi (sof)
   export/downloadFile.ts    # brauzerda faylni yuklab olish (DOM)
+  export/glbSummary.ts      # GLB tarkibini fayldan o'qish (mesh/material/tekstura)
+  export/pngSize.ts         # PNG IHDR o'lchamini o'qish
+  export/assetPackage.ts    # A4 marketplace aktiv paketi + SHA-256 tekshiruvi
+  util/sha256.ts            # sinxron SHA-256 (checksums)
   ai/types.ts               # AiModelAdapter interfeysi va turlar
   ai/normalizeProposal.ts   # sifat nazorati: diapazon/rang + geometriya tekshiruvi
-  ai/localTableAdapter.ts   # mahalliy matn→parametr adapteri (oflayn)
+  ai/localTableAdapter.ts   # Stage 3: mahalliy matn→parametr (faqat stol)
+  ai/promptParsing.ts       # matn tahlili uchun umumiy yordamchilar
+  ai/localDesignAdapter.ts  # A3: oflayn analizator (sakkiz tur)
+  ai/generateDesign.ts      # A3: cloud + lokal fallback siyosati
   projects/types.ts         # SavedProject (schema v3), ProjectRepository interfeysi
   projects/projectValidation.ts      # saqlangan ma'lumotni tekshirish/serializatsiya
   projects/localProjectRepository.ts # localStorage asosidagi repository

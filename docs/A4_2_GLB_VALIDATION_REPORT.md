@@ -155,3 +155,69 @@ file: `sha256 15aabce6e1f9b746224a1625013b737181e60c0690f54ba599b39612842bc6ce`,
 change between runs means the pipeline changed — which makes the digest usable as
 a regression check.
 
+
+---
+
+## A2–A4 update (2026-10-30)
+
+The pipeline changed after the measurement above (A1 mesh naming, A2 physical UVs),
+so the file was exported and validated again. The numbers in the earlier sections
+describe the pre-A1 file and are kept as history; the values below are the current
+ones.
+
+### How it was measured
+
+```bash
+npm run test:glb        # export -> GLTFLoader reload -> invariants: PASS
+# manual export for the independent validator
+python tools/glb-harness/server.py --out /tmp/a4v &
+npx vite --config tools/glb-harness/vite.config.mjs &
+chromium --headless=new --no-sandbox --enable-unsafe-swiftshader --use-gl=swiftshader \
+  --virtual-time-budget=180000 --dump-dom http://127.0.0.1:5199/export.html
+cd backend && python scripts/glb_validate.py /tmp/a4v/model-with-room.glb
+```
+
+### Result
+
+| Item | Value |
+| --- | --- |
+| `model-with-room.glb` | 279 284 bytes |
+| SHA-256 | `ce62d15a774459163cd97a5ff6042394d904eccd56f8029dc4d974b014acb5e4` |
+| `model-furniture-only.glb` | 270 216 bytes |
+| Validator verdict | **PASS**, 0 errors, 0 warnings |
+| Structure | 2 chunks, JSON 71 212 bytes, BIN 208 044 bytes |
+| Geometry | 64 meshes, 256 accessors, **768 triangles** |
+| Materials / textures | 10 materials, 8 textures, 8 embedded PNGs, all 128×128 RGBA |
+| glTF version | 2.0, buffer embedded, 0 external URIs |
+| GLTFLoader reload | 67 meshes, 10 unique materials, 35 with map, 7 transparent |
+
+The 71 212-byte JSON chunk (up from 64 004) is A1's stable mesh names; the BIN
+chunk is byte-for-byte the same size.
+
+### UV evidence (A2)
+
+All 64 primitives carry `TEXCOORD_0`. Spans read from the BIN chunk:
+
+| Part | UV span (u × v) | Physical face |
+| --- | --- | --- |
+| table top, top face | 2.4 × 1.2 | 120 cm × 60 cm at 50 cm tile |
+| table leg, side face | 0.12 × 1.42 | 6 cm × 71 cm |
+| wardrobe panel | 4.0 × 1.0 | 200 cm × 50 cm |
+| maximum span in the file | 4.0 | 200 cm |
+
+Room meshes keep their original 1.0 × 1.0 `BoxGeometry` UVs. That is intentional:
+room materials are plain colour and carry no map, so remapping them would change
+bytes without changing a pixel.
+
+### Still not verified
+
+| Item | Status | Reason |
+| --- | --- | --- |
+| Blender / other DCC import | **NOT VERIFIED** | Not installed |
+| Official Khronos `gltf-validator` | **NOT VERIFIED** | Not installed |
+| Marketplace acceptance | **NOT VERIFIED** | No marketplace review; textures remain 128×128 procedural bitmaps |
+| ORM map | **NOT PRESENT** | Roughness/metalness stay scalar |
+
+The A4 asset package writes its own metadata from this file (`glbSummary`) and
+records the SHA-256 in `checksums.txt`; its unit tests verify the archive but are
+not a substitute for third-party GLB validation.
