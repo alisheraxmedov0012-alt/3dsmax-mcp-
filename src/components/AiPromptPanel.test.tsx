@@ -6,9 +6,9 @@
  *
  * 1. Every failure path leaves the waiting state. A panel stuck on "Yaratilmoqda…"
  *    is the bug this stage exists to prevent.
- * 2. The offline fallback only runs when it can actually answer. It builds tables;
- *    a wardrobe prompt that fell back would report success for a request that was
- *    never understood.
+ * 2. The offline fallback only runs when it can actually answer. Since A3 it
+ *    builds all eight types, so a wardrobe prompt is built as a wardrobe — and a
+ *    prompt naming no buildable type is still refused rather than substituted.
  *
  * The network is mocked at `fetch`; nothing here calls a real provider.
  */
@@ -63,7 +63,7 @@ function renderPanel() {
   return { onApply };
 }
 
-const textarea = () => screen.getByLabelText('Stol tavsifi') as HTMLTextAreaElement;
+const textarea = () => screen.getByLabelText('Mebel tavsifi') as HTMLTextAreaElement;
 const button = () => screen.getByRole('button', { name: /AI orqali yaratish|Yaratilmoqda/ }) as HTMLButtonElement;
 
 async function submit(text: string) {
@@ -106,7 +106,7 @@ describe('A3.3 panel — a timeout leaves the waiting state', () => {
     const onApply = vi.fn();
     render(<FreshPanel onApply={onApply} />);
 
-    fireEvent.change(screen.getByLabelText('Stol tavsifi') as HTMLTextAreaElement, {
+    fireEvent.change(screen.getByLabelText('Mebel tavsifi') as HTMLTextAreaElement, {
       target: { value: '180x60x75 sm stol' },
     });
     fireEvent.click(screen.getByRole('button', { name: /AI orqali yaratish/ }));
@@ -229,8 +229,8 @@ describe('A3.3 panel — server refusals are shown, not papered over', () => {
   });
 });
 
-describe('A3.3 panel — the offline fallback refuses prompts it cannot answer', () => {
-  it('does not turn a wardrobe prompt into a table', async () => {
+describe('A3 panel — the offline fallback answers every buildable type', () => {
+  it('builds a wardrobe offline instead of substituting a table', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ error: { code: 'ai_provider_error', message: 'x' } }, 502),
     );
@@ -238,16 +238,16 @@ describe('A3.3 panel — the offline fallback refuses prompts it cannot answer',
 
     await submit('3 eshikli shkaf, 200 sm baland');
 
-    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
-    // Nothing was created, and the reason names the actual limitation.
-    expect(onApply).not.toHaveBeenCalled();
-    const alert = screen.getByRole('alert').textContent ?? '';
-    expect(alert).toMatch(/faqat stolni quradi/i);
-    expect(alert).toMatch(/shkaf/i);
+    await waitForStatus(/mahalliy qoidalar asosida/i);
+    expect(onApply).toHaveBeenCalledWith(
+      'wardrobe',
+      expect.objectContaining({ heightCm: 200, doorCount: 3 }),
+      null,
+    );
     expect(button().textContent).toBe(IDLE_LABEL);
   });
 
-  it('does not turn a sofa prompt into a table either', async () => {
+  it('builds a sofa from a sofa prompt', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ error: { code: 'ai_unconfigured', message: 'x' } }, 503),
     );
@@ -255,9 +255,21 @@ describe('A3.3 panel — the offline fallback refuses prompts it cannot answer',
 
     await submit('uch o‘rinli divan');
 
+    await waitForStatus(/mahalliy qoidalar asosida/i);
+    expect(onApply).toHaveBeenCalledWith('sofa', expect.anything(), null);
+  });
+
+  it('refuses a room word instead of substituting a table', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ error: { code: 'ai_provider_error', message: 'x' } }, 502),
+    );
+    const { onApply } = renderPanel();
+
+    await submit('oshxona uchun mebel');
+
     await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
     expect(onApply).not.toHaveBeenCalled();
-    expect(screen.getByRole('alert').textContent).toMatch(/divan/i);
+    expect(screen.getByRole('alert').textContent).toMatch(/qo'llab-quvvatlanmaydi/);
   });
 
   it('still builds a table from a table prompt with no furniture word at all', async () => {
@@ -348,16 +360,16 @@ describe('M8 — frontend-only build explains that no server AI exists', () => {
     );
   });
 
-  it('refuses an unsupported type instead of reporting a successful local build', async () => {
+  it('refuses an unknown type instead of reporting a successful local build', async () => {
     const onApply = vi.fn();
     render(<AiPromptPanel onApply={onApply} backendConfigured={false} />);
 
-    await submit('3 eshikli shkaf, 200 sm baland');
+    await submit('oshxona uchun mebel');
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
     expect(fetchMock).not.toHaveBeenCalled();
     expect(onApply).not.toHaveBeenCalled();
-    expect(screen.getByRole('alert').textContent).toMatch(/shkaf/i);
+    expect(screen.getByRole('alert').textContent).toMatch(/qo'llab-quvvatlanmaydi/i);
   });
 
   it('keeps the cloud hint when a backend is configured', () => {

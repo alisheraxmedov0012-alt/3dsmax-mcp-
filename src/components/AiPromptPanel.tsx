@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import type { FurnitureParams, FurnitureType } from '../geometry/furniture';
-import { localTableAdapter, unsupportedObjectsIn } from '../ai/localTableAdapter';
-import { generateDesignFromCloud } from '../ai/cloudDesignAdapter';
+import { generateDesign, type GeneratedDesign } from '../ai/generateDesign';
 import type { MaterialPresetId } from '../materials/types';
 import { AiAdapterError, type ProposalConfidence } from '../ai/types';
 
@@ -43,34 +42,22 @@ export function AiPromptPanel({ onApply, backendConfigured = true }: AiPromptPan
   const [details, setDetails] = useState<string[]>([]);
 
   /**
-   * Use the offline analyzer, but only when it can actually answer the prompt.
+   * Prefix for an offline result: why the cloud was not used.
    *
-   * It only builds tables. If the prompt names another furniture type, applying a
-   * table anyway would report success for a request that was never understood, so
-   * the fallback declines and the caller shows the reason instead.
+   * The offline analyzer now builds all eight types, so the only remaining reason
+   * to refuse is a prompt that names no buildable type — and the orchestrator
+   * reports that as `unsupported` instead of applying something.
    */
-  const runLocalFallback = async (reason: string): Promise<boolean> => {
-    const unsupported = unsupportedObjectsIn(text);
-    if (unsupported.length > 0) {
-      setStatus('error');
-      setMessage(
-        `${reason} Mahalliy qoidalar faqat stolni quradi, shuning uchun "${unsupported[0]}" ` +
-          "uchun natija yaratilmadi. Iltimos, qaytadan urinib ko'ring.",
-      );
-      setDetails([]);
-      return false;
+  const fallbackPrefix = (design: GeneratedDesign): string => {
+    if (design.fallbackCode === 'backend_missing') {
+      return `${design.fallbackReason ?? ''} `;
     }
-
-    const proposal = await localTableAdapter.generate({ text });
-    // The offline analyzer names no material, so the object keeps its default.
-    onApply('table', proposal.params, null);
-    setStatus('done');
-    setMessage(
-      `${reason} AI ishlatilmadi — natija mahalliy qoidalar asosida yaratildi ` +
-        `(ishonch: ${CONFIDENCE_LABEL[proposal.confidence]}).`,
-    );
-    setDetails([...proposal.notes, ...proposal.warnings]);
-    return true;
+    const reason = design.fallbackReason ?? '';
+    const description =
+      design.fallbackCode !== undefined
+        ? describeUnavailable(design.fallbackCode, reason)
+        : reason;
+    return `${description} Server AI xizmatidan foydalanib bo'lmadi.`;
   };
 
   /** Turn a failure code into something the reader can act on. */
@@ -103,47 +90,28 @@ export function AiPromptPanel({ onApply, backendConfigured = true }: AiPromptPan
     setDetails([]);
 
     try {
-      // No API origin was configured at build time, so a cloud request can only
-      // fail. Go straight to the local rules and say why.
-      if (!backendConfigured) {
-        await runLocalFallback('Server AI bu versiyada sozlanmagan.');
-        return;
-      }
+      const result = await generateDesign(text, { backendConfigured });
 
-      const outcome = await generateDesignFromCloud(text);
-
-      if (outcome.kind === 'applied') {
-        onApply(outcome.furniture as FurnitureType, outcome.params, outcome.materialPresetId);
+      if (result.kind === 'applied') {
+        const { design } = result;
+        onApply(design.furniture, design.params, design.materialPresetId);
         setStatus('done');
+        setDetails([...design.notes, ...design.warnings]);
         setMessage(
-          `AI (${outcome.provider}) natijasi qo'llanildi: ${outcome.furniture} ` +
-            `(ishonch: ${CONFIDENCE_LABEL[outcome.confidence]}).`,
+          design.source === 'cloud'
+            ? `AI (${design.provider}) natijasi qo'llanildi: ${design.furniture} ` +
+                `(ishonch: ${CONFIDENCE_LABEL[design.confidence]}).`
+            : `${fallbackPrefix(design)} AI ishlatilmadi — natija mahalliy qoidalar asosida ` +
+                `yaratildi (ishonch: ${CONFIDENCE_LABEL[design.confidence]}).`,
         );
-        setDetails([...outcome.notes, ...outcome.warnings]);
         return;
       }
 
-      if (outcome.kind === 'unsupported') {
-        setStatus('error');
-        setMessage(outcome.message);
-        return;
-      }
-
-      if (outcome.kind === 'rejected') {
-        // The server refused this request on its own merits (allowance spent,
-        // input invalid). Switching engines would hide what the reader must fix.
-        setStatus('error');
-        setMessage(outcome.message);
-        setDetails([]);
-        return;
-      }
-
-      // The service is unavailable right now (deadline, transport, throttle,
-      // provider outage). The offline analyzer may stand in — if it can build this
-      // prompt at all.
-      await runLocalFallback(
-        `${describeUnavailable(outcome.code, outcome.reason)} Server AI xizmatidan foydalanib bo'lmadi.`,
-      );
+      // `unsupported` and `rejected` are both refusals: nothing was applied and the
+      // reason must be shown as-is instead of being papered over by another engine.
+      setStatus('error');
+      setMessage(result.message);
+      setDetails([]);
     } catch (error) {
       setStatus('error');
       setMessage(
@@ -165,7 +133,7 @@ export function AiPromptPanel({ onApply, backendConfigured = true }: AiPromptPan
         rows={3}
         value={text}
         placeholder={EXAMPLES}
-        aria-label="Stol tavsifi"
+        aria-label="Mebel tavsifi"
         onChange={(event) => setText(event.target.value)}
       />
       <button
@@ -200,14 +168,15 @@ export function AiPromptPanel({ onApply, backendConfigured = true }: AiPromptPan
         <p className="ai__hint">
           Serverda AI provayderi sozlangan bo‘lsa u ishlatiladi. Provayder javob
           bermasa, matn tahlili mahalliy (oflayn) qoidaga asoslangan holda
-          bajariladi — lekin u faqat stolni quradi. Boshqa mebel turi so‘ralsa,
-          natija yaratilmaydi va sabab ko‘rsatiladi.
+          bajariladi va barcha qo‘llab-quvvatlanadigan mebel turlarini quradi.
+          Tanish bo‘lmagan tur so‘ralsa, natija yaratilmaydi va sabab ko‘rsatiladi.
         </p>
       ) : (
         <p className="ai__hint" data-testid="ai-backend-unavailable">
           Bu versiyada server AI ulanmagan. So‘rov mahalliy qoidalar asosida
-          tahlil qilinadi va u faqat stol yaratadi. Boshqa mebel turi so‘ralsa,
-          natija yaratilmaydi va sabab ko‘rsatiladi.
+          tahlil qilinadi va barcha qo‘llab-quvvatlanadigan mebel turlarini
+          yaratadi. Tanish bo‘lmagan tur so‘ralsa, natija yaratilmaydi va sabab
+          ko‘rsatiladi.
         </p>
       )}
     </section>

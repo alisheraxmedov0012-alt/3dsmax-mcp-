@@ -1,5 +1,13 @@
 import { normalizeProposal, type RawTableProposal } from './normalizeProposal';
 import {
+  DIMENSION_KEYWORDS,
+  NUMBER,
+  escapeKeyword,
+  findColor,
+  findDimension,
+  toNumber,
+} from './promptParsing';
+import {
   AiAdapterError,
   type AiModelAdapter,
   type ModelGenerationRequest,
@@ -8,26 +16,6 @@ import {
 } from './types';
 
 export const LOCAL_TABLE_ADAPTER_ID = 'local-rule-based-table';
-
-const NUMBER = String.raw`\d+(?:[.,]\d+)?`;
-
-const DIMENSION_KEYWORDS: Record<'widthCm' | 'heightCm' | 'depthCm', string[]> = {
-  widthCm: ['kenglik', 'keng', 'eni', 'en', 'width'],
-  heightCm: ['balandlik', 'baland', "bo'yi", 'boyi', 'height'],
-  depthCm: ['chuqurlik', 'chuqur', 'depth'],
-};
-
-const COLOR_KEYWORDS: Array<{ words: string[]; hex: string }> = [
-  { words: ['oq', 'white'], hex: '#ffffff' },
-  { words: ['qora', 'black'], hex: '#1a1a1a' },
-  { words: ['kulrang', 'gray', 'grey'], hex: '#808080' },
-  { words: ['jigarrang', 'brown'], hex: '#8b5a2b' },
-  { words: ["yog'och", 'yogoch', 'wood'], hex: '#a9744f' },
-  { words: ['qizil', 'red'], hex: '#c0392b' },
-  { words: ["ko'k", 'kok', 'blue'], hex: '#2f6fb0' },
-  { words: ['yashil', 'green'], hex: '#2e8b57' },
-  { words: ['sariq', 'yellow'], hex: '#d4b106' },
-];
 
 /** Furniture words that Stage 3 does not support yet (only the table exists). */
 const UNSUPPORTED_OBJECTS = [
@@ -50,58 +38,6 @@ interface ParsedPrompt {
   confidence: ProposalConfidence;
   notes: string[];
   warnings: string[];
-}
-
-function toNumber(token: string): number {
-  return Number(token.replace(',', '.'));
-}
-
-function escapeKeyword(keyword: string): string {
-  return keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function findDimension(text: string, keywords: string[]): number | undefined {
-  for (const keyword of keywords) {
-    const word = escapeKeyword(keyword);
-    const after = new RegExp(
-      `(?<![a-z'])${word}(?![a-z'])\\s*(?::|=|-|sm)?\\s*(${NUMBER})`,
-      'i',
-    );
-    const afterMatch = text.match(after);
-    if (afterMatch) {
-      return toNumber(afterMatch[1]);
-    }
-
-    const before = new RegExp(`(${NUMBER})\\s*(?:sm)?\\s+(?<![a-z'])${word}(?![a-z'])`, 'i');
-    const beforeMatch = text.match(before);
-    if (beforeMatch) {
-      return toNumber(beforeMatch[1]);
-    }
-  }
-  return undefined;
-}
-
-function findColor(text: string): string | undefined {
-  const hex6 = text.match(/#[0-9a-fA-F]{6}/);
-  if (hex6) {
-    return hex6[0].toLowerCase();
-  }
-  const hex3 = text.match(/#[0-9a-fA-F]{3}(?![0-9a-fA-F])/);
-  if (hex3) {
-    const [r, g, b] = hex3[0].slice(1).split('');
-    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
-  }
-
-  for (const { words, hex } of COLOR_KEYWORDS) {
-    for (const keyword of words) {
-      const word = escapeKeyword(keyword);
-      const pattern = new RegExp(`(?<![a-z'])${word}(?![a-z'])`, 'i');
-      if (pattern.test(text)) {
-        return hex;
-      }
-    }
-  }
-  return undefined;
 }
 
 /**
