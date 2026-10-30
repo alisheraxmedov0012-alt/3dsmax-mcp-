@@ -11,6 +11,7 @@
  * stored — which is what keeps the scene inside the server object budget.
  */
 import * as THREE from 'three';
+import { applyPhysicalBoxUvs } from '../../materials/uv';
 import { AssemblyError, assertMemberBudget, assertPartBudget } from './limits';
 import { absoluteCentre, type PartNode } from './partGraph';
 
@@ -90,6 +91,11 @@ export function assembleParts(
         Math.max(part.size[1], 0.1),
         Math.max(part.size[2], 0.1),
       );
+      applyPhysicalBoxUvs(geometry, [
+        Math.max(part.size[0], 0.1),
+        Math.max(part.size[1], 0.1),
+        Math.max(part.size[2], 0.1),
+      ]);
       geometries.push(geometry);
       const mesh = new THREE.Mesh(geometry, material);
       mesh.name = partId;

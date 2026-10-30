@@ -12,8 +12,9 @@
  *   `normalTexture`) and opacity (`opacity < 1` → `alphaMode: 'BLEND'`).
  *   Limits a buyer must know: the maps are 128×128 procedural bitmaps, not
  *   authored image textures; roughness and metalness stay scalar factors because
- *   no ORM (occlusion/roughness/metalness) map is produced; and the UVs are the
- *   ones `BoxGeometry` generates, so there is no unwrap of its own.
+ *   no ORM (occlusion/roughness/metalness) map is produced; and the UVs are
+ *   `BoxGeometry` face UVs rescaled to a fixed physical tile (50 cm), so detail
+ *   density is uniform per face but there is no arbitrary unwrap.
  * - OBJ (Three.js OBJExporter): **geometry only** — the exporter emits no `.mtl`
  *   file and no materials (this is stated in Three.js' own OBJExporter source).
  * - STL (Three.js STLExporter): **geometry only** — no colour, no material.
@@ -73,7 +74,7 @@ export const EXPORT_FORMATS: Record<ExportFormatId, ExportFormatSpec> = {
       'Tekstura: base color va normal map ichkariga yoziladi (procedural, 128×128).',
       "Shaffoflik: alphaMode BLEND (shisha va opacity < 1 bo'lgan materiallar).",
       "Cheklov: ORM (occlusion/roughness/metalness) teksturasi yo'q — bu ikki kanal scalar.",
-      "Cheklov: UV — BoxGeometry UV'lari; alohida unwrap qilinmaydi.",
+      "Cheklov: UV — BoxGeometry yuzalari 50 sm'lik jismoniy kafelga keltirilgan; alohida unwrap yo'q.",
       'Interyer (xona) va barcha ko‘rinadigan mebel eksport qilinadi.',
     ],
   },

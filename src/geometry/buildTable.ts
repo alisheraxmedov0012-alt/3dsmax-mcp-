@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { buildPbrMaterial } from '../materials/buildMaterial';
 import type { MaterialSettingsInput } from '../materials/types';
+import { applyPhysicalBoxUvs } from '../materials/uv';
 import type { TableParams } from './tableParams';
 
 export const TABLE_TOP_THICKNESS_CM = 4;
@@ -63,6 +64,7 @@ export function buildTable(params: TableBuildParams, material: TableMaterial = {
   const geometries: THREE.BufferGeometry[] = [];
 
   const topGeometry = new THREE.BoxGeometry(widthCm, topThicknessCm, depthCm);
+  applyPhysicalBoxUvs(topGeometry, [widthCm, topThicknessCm, depthCm]);
   geometries.push(topGeometry);
   const top = new THREE.Mesh(topGeometry, pbr);
   top.name = 'table-top';
@@ -80,6 +82,11 @@ export function buildTable(params: TableBuildParams, material: TableMaterial = {
     legHeight,
     TABLE_LEG_THICKNESS_CM,
   );
+  applyPhysicalBoxUvs(legGeometry, [
+    TABLE_LEG_THICKNESS_CM,
+    legHeight,
+    TABLE_LEG_THICKNESS_CM,
+  ]);
   geometries.push(legGeometry);
 
   const offsetX = Math.max(widthCm / 2 - TABLE_LEG_THICKNESS_CM / 2 - 1, 0);

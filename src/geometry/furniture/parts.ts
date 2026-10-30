@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import { buildPbrMaterial } from '../../materials/buildMaterial';
 import type { MaterialSettingsInput } from '../../materials/types';
+import { applyPhysicalBoxUvs } from '../../materials/uv';
 
 /**
  * Material settings a furniture builder accepts.
@@ -67,11 +68,13 @@ export class PartBuilder {
     position: [number, number, number],
     rotation?: [number, number, number],
   ): THREE.Mesh {
-    const geometry = new THREE.BoxGeometry(
+    const [width, height, depth] = [
       safeSize(size[0]),
       safeSize(size[1]),
       safeSize(size[2]),
-    );
+    ] as const;
+    const geometry = new THREE.BoxGeometry(width, height, depth);
+    applyPhysicalBoxUvs(geometry, [width, height, depth]);
     this.geometries.push(geometry);
     const mesh = new THREE.Mesh(geometry, this.material);
     mesh.name = partId;

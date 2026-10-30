@@ -60,7 +60,9 @@ export const PBR_LIMITS = {
   roughness: { min: 0, max: 1, step: 0.01 },
   // Opacity never reaches 0: a fully invisible material would look broken.
   opacity: { min: 0.1, max: 1, step: 0.05 },
-  // UV repeat multiplier for the procedural detail texture.
+  // UV repeat multiplier for the procedural detail texture. Box faces are
+  // mapped to a 50 cm physical tile (see `materials/uv.ts`), so this multiplies
+  // the detail frequency without changing texel density across faces.
   textureScale: { min: 0.25, max: 8, step: 0.25 },
   // Normal-map strength.
   normalStrength: { min: 0, max: 2, step: 0.05 },
