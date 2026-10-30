@@ -1,0 +1,32 @@
+import { describe, expect, it } from 'vitest';
+import { sha256Hex } from './sha256';
+
+const encoder = new TextEncoder();
+const digest = (text: string) => sha256Hex(encoder.encode(text));
+
+describe('sha256Hex', () => {
+  it('matches the FIPS 180-4 test vectors', () => {
+    expect(digest('')).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+    expect(digest('abc')).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+    expect(digest('The quick brown fox jumps over the lazy dog')).toBe(
+      'd7a8fbb307d7809469ca9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e592',
+    );
+  });
+
+  it('handles the 55/56 byte padding boundary', () => {
+    expect(digest('a'.repeat(55))).toBe(
+      '9f4390f8d30c2dd92ec9f095b65e2b9ae9b0a925a5258e241c9f1e910f734318',
+    );
+    expect(digest('a'.repeat(56))).toBe(
+      'b35439a4ac6f0948b6d6f9e3c6af0f5f590ce20f1bde7090ef7970686ec6738a',
+    );
+  });
+
+  it('hashes multi-block binary input', () => {
+    const bytes = new Uint8Array(200);
+    for (let i = 0; i < bytes.length; i += 1) bytes[i] = i;
+    expect(sha256Hex(bytes)).toBe(
+      '1901da1c9f699b48f6b2636e65cbf73abf99d0441ef67f5c540a42f7051dec6f',
+    );
+  });
+});

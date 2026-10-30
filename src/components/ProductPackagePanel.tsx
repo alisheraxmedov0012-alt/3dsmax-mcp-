@@ -18,6 +18,7 @@
  */
 import { useMemo, useState } from 'react';
 import { downloadBlob } from '../export/downloadFile';
+import { buildAssetPackage } from '../export/assetPackage';
 import type { SceneData, SceneObject } from '../scene/types';
 import type { SheetMaterialEntry } from '../manufacturing/sheetMaterial';
 import {
@@ -107,6 +108,9 @@ export function ProductPackagePanel({
   const [error, setError] = useState('');
   const [generated, setGenerated] = useState<Generated | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [assetBusy, setAssetBusy] = useState(false);
+  const [assetMessage, setAssetMessage] = useState('');
+  const [assetError, setAssetError] = useState('');
 
   const fingerprint = useMemo(
     () =>
@@ -282,6 +286,73 @@ export function ProductPackagePanel({
     }
   };
 
+
+  /** Build the A4 marketplace archive: model, previews, metadata, checksums. */
+  const handleAssetDownload = async () => {
+    if (assetBusy) {
+      return;
+    }
+    setAssetBusy(true);
+    setAssetError('');
+    setAssetMessage('');
+    try {
+      let previews: Array<{ name: string; bytes: Uint8Array }> | null = null;
+      if (onCaptureProductPreviews) {
+        try {
+          previews = await onCaptureProductPreviews();
+        } catch (captureError) {
+          setAssetError(
+            captureError instanceof Error
+              ? `Preview rasmlarini olishda xatolik: ${captureError.message}`
+              : 'Preview rasmlarini olishda xatolik.',
+          );
+          return;
+        }
+      }
+
+      // Overall size is measured by the same generator the C2 drawing uses, so the
+      // asset metadata and the shop document cannot quote different numbers.
+      const drawing = createTechnicalDrawingSvg(object.type, object.params, {
+        title: projectName.trim() !== '' ? projectName : object.name,
+        date: new Date().toISOString().slice(0, 10),
+      });
+      if (!drawing.ok) {
+        setAssetError("Model o'lchamlarini o'lchab bo'lmadi — aktiv paketi yaratilmadi.");
+        return;
+      }
+
+      const outcome = await buildAssetPackage({
+        scene,
+        object,
+        projectName,
+        overallMm: drawing.overall,
+        previews,
+      });
+      if (!outcome.ok) {
+        setAssetError(`3D aktiv paketi yaratilmadi: ${outcome.reason}`);
+        return;
+      }
+
+      downloadBlob(
+        new Blob([outcome.asset.bytes], { type: 'application/zip' }),
+        outcome.asset.filename,
+      );
+      setAssetMessage(
+        `3D aktiv paketi tayyor: ${outcome.asset.expectedEntries.length} fayl · ` +
+          `${outcome.asset.glb.triangles} uchburchak · ` +
+          `${outcome.asset.metadata.asset.model.materials.length} material.`,
+      );
+    } catch (cause) {
+      setAssetError(
+        cause instanceof Error
+          ? `3D aktiv paketi yaratilmadi: ${cause.message}`
+          : '3D aktiv paketi yaratilmadi.',
+      );
+    } finally {
+      setAssetBusy(false);
+    }
+  };
+
   return (
     <div className="field product" data-testid="product-package">
       <span className="field__label">Birinchi tijoriy mahsulot — paket</span>
@@ -331,6 +402,33 @@ export function ProductPackagePanel({
         </figure>
       )}
 
+
+      <section className="field" data-testid="asset-package">
+        <span className="field__label">Marketplace 3D aktiv paketi</span>
+        <p className="visual__hint">
+          Faqat tanlangan model (xona emas), preview rasmlar, o‘lchangan metadata va SHA-256
+          checksums bitta ZIP’da. BOM va ishlab chiqarish hujjatlari bu paketga kirmaydi.
+        </p>
+        <button
+          type="button"
+          className="visual-reset"
+          onClick={handleAssetDownload}
+          disabled={assetBusy}
+          data-testid="asset-download"
+        >
+          {assetBusy ? 'Aktiv paketi yig‘ilmoqda…' : '3D aktiv paketini yuklab olish (ZIP)'}
+        </button>
+        {assetError && (
+          <p className="field__error" role="alert" data-testid="asset-error">
+            {assetError}
+          </p>
+        )}
+        {assetMessage && !assetError && (
+          <p className="render__message" role="status" data-testid="asset-message">
+            {assetMessage}
+          </p>
+        )}
+      </section>
       {error && (
         <p className="field__error" role="alert" data-testid="product-error">
           {error}

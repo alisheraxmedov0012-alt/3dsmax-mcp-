@@ -336,3 +336,93 @@ describe('C8 panel — 3D preview', () => {
     expect(screen.getByTestId('product-error').textContent).toMatch(/3D/);
   });
 });
+
+describe('A4 panel — marketplace asset package', () => {
+  const ONE_PIXEL_PNG =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+m9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+  function realPng(): Uint8Array {
+    return Uint8Array.from(atob(ONE_PIXEL_PNG), (char) => char.charCodeAt(0));
+  }
+
+  function stubDownload(): { create: ReturnType<typeof vi.fn> } {
+    const create = vi.fn(() => 'blob:asset');
+    Object.assign(URL, { createObjectURL: create, revokeObjectURL: vi.fn() });
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    return { create };
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('downloads a verified asset archive with the captured preview', async () => {
+    const object = objectFor('table');
+    const { create } = stubDownload();
+
+    render(
+      <ProductPackagePanel
+        object={object}
+        scene={sceneWith(object)}
+        projectName="Stol loyihasi"
+        cuttingPlan={planFor(object)}
+        onCaptureProductPreviews={async () => [
+          { name: 'preview-front.png', bytes: realPng() },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('asset-download'));
+
+    await waitFor(() => expect(screen.getByTestId('asset-message')).toBeTruthy());
+    const message = screen.getByTestId('asset-message').textContent ?? '';
+    // README + metadata + model + one preview + checksums.
+    expect(message).toContain('5 fayl');
+    expect(message).toMatch(/\d+ uchburchak/);
+    expect(message).toMatch(/\d+ material/);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('asset-error')).toBeNull();
+  });
+
+  it('packages without previews when the app supplies no capture handler', async () => {
+    const object = objectFor('table');
+    stubDownload();
+
+    render(
+      <ProductPackagePanel
+        object={object}
+        scene={sceneWith(object)}
+        projectName="Stol loyihasi"
+        cuttingPlan={planFor(object)}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('asset-download'));
+
+    await waitFor(() => expect(screen.getByTestId('asset-message')).toBeTruthy());
+    expect(screen.getByTestId('asset-message').textContent).toContain('4 fayl');
+  });
+
+  it('surfaces a preview capture failure instead of shipping a silent bundle', async () => {
+    const object = objectFor('table');
+    stubDownload();
+
+    render(
+      <ProductPackagePanel
+        object={object}
+        scene={sceneWith(object)}
+        projectName="Stol loyihasi"
+        cuttingPlan={planFor(object)}
+        onCaptureProductPreviews={async () => {
+          throw new Error('renderer yo‘q');
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('asset-download'));
+
+    await waitFor(() => expect(screen.getByTestId('asset-error')).toBeTruthy());
+    expect(screen.getByTestId('asset-error').textContent).toMatch(/Preview rasmlarini olishda xatolik/);
+    expect(screen.queryByTestId('asset-message')).toBeNull();
+  });
+});

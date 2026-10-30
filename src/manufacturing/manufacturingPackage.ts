@@ -22,6 +22,7 @@ import {
   type FurnitureType,
 } from '../geometry/furniture/types';
 import type { SceneData, SceneObject } from '../scene/types';
+import { sceneForObject } from '../scene/sceneSelection';
 import { buildBom, PANEL_MAX_THICKNESS_CM, type BomResult } from './bom';
 import { buildCutList, type CutListResult } from './cutList';
 import { bomToCsv, cutListToCsv } from './manufacturingExport';
@@ -108,13 +109,7 @@ export function packageFilename(projectName: string): string {
  * want the walls), and assemblies are dropped because their derived members
  * would duplicate the piece's own geometry in the mesh.
  */
-export function sceneForObject(scene: SceneData, object: SceneObject): SceneData {
-  return {
-    ...scene,
-    objects: scene.objects.filter((entry) => entry.id === object.id),
-    assemblies: undefined,
-  };
-}
+export { sceneForObject };
 
 interface MetaFile {
   format: string;
