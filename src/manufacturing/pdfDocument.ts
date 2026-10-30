@@ -385,41 +385,57 @@ class Layout {
       const cells = row.map((cell, index) =>
         this.wrap(cell ?? '', size, this.regular, widths[index] - 4),
       );
-      const rowHeight = Math.max(...cells.map((lines) => lines.length)) * lineHeight + padding * 2;
+      const maxLines = Math.max(...cells.map((lines) => lines.length), 1);
+      let lineOffset = 0;
 
-      if (this.cursorY - rowHeight < this.bottomLimit) {
-        this.newPage();
-        drawHeader();
-      }
-
-      const rowTop = this.cursorY;
-      let x = MARGIN;
-      for (let index = 0; index < cells.length; index += 1) {
-        const align = columns[index].align ?? 'left';
-        let lineY = rowTop;
-        for (const line of cells[index]) {
-          const textWidth = this.regular.widthOfTextAtSize(line, size);
-          const drawX =
-            align === 'right' ? x + widths[index] - 4 - textWidth : x;
-          this.page.drawText(line, {
-            x: Math.max(drawX, x),
-            y: lineY - size,
-            size,
-            font: this.regular,
-            color: INK,
-          });
-          lineY -= lineHeight;
+      // A row can be taller than the printable page (one very long cell). Draw
+      // it in page-sized chunks, repeating the header, instead of drawing the
+      // tail below the footer. No cell text is dropped.
+      while (lineOffset < maxLines) {
+        if (this.cursorY - (lineHeight + padding * 2) < this.bottomLimit) {
+          this.newPage();
+          drawHeader();
         }
-        x += widths[index];
-      }
-      this.cursorY = rowTop - rowHeight;
+        const capacity = Math.max(
+          1,
+          Math.floor((this.cursorY - this.bottomLimit - padding * 2) / lineHeight),
+        );
+        const take = Math.min(capacity, maxLines - lineOffset);
+        const rowTop = this.cursorY;
+        let x = MARGIN;
+        for (let index = 0; index < cells.length; index += 1) {
+          const align = columns[index].align ?? 'left';
+          let lineY = rowTop;
+          for (const line of cells[index].slice(lineOffset, lineOffset + take)) {
+            const textWidth = this.regular.widthOfTextAtSize(line, size);
+            const drawX =
+              align === 'right' ? x + widths[index] - 4 - textWidth : x;
+            this.page.drawText(line, {
+              x: Math.max(drawX, x),
+              y: lineY - size,
+              size,
+              font: this.regular,
+              color: INK,
+            });
+            lineY -= lineHeight;
+          }
+          x += widths[index];
+        }
+        this.cursorY = rowTop - (take * lineHeight + padding * 2);
+        lineOffset += take;
 
-      this.page.drawLine({
-        start: { x: MARGIN, y: this.cursorY + 1 },
-        end: { x: this.width - MARGIN, y: this.cursorY + 1 },
-        thickness: 0.3,
-        color: RULE,
-      });
+        if (lineOffset >= maxLines) {
+          this.page.drawLine({
+            start: { x: MARGIN, y: this.cursorY + 1 },
+            end: { x: this.width - MARGIN, y: this.cursorY + 1 },
+            thickness: 0.3,
+            color: RULE,
+          });
+        } else {
+          this.newPage();
+          drawHeader();
+        }
+      }
     }
     this.cursorY -= 6;
   }

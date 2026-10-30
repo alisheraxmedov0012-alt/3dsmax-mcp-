@@ -224,6 +224,19 @@ describe('C2 — orthographic alignment', () => {
     }
   });
 
+  it('draws the geometry at the physical scale stated in the title block', () => {
+    const result = drawing('table');
+    expect(result.scale.ratio).toBe('1:5');
+    const denominator = 5;
+    expect(result.layout.views.front.widthPx).toBeCloseTo(result.overall.widthMm / denominator, 4);
+    expect(result.layout.views.front.heightPx).toBeCloseTo(
+      result.overall.heightMm / denominator,
+      4,
+    );
+    expect(result.layout.views.side.widthPx).toBeCloseTo(result.overall.depthMm / denominator, 4);
+    expect(result.layout.views.top.heightPx).toBeCloseTo(result.overall.depthMm / denominator, 4);
+  });
+
   it('uses one scale for every view', () => {
     const sofa = drawing('sofa');
     const { views, widthPx: sheetWidth, heightPx: sheetHeight } = sofa.layout;

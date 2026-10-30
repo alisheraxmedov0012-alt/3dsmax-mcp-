@@ -99,6 +99,25 @@ describe('C6 — hardware section', () => {
   });
 });
 
+describe('C5 — a table row taller than a page is split', () => {
+  it('repeats the header and continues the row instead of drawing past the footer', async () => {
+    const input = inputFor('table');
+    const longRow = {
+      ...input.bom.rows[0],
+      name: 'uzun detal nomi '.repeat(1500),
+      partId: 'long-top',
+    };
+    const bom = { ...input.bom, rows: [longRow], totalParts: 1 };
+    const cutList = buildCutList(bom);
+    const baseline = await buildManufacturingPdf(input);
+    const expanded = await buildManufacturingPdf({ ...input, bom, cutList });
+    expect(baseline.ok && expanded.ok).toBe(true);
+    if (!baseline.ok || !expanded.ok) return;
+    expect(expanded.pageCount).toBeGreaterThan(baseline.pageCount);
+    expect(expanded.bytes.length).toBeGreaterThan(baseline.bytes.length);
+  });
+});
+
 describe('C5 — long paragraphs paginate', () => {
   it('moves a very long hardware note onto additional pages instead of off the page', async () => {
     const input = inputFor('table');
