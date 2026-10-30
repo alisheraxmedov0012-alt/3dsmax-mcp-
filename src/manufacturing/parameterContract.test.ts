@@ -464,7 +464,7 @@ describe('C8.6.2 — packaging contracts unchanged', () => {
     expect(Object.keys(unzipSync(c1.package.bytes))).toHaveLength(6);
   });
 
-  it('keeps C8 at thirteen entries for a default piece', async () => {
+  it('keeps C8 at fourteen entries for a default piece', async () => {
     const params = createFurnitureParams('shelf');
     const { object, scene } = sceneFor('shelf', params);
     const c8 = await buildProductPackage({
@@ -475,7 +475,7 @@ describe('C8.6.2 — packaging contracts unchanged', () => {
     });
     expect(c8.ok, c8.ok ? '' : c8.reason).toBe(true);
     if (!c8.ok) return;
-    expect(Object.keys(unzipSync(c8.product.bytes))).toHaveLength(13);
+    expect(Object.keys(unzipSync(c8.product.bytes))).toHaveLength(14);
   });
 
   it('still refuses to package a piece the capacity rules reject', async () => {

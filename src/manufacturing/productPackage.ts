@@ -40,6 +40,7 @@ import {
   isProductPreviewFilename,
 } from '../viewer/productPreviewViews';
 import { createTechnicalDrawingSvg } from './technicalDrawing';
+import { createCuttingPlanSvg } from './cuttingPlanSvg';
 import { validateManufacturing, type ValidationReport } from './validation';
 import type { ReadinessCheck } from './productReadiness';
 import { exportSceneToGlb } from '../export/sceneExport';
@@ -65,6 +66,7 @@ export const PRODUCT_PACKAGE_ENTRIES = [
   'drawing.svg',
   'assembly.txt',
   'cutting-plan.csv',
+  'cutting-plan.svg',
   'validation.txt',
   'document.pdf',
   'meta.json',
@@ -103,7 +105,7 @@ export function productPackageEntries(
 }
 
 export const PRODUCT_PACKAGE_META_FORMAT = '3d-studio-ai-product-package';
-export const PRODUCT_PACKAGE_META_VERSION = 2;
+export const PRODUCT_PACKAGE_META_VERSION = 3;
 
 /** Thickness the C8 sample product is documented with. A user value, not a standard. */
 export const DEFAULT_SAMPLE_THICKNESS_MM = 18;
@@ -579,10 +581,9 @@ export async function buildProductPackage(
 
   const skipped: Array<{ name: ProductPackageEntry; reason: string }> = [];
   if (!cuttingPlan) {
-    skipped.push({
-      name: 'cutting-plan.csv',
-      reason: cuttingFailure ?? "kesish sozlamalari berilmagan — list sxemasi hisoblanmadi",
-    });
+    const reason = cuttingFailure ?? "kesish sozlamalari berilmagan — list sxemasi hisoblanmadi";
+    skipped.push({ name: 'cutting-plan.csv', reason });
+    skipped.push({ name: 'cutting-plan.svg', reason });
   }
 
   let glb: ArrayBuffer;
@@ -670,6 +671,7 @@ export async function buildProductPackage(
     'drawing.svg': strToU8(drawing.svg),
     'assembly.txt': strToU8(assemblyText(assembly)),
     'cutting-plan.csv': strToU8(cuttingPlanCsv(cuttingPlan)),
+    'cutting-plan.svg': strToU8(createCuttingPlanSvg(cuttingPlan)),
     'validation.txt': strToU8(validationReportText(validation)),
     'document.pdf': new Uint8Array(pdf.bytes),
     'product-description.md': strToU8(productDescriptionMarkdown(description)),

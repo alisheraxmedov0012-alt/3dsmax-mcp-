@@ -422,7 +422,7 @@ describe('C8.6.1 — regression: valid configurations still build', () => {
     }
   });
 
-  it('keeps C1 at six entries and C8 at thirteen for the default pieces', async () => {
+  it('keeps C1 at six entries and C8 at fourteen for the default pieces', async () => {
     const types = ['table', 'shelf', 'dresser'] as const;
     const built = await Promise.all(
       types.map((type) => {
@@ -443,7 +443,7 @@ describe('C8.6.1 — regression: valid configurations still build', () => {
       expect(c8.ok, `${type}: ${c8.ok ? '' : c8.reason}`).toBe(true);
       if (!c8.ok) continue;
       // CRC is verified by unzipSync while inflating.
-      expect(Object.keys(unzipSync(c8.product.bytes))).toHaveLength(13);
+      expect(Object.keys(unzipSync(c8.product.bytes))).toHaveLength(14);
     }
   });
 });

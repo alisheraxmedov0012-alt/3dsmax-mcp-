@@ -39,6 +39,7 @@
  */
 import type { BomResult } from './bom';
 import type { CutListResult } from './cutList';
+import { validateCuttingPlan } from './cuttingPlanValidation';
 import type { BomMaterialInfo, SheetMaterialId } from './sheetMaterial';
 
 /**
@@ -482,6 +483,9 @@ function findBestFit(
   sheets: readonly SheetState[],
   piece: NestablePiece,
   allowRotation: boolean,
+  settings: SheetSettings,
+  usableLength: number,
+  usableWidth: number,
 ): Fit | null {
   let best: Fit | null = null;
   const orientations: Array<{ w: number; h: number; rotated: boolean }> = [
@@ -490,17 +494,29 @@ function findBestFit(
   if (allowRotation && piece.widthMm !== piece.heightMm) {
     orientations.push({ w: piece.heightMm, h: piece.widthMm, rotated: true });
   }
+  const limitX = settings.edgeMarginMm + usableLength;
+  const limitY = settings.edgeMarginMm + usableWidth;
 
   for (let sheetIndex = 0; sheetIndex < sheets.length; sheetIndex += 1) {
     const sheet = sheets[sheetIndex];
     for (let freeIndex = 0; freeIndex < sheet.freeRects.length; freeIndex += 1) {
       const rect = sheet.freeRects[freeIndex];
       for (const orientation of orientations) {
-        if (orientation.w > rect.w || orientation.h > rect.h) {
+        // Kerf is required between pieces, but not at the outer board edge: an
+        // exact-width piece may use the usable area to the margin. The old check
+        // used the raw size, so a piece placed below an existing one could touch
+        // it because only the upper piece's top edge reserved kerf.
+        const needW =
+          orientation.w +
+          (rect.x + rect.w < limitX - 1e-9 ? settings.kerfMm : 0);
+        const needH =
+          orientation.h +
+          (rect.y + rect.h < limitY - 1e-9 ? settings.kerfMm : 0);
+        if (needW > rect.w + 1e-9 || needH > rect.h + 1e-9) {
           continue;
         }
-        const shortSide = Math.min(rect.w - orientation.w, rect.h - orientation.h);
-        const longSide = Math.max(rect.w - orientation.w, rect.h - orientation.h);
+        const shortSide = Math.min(rect.w - needW, rect.h - needH);
+        const longSide = Math.max(rect.w - needW, rect.h - needH);
         const candidate: Fit = {
           sheetIndex,
           freeIndex,
@@ -834,7 +850,14 @@ export function buildCuttingPlan(input: {
         continue;
       }
 
-      const fit = findBestFit(sheets, piece, settings.allowRotation);
+      const fit = findBestFit(
+        sheets,
+        piece,
+        settings.allowRotation,
+        settings,
+        usableLength,
+        usableWidth,
+      );
       if (fit) {
         commitPlacement(sheets[fit.sheetIndex], piece, fit, settings, usableLength, usableWidth);
         continue;
@@ -858,7 +881,14 @@ export function buildCuttingPlan(input: {
       // A fresh usable sheet always accepts a piece that passed `fitsEmptySheet`,
       // so this matches at least one orientation; the assert keeps that true if
       // the fit search ever changes.
-      const freshFit = findBestFit([fresh], piece, settings.allowRotation);
+      const freshFit = findBestFit(
+        [fresh],
+        piece,
+        settings.allowRotation,
+        settings,
+        usableLength,
+        usableWidth,
+      );
       if (!freshFit) {
         groupUnplaced.push({
           partId: piece.partId,
@@ -955,30 +985,44 @@ export function buildCuttingPlan(input: {
     });
   }
 
-  return {
-    ok: true,
-    plan: {
-      settings,
-      status,
-      groups,
-      unplaced,
-      excluded,
-      summary: {
-        pieceCount: placedCount + unplacedCount,
-        placedCount,
-        unplacedCount,
-        sheetCount,
-        usedAreaM2: toM2(totalUsedMm2),
-        availableAreaM2: toM2(availableMm2),
-        kerfAreaM2: toM2(totalKerfMm2),
-        wasteAreaM2: toM2(wasteMm2),
-        wastePercent: percentOf(wasteMm2, availableMm2),
-        materialCount: groups.length,
-      },
-      issues,
-      limitations: [...CUTTING_PLAN_LIMITATIONS],
+  const plan: CuttingPlan = {
+    settings,
+    status,
+    groups,
+    unplaced,
+    excluded,
+    summary: {
+      pieceCount: placedCount + unplacedCount,
+      placedCount,
+      unplacedCount,
+      sheetCount,
+      usedAreaM2: toM2(totalUsedMm2),
+      availableAreaM2: toM2(availableMm2),
+      kerfAreaM2: toM2(totalKerfMm2),
+      wasteAreaM2: toM2(wasteMm2),
+      wastePercent: percentOf(wasteMm2, availableMm2),
+      materialCount: groups.length,
     },
+    issues,
+    limitations: [...CUTTING_PLAN_LIMITATIONS],
   };
+
+  // Never hand back a plan the independent validator rejects. The validator does
+  // not reuse the nesting code, so a placement bug cannot validate itself.
+  const audit = validateCuttingPlan(plan, { cutList });
+  if (!audit.ok) {
+    const detail = audit.issues
+      .filter((entry) => entry.level === 'error')
+      .slice(0, 3)
+      .map((entry) => entry.message)
+      .join(' ');
+    return {
+      ok: false,
+      reason: `Kesish rejasi mustaqil tekshiruvdan o'tmadi: ${detail}`,
+    };
+  }
+
+  return { ok: true, plan };
 }
 
 /** Convenience: the plan's usable area for one sheet, in m². */

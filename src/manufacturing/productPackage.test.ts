@@ -15,6 +15,7 @@ import {
   verifyProductExports,
 } from './productPackage';
 import { buildManufacturingPackage, PACKAGE_ENTRIES } from './manufacturingPackage';
+import { createCuttingPlanSvg } from './cuttingPlanSvg';
 import { buildBom } from './bom';
 import {
   ROOM_DEFAULTS,
@@ -140,6 +141,10 @@ describe('C8 package — contents', () => {
     expect(strFromU8(files['assembly.txt'])).toMatch(/Montaj/);
     // 8. Material usage and cutting plan
     expect(strFromU8(files['cutting-plan.csv'])).toContain('joylashtirilgan');
+    const cuttingSvg = strFromU8(files['cutting-plan.svg']);
+    expect(cuttingSvg).toContain('<svg');
+    expect(cuttingSvg).toContain('table-top #1');
+    expect(cuttingSvg).toContain('Masshtab: 1:');
     // 9. PDF
     const pdf = files['document.pdf'];
     expect(String.fromCharCode(...pdf.slice(0, 4))).toBe('%PDF');
@@ -156,6 +161,7 @@ describe('C8 package — contents', () => {
     const meta = JSON.parse(strFromU8(files['meta.json']));
 
     expect(meta.format).toBe('3d-studio-ai-product-package');
+    expect(meta.version).toBe(3);
     expect(meta.entries).toEqual([...PRODUCT_PACKAGE_ENTRIES]);
     expect(meta.bom.totalParts).toBe(outcome.product.totalParts);
     expect(meta.cutList.pieces).toBe(outcome.product.cutPieces);
@@ -361,7 +367,7 @@ describe('C8 package — partial bundles are reported as partial', () => {
     expect(strFromU8(files['cutting-plan.csv'])).toContain('hisoblanmagan');
     const meta = JSON.parse(strFromU8(files['meta.json']));
     expect(meta.cutting).toBeNull();
-    expect(meta.skipped).toHaveLength(1);
+    expect(meta.skipped).toHaveLength(2);
   });
 });
 
@@ -431,8 +437,9 @@ describe('C8 package — document writers', () => {
     expect(unplaced).toHaveLength(outcome.artifacts.cuttingPlan.unplaced.length);
   });
 
-  it('states in the CSV that no layout was computed rather than emitting an empty table', () => {
+  it('states in the CSV and SVG that no layout was computed', () => {
     expect(cuttingPlanCsv(null)).toContain('hisoblanmagan');
+    expect(createCuttingPlanSvg(null)).toContain('hisoblanmagan');
   });
 
   it('says a material list is empty instead of printing only a header', () => {

@@ -12,6 +12,8 @@
  */
 import { useState } from 'react';
 import type { BomResult } from '../manufacturing/bom';
+import { createCuttingPlanSvg } from '../manufacturing/cuttingPlanSvg';
+import { downloadBlob } from '../export/downloadFile';
 import type { CutListResult } from '../manufacturing/cutList';
 import {
   CUTTING_STATUS_LABELS,
@@ -313,6 +315,20 @@ export function CuttingPlanPanel({ cutList, bom, onPlanChange }: CuttingPlanPane
             {plan.summary.placedCount}/{plan.summary.pieceCount} detal · chiqindi{' '}
             {plan.summary.wastePercent}%
           </p>
+
+          <button
+            type="button"
+            className="visual-reset"
+            data-testid="cutting-svg"
+            onClick={() =>
+              downloadBlob(
+                new Blob([createCuttingPlanSvg(plan)], { type: 'image/svg+xml' }),
+                'kesish-rejasi.svg',
+              )
+            }
+          >
+            Kesish sxemasi (SVG) yuklab olish
+          </button>
 
           <ul className="manufacturing__list" data-testid="cutting-summary">
             <li>
