@@ -399,14 +399,18 @@ function buildProductMeta(input: {
         pieces: input.cutList.totalPieces,
         panelAreaM2: input.cutList.panelAreaM2,
       },
+      materials: groupByMaterial(input.bom.rows),
       validation: {
         ok: input.validation.ok,
         errors: input.validation.counts.error,
         warnings: input.validation.counts.warning,
+        infos: input.validation.counts.info,
+        limitations: input.validation.limitations,
       },
       assembly: {
         status: input.assembly.status,
         steps: input.assembly.steps.length,
+        limitations: input.assembly.limitations,
       },
       hardware: {
         specified: input.hardware.specified,
@@ -437,6 +441,10 @@ function buildProductMeta(input: {
             sheetLengthMm: input.cuttingPlan.settings.sheetLengthMm,
             sheetWidthMm: input.cuttingPlan.settings.sheetWidthMm,
             kerfMm: input.cuttingPlan.settings.kerfMm,
+            edgeMarginMm: input.cuttingPlan.settings.edgeMarginMm,
+            allowRotation: input.cuttingPlan.settings.allowRotation,
+            maxSheets: input.cuttingPlan.settings.maxSheets,
+            limitations: input.cuttingPlan.limitations,
           }
         : null,
       limitations: [
@@ -453,6 +461,8 @@ function buildProductMeta(input: {
 function buildProductReadme(input: {
   projectName: string;
   type: FurnitureType;
+  generatedAt: Date;
+  overallMm: { widthMm: number; heightMm: number; depthMm: number };
   bom: BomResult;
   cutList: CutListResult;
   validation: ValidationReport;
@@ -464,16 +474,40 @@ function buildProductReadme(input: {
   skipped: readonly { name: ProductPackageEntry; reason: string }[];
 }): string {
   const name = input.projectName.trim() || 'Nomsiz loyiha';
+  const materials = groupByMaterial(input.bom.rows);
+  const purpose: Record<string, string> = {
+    'README.txt': "shu qo'llanma va paket cheklovlari",
+    'product-description.md': "mahsulotning inglizcha tavsifi va cheklovlari",
+    'BOM.csv': "detallar ro'yxati, o'lchamlar va material ustunlari",
+    'cutlist.csv': "kesish uchun panel detallari",
+    'materials.csv': "material va nominal qalinlik bo'yicha guruhlar",
+    'hardware.csv': "furnitura ro'yxati va montaj qadamiga havolalar",
+    'drawing.svg': "o'lchamli texnik chizma (mm)",
+    'assembly.txt': "tartiblangan montaj qadamlari va detallar",
+    'cutting-plan.csv': "list bo'yicha joylashuv koordinatalari",
+    'cutting-plan.svg': "kesish joylashuvining ko'rinishi",
+    'validation.txt': "C4 tekshiruv natijasi va cheklovlari",
+    'document.pdf': "chizma, BOM, kesish, material, montaj va tekshiruv",
+    'meta.json': "mashina o'qiydigan paket metadata",
+    'model.glb': "3D model (metr, glTF 2.0)",
+    'preview-front.png': "mahsulotning old tomondan preview rasmi",
+    'preview-side.png': "mahsulotning yon tomondan preview rasmi",
+    'preview-detail.png': "mahsulotning qo'shimcha rakursdagi preview rasmi",
+  };
   const lines = [
     'AI 3D Studio — mahsulot paketi',
     '',
+    `Paket formati: ${PRODUCT_PACKAGE_META_FORMAT} v${PRODUCT_PACKAGE_META_VERSION}`,
     `Loyiha: ${name}`,
     `Mebel turi: ${FURNITURE_TYPE_LABELS[input.type]} (${input.type})`,
+    `Eksport vaqti: ${input.generatedAt.toISOString()}`,
+    `O'lchov birligi: mm (hujjatlar); 3D sahna ichida sm`,
+    `Umumiy o'lcham: W ${input.overallMm.widthMm} x H ${input.overallMm.heightMm} x D ${input.overallMm.depthMm} mm (geometriyadan olchandi)`,
     '',
-    'Paket tarkibi:',
+    'Paket tarkibi va fayllar vazifasi:',
   ];
   for (const entry of input.entries) {
-    lines.push(`- ${entry}`);
+    lines.push(`- ${entry} — ${purpose[entry] ?? 'paket fayli'}`);
   }
   if (input.skipped.length > 0) {
     lines.push('', "To'liq hisoblanmagan fayllar:");
@@ -484,24 +518,53 @@ function buildProductReadme(input: {
   lines.push(
     '',
     `Detallar: ${input.bom.rows.length} tur · ${input.bom.totalParts} dona`,
-    `Kesish: ${input.cutList.totalPieces} panel · ${input.cutList.panelAreaM2} m2`,
-    `Tekshiruv: ${input.validation.counts.error} xatolik · ${input.validation.counts.warning} ogohlantirish`,
+    `Kesish ro'yxati: ${input.cutList.totalPieces} panel · ${input.cutList.panelAreaM2} m2`,
+    `Tekshiruv: ${input.validation.ok ? "xatolik yo'q" : `${input.validation.counts.error} xatolik`} · ${input.validation.counts.warning} ogohlantirish · ${input.validation.counts.info} malumot`,
     `Montaj: ${input.assembly.steps.length} qadam (${input.assembly.status})`,
     input.hardware.specified
-      ? `Furnitura: ${input.hardware.items.length} yozuv${input.hardware.totalPieces === null ? ", soni qisman" : `, ${input.hardware.totalPieces} dona`}`
+      ? `Furnitura: ${input.hardware.items.length} yozuv${input.hardware.totalPieces === null ? ', soni qisman' : `, ${input.hardware.totalPieces} dona`}`
       : "Furnitura: ko'rsatilmagan (modelda birikma ma'lumoti yo'q).",
   );
+  if (materials.length > 0) {
+    lines.push('Materiallar:');
+    for (const group of materials) {
+      lines.push(
+        `- ${group.name}, nominal ${group.thicknessMm} mm: ${group.totalPieces} dona (${group.partIds.join(', ')})`,
+      );
+    }
+  } else {
+    lines.push('Materiallar: biriktirilmagan — BOM va kesish ro\'yxatida material ustuni bo\'sh.');
+  }
   if (input.cuttingPlan) {
+    const plan = input.cuttingPlan;
     lines.push(
-      `Kesish rejasi: ${input.cuttingPlan.summary.sheetCount} list · chiqindi ${input.cuttingPlan.summary.wastePercent}% · joylashtirilmagan ${input.cuttingPlan.summary.unplacedCount}`,
+      `Kesish rejasi: ${plan.status} · ${plan.summary.sheetCount} list · ${plan.summary.placedCount}/${plan.summary.pieceCount} detal · chiqindi ${plan.summary.wastePercent}%`,
+      `List: ${plan.settings.sheetLengthMm}x${plan.settings.sheetWidthMm} mm · kerf ${plan.settings.kerfMm} mm · chegara ${plan.settings.edgeMarginMm} mm · aylantirish ${plan.settings.allowRotation ? 'ruxsat' : "taqiqlangan"}`,
     );
   } else {
-    lines.push('Kesish rejasi: hisoblanmagan (paketda list sxemasi yo‘q).');
+    lines.push('Kesish rejasi: hisoblanmagan — paketda haqiqiy list koordinatalari yo\'q.');
+  }
+  const limitations = [
+    ...input.validation.limitations,
+    ...input.assembly.limitations,
+    ...input.hardware.limitations,
+    ...(input.cuttingPlan?.limitations ?? []),
+  ].filter((line, index, all) => all.indexOf(line) === index);
+  lines.push('', 'Cheklovlar:');
+  for (const line of limitations) {
+    lines.push(`- ${line}`);
   }
   lines.push(
     '',
+    'Ishlab chiqarishdan oldin tekshiring:',
+    '- Chizma va PDF o\'lchamlarini joriy model bilan solishtiring.',
+    '- Material turi va qalinligini sexda tasdiqlang.',
+    '- Furnitura va birikmalarni model bo\'yicha tekshiring.',
+    '- Kesish rejasini list o\'lchami, kerf va don yo\'nalishiga moslang.',
+    '- Namuna (prototip) tayyorlab sinang.',
+    '',
     'MUHIM: bu paket ishlab chiqarishga yaroqlilik, konstruktiv mustahkamlik yoki',
-    'standartga muvofiqlik sertifikati EMAS. Har bir o‘lcham, material va birikma',
+    'standartga muvofiqlik sertifikati EMAS. Har bir o\'lcham, material va birikma',
     'sexda mustaqil tekshirilishi kerak.',
     '',
   );
@@ -697,6 +760,8 @@ export async function buildProductPackage(
       buildProductReadme({
         projectName,
         type: object.type,
+        generatedAt,
+        overallMm: drawing.overall,
         bom,
         cutList,
         validation,
@@ -713,9 +778,17 @@ export async function buildProductPackage(
     files[preview.name] = preview.bytes;
   }
 
+  // Write entries in the declared manifest order so `meta.entries` and the
+  // archive's own order cannot disagree. (The set was already checked; order is
+  // what makes the manifest an accurate description rather than a sorted list.)
+  const orderedFiles: Record<string, Uint8Array> = {};
+  for (const name of productPackageEntries(previews)) {
+    orderedFiles[name] = files[name];
+  }
+
   let bytes: Uint8Array<ArrayBuffer>;
   try {
-    bytes = zipSync(files, { level: 6, mtime: generatedAt }) as Uint8Array<ArrayBuffer>;
+    bytes = zipSync(orderedFiles, { level: 6, mtime: generatedAt }) as Uint8Array<ArrayBuffer>;
   } catch (error) {
     return {
       ok: false,

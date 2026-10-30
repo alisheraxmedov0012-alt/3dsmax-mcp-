@@ -163,6 +163,7 @@ describe('C8 package — contents', () => {
     expect(meta.format).toBe('3d-studio-ai-product-package');
     expect(meta.version).toBe(3);
     expect(meta.entries).toEqual([...PRODUCT_PACKAGE_ENTRIES]);
+    expect(meta.entries).toEqual(Object.keys(unzipSync(outcome.product.bytes)));
     expect(meta.bom.totalParts).toBe(outcome.product.totalParts);
     expect(meta.cutList.pieces).toBe(outcome.product.cutPieces);
     expect(meta.cutting.sheets).toBe(outcome.product.sheetCount);
@@ -467,5 +468,80 @@ describe('C8 package — document writers', () => {
     const text = assemblyText(outcome.artifacts.assembly);
     expect(text).toMatch(/Mahkamlash/);
     expect(text).toMatch(/1\./);
+  });
+});
+
+describe('C8 — package README, metadata and safe names', () => {
+  it('writes a README that explains files, units, dimensions, material and checks', async () => {
+    const outcome = await buildProductPackage(packageInput());
+    if (!outcome.ok) throw new Error(outcome.reason);
+    const files = unzipSync(outcome.product.bytes);
+    const readme = strFromU8(files['README.txt']);
+    const meta = JSON.parse(strFromU8(files['meta.json']));
+
+    expect(readme).toContain('Paket formati: 3d-studio-ai-product-package v3');
+    expect(readme).toContain('Umumiy o\'lcham: W 1200 x H 750 x D 600 mm');
+    expect(readme).toContain("O'lchov birligi: mm");
+    expect(readme).toContain('BOM.csv — detallar ro\'yxati');
+    expect(readme).toContain('cutting-plan.svg — kesish joylashuvining ko\'rinishi');
+    expect(readme).toContain('LDSP, nominal 18 mm');
+    expect(readme).toContain('Ishlab chiqarishdan oldin tekshiring:');
+    for (const entry of meta.entries) {
+      expect(readme, entry).toContain(entry);
+    }
+    expect(meta.materials[0]).toMatchObject({ name: 'LDSP', thicknessMm: 18, unit: 'mm' });
+    expect(meta.validation.limitations.length).toBeGreaterThan(0);
+    expect(meta.cutting.status).toBe('ok');
+    expect(meta.cutting.kerfMm).toBe(4);
+  });
+
+  it('states a missing cutting plan explicitly in README and metadata', async () => {
+    const object = objectFor('table', true);
+    const outcome = await buildProductPackage({
+      scene: sceneWith(object),
+      object,
+      projectName: 'No layout',
+      generatedAt: FIXED,
+    });
+    if (!outcome.ok) throw new Error(outcome.reason);
+    const files = unzipSync(outcome.product.bytes);
+    const readme = strFromU8(files['README.txt']);
+    const meta = JSON.parse(strFromU8(files['meta.json']));
+    expect(readme).toContain('Kesish rejasi: hisoblanmagan');
+    expect(meta.cutting).toBeNull();
+    expect(strFromU8(files['cutting-plan.svg'])).toContain('hisoblanmagan');
+  });
+
+  it('keeps archive names safe and collision-resistant', () => {
+    const names = [
+      '',
+      'Stol loyihasi',
+      '../../etc/passwd',
+      'Ошхона шкаф',
+      'a'.repeat(200),
+      'Kitchen Table',
+      'Kitchen-Table',
+    ].map((name) => productPackageFilename(name));
+    for (const name of names) {
+      expect(name).toMatch(/^[a-z0-9.-]+\.zip$/);
+      expect(name).not.toContain('/');
+      expect(name).not.toContain('\\');
+      expect(name).not.toContain('..');
+      expect(name.length).toBeLessThan(90);
+    }
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it('has unique, path-safe ZIP entries', async () => {
+    const outcome = await buildProductPackage(packageInput());
+    if (!outcome.ok) throw new Error(outcome.reason);
+    const names = Object.keys(unzipSync(outcome.product.bytes));
+    expect(new Set(names).size).toBe(names.length);
+    for (const name of names) {
+      expect(name).not.toContain('/');
+      expect(name).not.toContain('\\');
+      expect(name).not.toContain('..');
+      expect(name).not.toMatch(/^[A-Za-z]:/);
+    }
   });
 });
