@@ -68,6 +68,20 @@ function stlBounds(buffer: ArrayBuffer): { min: [number, number, number]; max: [
   return { min, max };
 }
 
+function objBounds(text: string): { min: [number, number, number]; max: [number, number, number] } {
+  const min: [number, number, number] = [Infinity, Infinity, Infinity];
+  const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+  for (const line of text.split('\n')) {
+    if (!line.startsWith('v ')) continue;
+    const [, x, y, z] = line.trim().split(/\s+/).map(Number);
+    for (const [index, value] of [x, y, z].entries()) {
+      min[index] = Math.min(min[index], value);
+      max[index] = Math.max(max[index], value);
+    }
+  }
+  return { min, max };
+}
+
 describe('exportSceneToFormat', () => {
   it('produces a GLB with the expected name and MIME', async () => {
     const artifact = await exportSceneToFormat('glb', makeScene(), META);
@@ -164,5 +178,63 @@ describe('exportSceneToFormat', () => {
     await expect(exportSceneToFormat('png', makeScene(), META)).rejects.toMatchObject({
       code: 'unsupported',
     });
+  });
+});
+
+
+describe('A1 — hidden objects, OBJ units and empty exports', () => {
+  function tableScene(id: string, visible = true): SceneData {
+    return {
+      schemaVersion: SCENE_SCHEMA_VERSION,
+      room: { widthCm: 400, lengthCm: 500, heightCm: 280 },
+      objects: [createTableSceneObject(id, { visible })],
+      settings: createDefaultSettings(),
+    };
+  }
+
+  it('writes OBJ vertices in millimetres, matching STL', async () => {
+    const obj = await exportSceneToFormat('obj', tableScene('t1'), META, { includeRoom: false });
+    const bounds = objBounds(await obj.blob.text());
+    expect(bounds.max[0] - bounds.min[0]).toBeCloseTo(1200, 0);
+    expect(bounds.max[1] - bounds.min[1]).toBeCloseTo(750, 0);
+    expect(bounds.max[2] - bounds.min[2]).toBeCloseTo(600, 0);
+  });
+
+  it('omits the same hidden object from GLB, OBJ and STL', async () => {
+    const visibleOnly = tableScene('v');
+    const withHidden = {
+      ...tableScene('v'),
+      objects: [
+        ...tableScene('v').objects,
+        ...tableScene('hidden', false).objects,
+      ],
+    };
+    for (const format of ['glb', 'obj', 'stl'] as const) {
+      const a = await exportSceneToFormat(format, visibleOnly, META, { includeRoom: false });
+      const b = await exportSceneToFormat(format, withHidden, META, { includeRoom: false });
+      expect(b.blob.size, format).toBe(a.blob.size);
+    }
+  });
+
+  it('rejects an empty export but keeps a room-only export valid', async () => {
+    const empty = {
+      schemaVersion: SCENE_SCHEMA_VERSION,
+      room: { widthCm: 400, lengthCm: 500, heightCm: 280 },
+      objects: [],
+      settings: createDefaultSettings(),
+    };
+    for (const format of ['glb', 'obj', 'stl'] as const) {
+      await expect(
+        exportSceneToFormat(format, empty, META, { includeRoom: false }),
+      ).rejects.toMatchObject({ code: 'empty_scene' });
+      const roomOnly = await exportSceneToFormat(format, empty, META, { includeRoom: true });
+      expect(roomOnly.blob.size, format).toBeGreaterThan(0);
+    }
+  });
+
+  it('rejects an export whose only object is hidden and the room is excluded', async () => {
+    await expect(
+      exportSceneToFormat('obj', tableScene('hidden', false), META, { includeRoom: false }),
+    ).rejects.toMatchObject({ code: 'empty_scene' });
   });
 });

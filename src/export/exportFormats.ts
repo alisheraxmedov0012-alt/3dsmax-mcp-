@@ -99,7 +99,7 @@ export const EXPORT_FORMATS: Record<ExportFormatId, ExportFormatSpec> = {
   },
   obj: {
     id: 'obj',
-    label: 'OBJ (faqat geometriya)',
+    label: 'OBJ (mm, faqat geometriya)',
     extension: 'obj',
     mimeType: 'model/obj',
     kind: 'file',
@@ -112,8 +112,9 @@ export const EXPORT_FORMATS: Record<ExportFormatId, ExportFormatSpec> = {
       render: false,
     },
     notes: [
-      'Faqat geometriya (vertex/face) eksport qilinadi.',
+      'Faqat geometriya (vertex/face) eksport qilinadi, millimetrda.',
       '.mtl fayli va materiallar EKSPORT QILINMAYDI (qo‘llanadigan eksporter bermaydi).',
+      'Sahna santimetrda saqlanadi; OBJ uchun 10× masshtab qo‘llanadi.',
       'Blender/3ds Max kabi dasturlarda geometriyani tahrirlash uchun mos.',
     ],
   },

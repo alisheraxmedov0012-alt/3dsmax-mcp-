@@ -16,6 +16,19 @@ browser (canvas, WebGL, `GLTFExporter`); a Node test can only reach it through a
 
 ## Running it
 
+The repeatable smoke test (export → GLTFLoader reload → invariants) is:
+
+```bash
+npm run test:glb
+# or: node tools/glb-harness/roundtrip.mjs
+```
+
+It uses Chromium from `PATH` (override with `CHROMIUM=/path/to/chromium`), keeps
+all artefacts under `/tmp`, and removes them on success. It is not part of
+`npm test` because the software-WebGL export takes about a minute.
+
+The manual steps below are useful when debugging a failure.
+
 Requires Chromium on the machine and `npm ci` already done at the repo root.
 
 ```bash

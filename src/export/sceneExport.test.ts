@@ -1,6 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
-import { buildExportScene, exportSceneToGlb, SCENE_EXPORT_FILENAME } from './sceneExport';
+import {
+  buildExportScene,
+  exportSceneToGlb,
+  nameExportedMeshes,
+  pruneInvisible,
+  SCENE_EXPORT_FILENAME,
+} from './sceneExport';
 import {
   createFurnitureSceneObject,
   createTableSceneObject,
@@ -322,5 +328,44 @@ describe('exportSceneToGlb', () => {
     expect((parsed.json.meshes ?? []).length).toBeGreaterThan(1);
     const names = (parsed.json.nodes ?? []).map((entry) => entry.name);
     expect(names).toContain('object:img-1');
+  });
+});
+
+
+describe('A1 — visibility and naming diagnostics', () => {
+  it('prunes a hidden parent subtree and a hidden child of a visible parent', () => {
+    const root = new THREE.Group();
+    const hiddenParent = new THREE.Group();
+    hiddenParent.visible = false;
+    const child = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+    hiddenParent.add(child);
+    const visibleParent = new THREE.Group();
+    const hiddenChild = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+    hiddenChild.visible = false;
+    visibleParent.add(hiddenChild);
+    root.add(hiddenParent, visibleParent);
+
+    pruneInvisible(root);
+
+    expect(root.children).toEqual([visibleParent]);
+    expect(visibleParent.children).toHaveLength(0);
+  });
+
+  it('keeps the original GLB and warns when mesh naming cannot parse it', () => {
+    const bytes = new Uint8Array(28);
+    const view = new DataView(bytes.buffer);
+    view.setUint32(0, 0x46546c67, true);
+    view.setUint32(4, 2, true);
+    view.setUint32(8, bytes.length, true);
+    view.setUint32(12, 8, true);
+    view.setUint32(16, 0x4e4f534a, true);
+    bytes.set(new TextEncoder().encode('[badjson'), 20);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      expect(nameExportedMeshes(bytes.buffer)).toBe(bytes.buffer);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

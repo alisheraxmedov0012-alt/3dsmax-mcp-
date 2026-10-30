@@ -65,3 +65,78 @@ describe('assertFiniteGeometry', () => {
     }
   });
 });
+
+describe('geometry guard — topology checks', () => {
+  function triangle(options: {
+    positions?: number[];
+    index?: number[];
+    normal?: number[];
+  } = {}): THREE.Mesh {
+    const geometry = new THREE.BufferGeometry();
+    const positions = options.positions ?? [0, 0, 0, 10, 0, 0, 0, 10, 0];
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    if (options.index) geometry.setIndex(options.index);
+    if (options.normal) {
+      geometry.setAttribute('normal', new THREE.Float32BufferAttribute(options.normal, 3));
+    }
+    const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial());
+    mesh.name = 'probe';
+    return mesh;
+  }
+
+  it('accepts a valid indexed triangle and a valid non-indexed triangle', () => {
+    expect(findGeometryIssues(triangle({ index: [0, 1, 2] }))).toEqual([]);
+    expect(findGeometryIssues(triangle())).toEqual([]);
+  });
+
+  it('does not require normals; missing normals are allowed', () => {
+    expect(findGeometryIssues(triangle({ index: [0, 1, 2] }))).toEqual([]);
+  });
+
+  it('rejects an index outside the vertex range', () => {
+    const issues = findGeometryIssues(triangle({ index: [0, 1, 99] }));
+    expect(issues[0].reason).toBe('invalid_index');
+  });
+
+  it('rejects a degenerate triangle', () => {
+    const issues = findGeometryIssues(
+      triangle({ positions: [0, 0, 0, 1, 0, 0, 2, 0, 0], index: [0, 1, 2] }),
+    );
+    expect(issues[0].reason).toBe('degenerate_triangle');
+  });
+
+  it('rejects a non-finite or mismatched normal attribute', () => {
+    const finite = triangle({ index: [0, 1, 2], normal: [0, 0, 1, 0, 0, 1, 0, 0, 1] });
+    expect(findGeometryIssues(finite)).toEqual([]);
+
+    const nan = triangle({ index: [0, 1, 2], normal: [0, 0, 1, 0, 0, Number.NaN, 0, 0, 1] });
+    expect(findGeometryIssues(nan)[0].reason).toBe('non_finite_normal');
+
+    const short = triangle({ index: [0, 1, 2], normal: [0, 0, 1, 0, 0, 1] });
+    expect(findGeometryIssues(short)[0].reason).toBe('invalid_attribute_count');
+  });
+
+  it('rejects an indexed geometry with an empty index', () => {
+    const issues = findGeometryIssues(triangle({ index: [] }));
+    expect(issues[0].reason).toBe('invalid_triangle_count');
+  });
+
+  it('rejects a non-indexed geometry that cannot form a triangle', () => {
+    const issues = findGeometryIssues(triangle({ positions: [0, 0, 0, 10, 0, 0] }));
+    expect(issues[0].reason).toBe('invalid_triangle_count');
+  });
+
+  it('rejects triangle counts that cannot form triangles', () => {
+    const issues = findGeometryIssues(triangle({ positions: [0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 2, 2] }));
+    expect(issues[0].reason).toBe('invalid_triangle_count');
+  });
+
+  it('rejects a mesh with no position attribute but keeps an empty scene export separate', () => {
+    const geometry = new THREE.BufferGeometry();
+    const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial());
+    mesh.name = 'empty-mesh';
+    const scene = new THREE.Scene();
+    scene.add(mesh);
+    expect(findGeometryIssues(scene)[0].reason).toBe('missing_position');
+  });
+});

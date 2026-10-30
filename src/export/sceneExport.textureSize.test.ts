@@ -322,16 +322,17 @@ describe('export-only texture resolution', () => {
     expect(mapped[0]?.name).toBe('dresser-material');
   });
 
-  it('leaves an invisible object untouched, as the exporter skips it', async () => {
+  it('omits an invisible object while keeping the room export', async () => {
     restore = installCanvasStub();
     const object = goldenDresser();
     object.visible = false;
     const glb = await exportSceneToGlb(sceneOf(object), {
-      includeRoom: false,
+      includeRoom: true,
       textureSize: 512,
     });
     const { json } = parseGlb(glb);
 
+    // The dresser is the only textured object; with it hidden, no image is written.
     expect(json.images).toBeUndefined();
     expect(json.textures).toBeUndefined();
   });

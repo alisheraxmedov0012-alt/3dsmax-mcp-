@@ -8,6 +8,7 @@
 
 export type ExportErrorCode =
   | 'invalid_geometry'
+  | 'empty_scene'
   | 'too_large'
   | 'unsupported'
   | 'failed';
@@ -26,6 +27,9 @@ export const EXPORT_ERROR_MESSAGES: Record<ExportErrorCode, string> = {
   invalid_geometry:
     "Sahnada noto'g'ri (NaN yoki cheksiz) geometriya bor — eksport bekor qilindi. " +
     "Modelni tuzatib, qaytadan urinib ko'ring.",
+  empty_scene:
+    "Eksport qilish uchun ko'rinadigan geometriya yo'q. Obyektni ko'rsating yoki " +
+    "xonani eksportga qo'shing.",
   too_large: 'Eksport fayli ruxsat etilgan hajmdan katta.',
   unsupported: "Bu format hozircha qo'llab-quvvatlanmaydi.",
   failed: "Eksport amalga oshmadi. Iltimos, qaytadan urinib ko'ring.",

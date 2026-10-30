@@ -113,10 +113,47 @@ export function buildExportScene(data: SceneData, options: BuildExportOptions = 
     throw error;
   }
 
+  pruneInvisible(scene);
+
   return {
     scene,
     dispose: () => disposers.forEach((dispose) => dispose()),
   };
+}
+
+/**
+ * Remove invisible subtrees before any exporter sees them.
+ *
+ * GLTFExporter already defaults to `onlyVisible: true`, but OBJExporter and
+ * STLExporter traverse every mesh regardless of visibility. Pruning here gives
+ * all three formats the same policy: a hidden parent removes its whole subtree,
+ * and a hidden child is removed from a visible parent.
+ */
+export function pruneInvisible(root: THREE.Object3D): void {
+  for (const child of root.children.slice()) {
+    if (!child.visible) {
+      child.removeFromParent();
+      continue;
+    }
+    pruneInvisible(child);
+  }
+}
+
+/** Reject a scene with no visible mesh geometry before writing a file. */
+export function assertExportableScene(root: THREE.Object3D): void {
+  let meshes = 0;
+  root.traverse((node) => {
+    const mesh = node as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const position = (mesh.geometry as THREE.BufferGeometry | undefined)?.getAttribute?.('position');
+    if (position && position.count > 0) meshes += 1;
+  });
+  if (meshes === 0) {
+    throw new ExportError(
+      'empty_scene',
+      "Eksport qilish uchun ko'rinadigan geometriya yo'q. Obyektni ko'rsating yoki xonani eksportga qo'shing.",
+    );
+  }
 }
 
 /**
@@ -237,9 +274,14 @@ export function nameExportedMeshes(glb: ArrayBuffer): ArrayBuffer {
       cursor += 8 + chunk.bytes.length;
     }
     return output;
-  } catch {
+  } catch (error) {
     // Naming is an interoperability improvement; never fail an otherwise valid
-    // export because the post-processing could not read it.
+    // export because the post-processing could not read it, but keep the
+    // failure diagnosable instead of swallowing it.
+    console.warn(
+      'GLB mesh nomlash post-processi bajarilmadi:',
+      error instanceof Error ? error.message : 'unknown error',
+    );
     return glb;
   }
 }
@@ -279,6 +321,7 @@ export async function exportSceneToGlb(
 
   try {
     assertFiniteGeometry(scene);
+    assertExportableScene(scene);
     addMetreScaleRoot(scene);
     const GltfExporter = await loadGltfExporter();
     const exporter = new GltfExporter();

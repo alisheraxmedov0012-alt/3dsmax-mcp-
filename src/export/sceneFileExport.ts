@@ -15,7 +15,7 @@
  */
 import * as THREE from 'three';
 import type { SceneData } from '../scene/types';
-import { buildExportScene, exportSceneToGlb, type BuildExportOptions } from './sceneExport';
+import { assertExportableScene, buildExportScene, exportSceneToGlb, type BuildExportOptions } from './sceneExport';
 import { EXPORT_FORMATS, type ExportFormatId } from './exportFormats';
 import { assertFiniteGeometry } from './geometryGuard';
 import { serializeSceneToJson } from './sceneJson';
@@ -109,6 +109,8 @@ export async function exportSceneToFormat(
       const { scene, dispose } = buildExportScene(data, options);
       try {
         assertFiniteGeometry(scene);
+        assertExportableScene(scene);
+        addMillimetreScaleRoot(scene);
         const { OBJExporter } = await loadExporter(
           () => import('three/examples/jsm/exporters/OBJExporter.js'),
           'OBJ',
@@ -123,6 +125,7 @@ export async function exportSceneToFormat(
       const { scene, dispose } = buildExportScene(data, options);
       try {
         assertFiniteGeometry(scene);
+        assertExportableScene(scene);
         addMillimetreScaleRoot(scene);
         // Binary STL is compact; ASCII is available but rarely wanted for meshes.
         const { STLExporter } = await loadExporter(
