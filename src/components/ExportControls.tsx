@@ -15,6 +15,11 @@ export interface ExportControlsProps {
   disabled: boolean;
   /** GLB texture resolution; 128 keeps the historical default. */
   textureSize?: 128 | 512;
+  /** Print formats: export only the selected object instead of every visible piece. */
+  printScopeSelected?: boolean;
+  /** Name shown in the print-scope control; null when nothing is selected. */
+  selectedObjectName?: string | null;
+  onPrintScopeChange?: (selectedOnly: boolean) => void;
   onFormatChange: (format: ExportFormatId) => void;
   onIncludeRoomChange: (include: boolean) => void;
   onTextureSizeChange?: (size: 128 | 512) => void;
@@ -29,6 +34,9 @@ export function ExportControls({
   message,
   disabled,
   textureSize = 128,
+  printScopeSelected = true,
+  selectedObjectName = null,
+  onPrintScopeChange,
   onFormatChange,
   onIncludeRoomChange,
   onTextureSizeChange,
@@ -70,15 +78,42 @@ export function ExportControls({
         </ul>
       </div>
 
-      <label className="toggle">
-        <input
-          type="checkbox"
-          checked={includeRoom}
-          aria-label="Interyerni qo'shish"
-          onChange={(event) => onIncludeRoomChange(event.target.checked)}
-        />
-        Interyerni (xona) qo&apos;shish
-      </label>
+      {(format === 'glb' || format === 'obj') && (
+        <label className="toggle">
+          <input
+            type="checkbox"
+            checked={includeRoom}
+            aria-label="Interyerni qo'shish"
+            onChange={(event) => onIncludeRoomChange(event.target.checked)}
+          />
+          Interyerni (xona) qo&apos;shish
+        </label>
+      )}
+
+      {(format === 'stl' || format === '3mf') && (
+        <div className="field" data-testid="print-export-scope">
+          <span className="field__label">Print eksport doirasi</span>
+          {selectedObjectName ? (
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={printScopeSelected}
+                aria-label="Faqat tanlangan obyektni eksport qilish"
+                onChange={(event) => onPrintScopeChange?.(event.target.checked)}
+              />
+              Faqat tanlangan obyekt: {selectedObjectName}
+            </label>
+          ) : (
+            <p className="visual__hint">
+              Obyekt tanlanmagan — barcha ko&apos;rinadigan mebel (xona emas) eksport qilinadi.
+            </p>
+          )}
+          <p className="visual__hint">
+            Xona STL/3MF print eksportiga qo&apos;shilmaydi. Boshqa mebel faqat yuqoridagi
+            belgi olib tashlansa qo&apos;shiladi.
+          </p>
+        </div>
+      )}
 
       {format === 'glb' && onTextureSizeChange && (
         <label className="toggle">

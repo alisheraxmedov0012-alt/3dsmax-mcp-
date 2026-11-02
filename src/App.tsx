@@ -88,6 +88,8 @@ export default function App() {
   const [exportStatus, setExportStatus] = useState<ExportStatus>('idle');
   const [exportFormat, setExportFormat] = useState<ExportFormatId>('glb');
   const [includeRoom, setIncludeRoom] = useState(true);
+  /** Print formats default to the selected product; the room is always excluded. */
+  const [printSelectedOnly, setPrintSelectedOnly] = useState(true);
   const [exportTextureSize, setExportTextureSize] = useState<128 | 512>(128);
   const [exportMessage, setExportMessage] = useState('');
   const [pngPreset, setPngPreset] = useState<PngPreset>('standard');
@@ -509,9 +511,20 @@ export default function App() {
     };
 
     try {
+      const isPrintFormat = exportFormat === 'stl' || exportFormat === '3mf';
+      // STL/3MF are print deliverables: the room is never part of them, and the
+      // selected product can narrow the export to one object. The id is resolved
+      // against the current scene objects so a stale selection cannot empty the
+      // export.
+      const printTargetId =
+        isPrintFormat && printSelectedOnly && selectedObject
+          ? (scene.data.objects.find((object) => object.id === selectedObject.id)?.id ??
+            undefined)
+          : undefined;
       const artifact = await exportSceneToFormat(exportFormat, scene.data, metadata, {
-        includeRoom,
+        includeRoom: isPrintFormat ? false : includeRoom,
         textureSize: exportFormat === 'glb' ? exportTextureSize : undefined,
+        ...(isPrintFormat ? { onlyObjectId: printTargetId } : {}),
       });
       downloadBlob(artifact.blob, artifact.filename);
       setExportStatus('success');
@@ -793,6 +806,9 @@ export default function App() {
             message={exportMessage}
             disabled={!paramsValid}
             textureSize={exportTextureSize}
+            printScopeSelected={printSelectedOnly}
+            selectedObjectName={selectedObject?.name ?? null}
+            onPrintScopeChange={setPrintSelectedOnly}
             onFormatChange={setExportFormat}
             onTextureSizeChange={setExportTextureSize}
             onIncludeRoomChange={setIncludeRoom}

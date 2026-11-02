@@ -46,3 +46,50 @@ describe('A2 — GLB texture quality opt-in', () => {
     expect(toggle.checked).toBe(false);
   });
 });
+
+describe('X-01 — print export scope is explicit', () => {
+  it('shows the selected-product scope for STL/3MF and hides the room toggle', () => {
+    const onPrintScopeChange = vi.fn();
+    render(
+      <ExportControls
+        {...makeProps({
+          format: 'stl',
+          printScopeSelected: true,
+          selectedObjectName: 'Stol',
+          onPrintScopeChange,
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('print-export-scope')).toBeTruthy();
+    const toggle = screen.getByLabelText(
+      'Faqat tanlangan obyektni eksport qilish',
+    ) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    expect(screen.queryByLabelText("Interyerni qo'shish")).toBeNull();
+    expect(screen.getByTestId('print-export-scope').textContent).toMatch(/Xona STL\/3MF/);
+
+    fireEvent.click(toggle);
+    expect(onPrintScopeChange).toHaveBeenCalledWith(false);
+  });
+
+  it('explains the all-visible fallback when nothing is selected', () => {
+    render(<ExportControls {...makeProps({ format: '3mf', selectedObjectName: null })} />);
+    expect(screen.getByTestId('print-export-scope').textContent).toMatch(
+      /barcha ko'rinadigan mebel/i,
+    );
+  });
+
+  it('keeps the room toggle for GLB and hides the print scope', () => {
+    render(<ExportControls {...makeProps({ format: 'glb', selectedObjectName: 'Stol' })} />);
+    expect(screen.getByLabelText("Interyerni qo'shish")).toBeTruthy();
+    expect(screen.queryByTestId('print-export-scope')).toBeNull();
+  });
+
+  it('offers 3MF and states that it writes geometry only', () => {
+    render(<ExportControls {...makeProps({ format: '3mf' })} />);
+    const button = screen.getByRole('button', { name: /3MF/ });
+    expect(button.getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByText(/material va tekstura YOZILMAYDI/i)).toBeTruthy();
+  });
+});
