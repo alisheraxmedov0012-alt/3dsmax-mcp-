@@ -26,6 +26,14 @@ export interface BuildExportOptions {
    * persisted in scene data and the viewer never reads it.
    */
   textureSize?: 128 | 512;
+  /**
+   * Restrict the export to one scene object by id.
+   *
+   * Used by the print formats so a selected-product export cannot silently
+   * include unrelated furniture. A missing id leaves zero objects, which the
+   * usual empty-scene guard rejects instead of writing an empty file.
+   */
+  onlyObjectId?: string;
 }
 
 /**
@@ -100,7 +108,11 @@ export function buildExportScene(data: SceneData, options: BuildExportOptions = 
       disposers.push(room.dispose);
     }
 
-    data.objects.forEach((object) => {
+    const exportObjects = options.onlyObjectId
+      ? data.objects.filter((object) => object.id === options.onlyObjectId)
+      : data.objects;
+
+    exportObjects.forEach((object) => {
       const built = buildSceneObject(object);
       scene.add(built.group);
       disposers.push(built.dispose);

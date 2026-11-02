@@ -18,13 +18,23 @@
  * - OBJ (Three.js OBJExporter): **geometry only** — the exporter emits no `.mtl`
  *   file and no materials (this is stated in Three.js' own OBJExporter source).
  * - STL (Three.js STLExporter): **geometry only** — no colour, no material.
+ * - 3MF (our own OPC writer, `threemf.ts`): a real 3MF package with a core
+ *   `3D/3dmodel.model` in millimetres. Geometry only: no colour, material,
+ *   texture, assembly hierarchy or print settings are written.
  * - JSON: our own documented scene/design exchange format.
  * - PNG: a rendered image, produced by the existing viewer render path.
  */
 
-export type ExportFormatId = 'glb' | 'json' | 'obj' | 'stl' | 'png';
+export type ExportFormatId = 'glb' | 'json' | 'obj' | 'stl' | '3mf' | 'png';
 
-export const EXPORT_FORMAT_ORDER: readonly ExportFormatId[] = ['glb', 'json', 'obj', 'stl', 'png'];
+export const EXPORT_FORMAT_ORDER: readonly ExportFormatId[] = [
+  'glb',
+  'json',
+  'obj',
+  'stl',
+  '3mf',
+  'png',
+];
 
 export interface ExportCapabilities {
   /** Mesh geometry (vertices/faces). */
@@ -136,6 +146,27 @@ export const EXPORT_FORMATS: Record<ExportFormatId, ExportFormatSpec> = {
     notes: [
       'Faqat mesh geometriyasi (ikkilik STL, millimetrda).',
       'Rang, material va tekstura SAQLANMAYDI. Sahna santimetrda saqlanadi; STL uchun 10× masshtab qo‘llanadi.',
+      'Manifold/ishlab chiqarishga tayyorligi kafolatlanmaydi (tekshirilmagan).',
+    ],
+  },
+  '3mf': {
+    id: '3mf',
+    label: '3MF (mm, faqat geometriya)',
+    extension: '3mf',
+    mimeType: 'model/3mf',
+    kind: 'file',
+    capabilities: {
+      geometry: true,
+      material: false,
+      textures: false,
+      transparency: false,
+      data: false,
+      render: false,
+    },
+    notes: [
+      'Haqiqiy 3MF paketi: [Content_Types].xml, _rels/.rels va 3D/3dmodel.model.',
+      'Koordinalar millimetrda (unit="millimeter"); sahna santimetrda saqlanadi, 10× konversiya bir marta.',
+      'Rang, material va tekstura YOZILMAYDI — faqat mesh geometriyasi.',
       'Manifold/ishlab chiqarishga tayyorligi kafolatlanmaydi (tekshirilmagan).',
     ],
   },

@@ -21,6 +21,7 @@ import { assertFiniteGeometry } from './geometryGuard';
 import { serializeSceneToJson } from './sceneJson';
 import { buildExportFilename } from './exportNaming';
 import { ExportError, type ExportArtifact, type ExportMetadata } from './exportTypes';
+import { buildThreeMf } from './threemf';
 
 /**
  * Load an OBJ/STL exporter on demand.
@@ -41,7 +42,7 @@ async function loadExporter<T>(load: () => Promise<T>, label: string): Promise<T
 }
 
 /** File formats produced by `exportSceneToFormat` (PNG is a render, not a file format here). */
-export const DATA_EXPORT_FORMATS: readonly ExportFormatId[] = ['glb', 'json', 'obj', 'stl'];
+export const DATA_EXPORT_FORMATS: readonly ExportFormatId[] = ['glb', 'json', 'obj', 'stl', '3mf'];
 
 /**
  * Remove OBJ material references so the export stays geometry-only by contract.
@@ -71,12 +72,18 @@ function addMillimetreScaleRoot(scene: THREE.Scene): void {
   scene.updateMatrixWorld(true);
 }
 
-function toBlob(data: string | ArrayBuffer | DataView, mimeType: string): Blob {
+function toBlob(
+  data: string | ArrayBuffer | DataView | Uint8Array<ArrayBuffer>,
+  mimeType: string,
+): Blob {
   if (typeof data === 'string') {
     return new Blob([data], { type: mimeType });
   }
   if (data instanceof DataView) {
     return new Blob([data.buffer as ArrayBuffer], { type: mimeType });
+  }
+  if (data instanceof Uint8Array) {
+    return new Blob([data], { type: mimeType });
   }
   return new Blob([data], { type: mimeType });
 }
@@ -94,6 +101,21 @@ export async function exportSceneToFormat(
   const spec = EXPORT_FORMATS[format];
   const filename = buildExportFilename(metadata, spec.extension);
 
+  // Print formats are a different deliverable from an interior scene: the room
+  // is never part of the printed piece. Omitted `includeRoom` therefore means
+  // false for STL/3MF, while GLB/OBJ keep their existing default (true).
+  // An explicit selected object also forces the room out: a product print export
+  // must not contain the customer's room.
+  const effectiveOptions: BuildExportOptions =
+    format === 'stl' || format === '3mf'
+      ? {
+          ...options,
+          includeRoom: options.onlyObjectId
+            ? false
+            : (options.includeRoom ?? false),
+        }
+      : options;
+
   switch (format) {
     case 'glb': {
       const buffer = await exportSceneToGlb(data, options);
@@ -106,7 +128,7 @@ export async function exportSceneToFormat(
       return { blob: toBlob(json, spec.mimeType), filename, mimeType: spec.mimeType };
     }
     case 'obj': {
-      const { scene, dispose } = buildExportScene(data, options);
+      const { scene, dispose } = buildExportScene(data, effectiveOptions);
       try {
         assertFiniteGeometry(scene);
         assertExportableScene(scene);
@@ -122,7 +144,7 @@ export async function exportSceneToFormat(
       }
     }
     case 'stl': {
-      const { scene, dispose } = buildExportScene(data, options);
+      const { scene, dispose } = buildExportScene(data, effectiveOptions);
       try {
         assertFiniteGeometry(scene);
         assertExportableScene(scene);
@@ -134,6 +156,19 @@ export async function exportSceneToFormat(
         );
         const stl = new STLExporter().parse(scene, { binary: true });
         return { blob: toBlob(stl, spec.mimeType), filename, mimeType: spec.mimeType };
+      } finally {
+        dispose();
+      }
+    }
+    case '3mf': {
+      const { scene, dispose } = buildExportScene(data, effectiveOptions);
+      try {
+        assertFiniteGeometry(scene);
+        assertExportableScene(scene);
+        // buildThreeMf converts centimetres to millimetres itself; adding the STL
+        // scale root here would apply the factor twice.
+        const bytes = buildThreeMf(scene, { title: metadata.name });
+        return { blob: toBlob(bytes, spec.mimeType), filename, mimeType: spec.mimeType };
       } finally {
         dispose();
       }
