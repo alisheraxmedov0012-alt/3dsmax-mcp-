@@ -10,6 +10,12 @@ import * as THREE from 'three';
 import { buildPbrMaterial } from '../../materials/buildMaterial';
 import type { MaterialSettingsInput } from '../../materials/types';
 import { applyPhysicalBoxUvs } from '../../materials/uv';
+import {
+  createGeometry,
+  GeometryKernelError,
+  type CreateGeometryOptions,
+  type GeometryRecipe,
+} from '../kernel';
 
 /**
  * Material settings a furniture builder accepts.
@@ -21,6 +27,27 @@ import { applyPhysicalBoxUvs } from '../../materials/uv';
  * default preset.
  */
 export type PartMaterialOptions = MaterialSettingsInput;
+
+/**
+ * Options for the new kernel path. `physical-box` keeps the legacy 50 cm tiling
+ * used by `box()`; every other recipe keeps its native UVs.
+ */
+export interface AddGeometryOptions extends CreateGeometryOptions {
+  readonly uv?: 'geometry' | 'physical-box';
+}
+
+/**
+ * True only for a box whose faces still have the 24-vertex layout expected by
+ * `applyPhysicalBoxUvs()`. A segmented box keeps its native UVs instead.
+ */
+function isUnsegmentedBox(recipe: GeometryRecipe): boolean {
+  return (
+    recipe.kind === 'box' &&
+    (recipe.widthSegments ?? 1) === 1 &&
+    (recipe.heightSegments ?? 1) === 1 &&
+    (recipe.depthSegments ?? 1) === 1
+  );
+}
 
 export interface BuiltFurniture {
   group: THREE.Group;
@@ -75,6 +102,67 @@ export class PartBuilder {
     ] as const;
     const geometry = new THREE.BoxGeometry(width, height, depth);
     applyPhysicalBoxUvs(geometry, [width, height, depth]);
+    return this.addMesh(partId, geometry, position, rotation);
+  }
+
+  /**
+   * Adds a part from a declarative geometry recipe.
+   *
+   * The legacy `box()` path above is unchanged. Box recipes default to the same
+   * physical UV tiling as `box()`; all other recipes keep the UVs produced by
+   * Three.js (or the planar fallback used by custom geometry).
+   */
+  addGeometry(
+    partId: string,
+    recipe: GeometryRecipe,
+    position: [number, number, number],
+    rotation?: [number, number, number],
+    options: AddGeometryOptions = {},
+  ): THREE.Mesh {
+    const { uv: requestedUv, ...geometryOptions } = options;
+    const uv =
+      requestedUv ??
+      (isUnsegmentedBox(recipe) ? 'physical-box' : 'geometry');
+
+    if (uv === 'physical-box') {
+      if (recipe.kind !== 'box') {
+        throw new GeometryKernelError(
+          'unsupported_recipe',
+          'physical-box UV faqat box recipe uchun qo‘llanadi.',
+        );
+      }
+      if (!isUnsegmentedBox(recipe)) {
+        throw new GeometryKernelError(
+          'unsupported_recipe',
+          'physical-box UV segmented box uchun qo‘llanmaydi; uv: "geometry" dan foydalaning.',
+        );
+      }
+    }
+
+    const geometry = createGeometry(recipe, geometryOptions);
+    if (uv === 'physical-box' && recipe.kind === 'box') {
+      const applied = applyPhysicalBoxUvs(geometry, [
+        recipe.width,
+        recipe.height,
+        recipe.depth,
+      ]);
+      if (!applied) {
+        geometry.dispose();
+        throw new GeometryKernelError(
+          'invalid_geometry',
+          'physical-box UV qo‘llanmadi; geometry disposal qilindi.',
+        );
+      }
+    }
+    return this.addMesh(partId, geometry, position, rotation);
+  }
+
+  private addMesh(
+    partId: string,
+    geometry: THREE.BufferGeometry,
+    position: [number, number, number],
+    rotation?: [number, number, number],
+  ): THREE.Mesh {
     this.geometries.push(geometry);
     const mesh = new THREE.Mesh(geometry, this.material);
     mesh.name = partId;
