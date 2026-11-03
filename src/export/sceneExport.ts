@@ -318,6 +318,41 @@ function addMetreScaleRoot(scene: THREE.Scene): void {
 }
 
 /**
+ * Serialise an already-built Three.js object group through the same GLB path
+ * used by scene export. The caller owns the group and its geometries.
+ */
+export async function exportGroupToGlb(root: THREE.Object3D): Promise<ArrayBuffer> {
+  const previousParent = root.parent;
+  const scene = new THREE.Scene();
+  scene.name = 'scene-export';
+  scene.add(root);
+  try {
+    return await exportRootToGlb(scene);
+  } finally {
+    if (previousParent) {
+      previousParent.add(root);
+    } else {
+      root.removeFromParent();
+    }
+  }
+}
+
+async function exportRootToGlb(scene: THREE.Scene): Promise<ArrayBuffer> {
+  assertFiniteGeometry(scene);
+  assertExportableScene(scene);
+  addMetreScaleRoot(scene);
+  const GltfExporter = await loadGltfExporter();
+  const exporter = new GltfExporter();
+  const result = await exporter.parseAsync(scene, { binary: true });
+
+  if (!(result instanceof ArrayBuffer)) {
+    throw new Error('GLB eksport natijasi kutilgan ikkilik formatda emas.');
+  }
+
+  return nameExportedMeshes(result);
+}
+
+/**
  * Serialises the whole scene to binary glTF (.glb) bytes using Three.js'
  * official GLTFExporter. No backend or external API is involved. The temporary
  * export scene is disposed afterwards.
@@ -332,18 +367,7 @@ export async function exportSceneToGlb(
   const { scene, dispose } = buildExportScene(data, options);
 
   try {
-    assertFiniteGeometry(scene);
-    assertExportableScene(scene);
-    addMetreScaleRoot(scene);
-    const GltfExporter = await loadGltfExporter();
-    const exporter = new GltfExporter();
-    const result = await exporter.parseAsync(scene, { binary: true });
-
-    if (!(result instanceof ArrayBuffer)) {
-      throw new Error('GLB eksport natijasi kutilgan ikkilik formatda emas.');
-    }
-
-    return nameExportedMeshes(result);
+    return await exportRootToGlb(scene);
   } finally {
     dispose();
   }
