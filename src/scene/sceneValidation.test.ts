@@ -13,8 +13,9 @@ import {
   SCENE_SCHEMA_VERSION,
   createFurnitureSceneObject,
   createTableSceneObject,
+  createUniversalSceneObject,
 } from './types';
-import { FURNITURE_TYPES, FURNITURE_TYPE_LABELS } from '../geometry/furniture';
+import { FURNITURE_TYPES, FURNITURE_TYPE_LABELS, createFurnitureParams } from '../geometry/furniture';
 
 describe('validateRoomConfig', () => {
   it('keeps valid dimensions', () => {
@@ -497,5 +498,51 @@ describe('C6 — hardware persistence', () => {
       hardware: [{ kind: 'screw', name: '', quantity: 12, unit: 'pcs', size: null }],
     };
     expect(validateSceneObject(stored)?.hardware).toBeUndefined();
+  });
+});
+
+describe('validateSceneObject - universal objects', () => {
+  it('derives the object type from the definition family', () => {
+    const object = createUniversalSceneObject('desk.computer', 'u1');
+    const validated = validateSceneObject({ ...object, type: 'chair' });
+
+    expect(validated).not.toBeNull();
+    expect(validated?.type).toBe('table');
+    expect(validated?.definitionId).toBe('desk.computer');
+    expect(validated?.spec).toEqual(object.spec);
+  });
+
+  it('restores family default params when the stored params are unusable', () => {
+    const object = createUniversalSceneObject('desk.computer', 'u1');
+    const validated = validateSceneObject({ ...object, params: { widthCm: 'wide' } });
+
+    expect(validated).not.toBeNull();
+    expect(validated?.params).toEqual(createFurnitureParams('table'));
+    expect(validated?.definitionId).toBe('desk.computer');
+    expect(validated?.spec).toEqual(object.spec);
+  });
+
+  it('stores the canonical spec when the stored spec is partial', () => {
+    const object = createUniversalSceneObject('desk.computer', 'u1');
+    const expected = createUniversalSceneObject('desk.computer', 'u1', { drawerEnabled: false });
+
+    const validated = validateSceneObject({ ...object, spec: { drawerEnabled: false } });
+
+    expect(validated?.spec).toEqual(expected.spec);
+    expect(validated?.definitionId).toBe('desk.computer');
+  });
+
+  it('leaves the stored shape of a legacy object untouched', () => {
+    const object = createTableSceneObject('t1');
+    const validated = validateSceneObject(object);
+
+    expect(validated).not.toBeNull();
+    expect(JSON.stringify(validated)).not.toContain('definitionId');
+    expect(JSON.stringify(validated)).not.toContain('"spec"');
+  });
+
+  it('keeps a valid universal object instead of dropping it', () => {
+    const object = createUniversalSceneObject('stand.tv', 'u1');
+    expect(validateSceneObject(object)).toEqual(object);
   });
 });

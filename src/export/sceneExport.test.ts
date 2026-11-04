@@ -10,12 +10,15 @@ import {
 import {
   createFurnitureSceneObject,
   createTableSceneObject,
+  createUniversalSceneObject,
   SCENE_SCHEMA_VERSION,
   type SceneData,
 } from '../scene/types';
 import { createDefaultSettings } from '../scene/sceneSettings';
 import { FURNITURE_TYPES } from '../geometry/furniture/types';
 import { inferDesignSpec, specToFurnitureParams } from '../image/referenceInference';
+import { exportSceneToFormat } from './sceneFileExport';
+import { summarizeGlb } from './glbSummary';
 
 /**
  * Node has no FileReader, which GLTFExporter uses to assemble the binary (.glb)
@@ -367,5 +370,34 @@ describe('A1 — visibility and naming diagnostics', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+describe('scene-level GLB export — universal furniture', () => {
+  it('exports a universal object through the production export path', async () => {
+    const object = createUniversalSceneObject('desk.computer', 'u-glb', { width: 170 });
+    const scene: SceneData = {
+      schemaVersion: SCENE_SCHEMA_VERSION,
+      room: { widthCm: 400, lengthCm: 500, heightCm: 280 },
+      objects: [object],
+      settings: createDefaultSettings(),
+    };
+
+    const artifact = await exportSceneToFormat(
+      'glb',
+      scene,
+      { name: 'Universal stol', furnitureType: 'table', units: 'cm' },
+      { includeRoom: false },
+    );
+
+    expect(artifact.filename.endsWith('.glb')).toBe(true);
+    expect(artifact.blob.size).toBeGreaterThan(0);
+
+    const summary = summarizeGlb(await artifact.blob.arrayBuffer());
+    expect(summary.ok).toBe(true);
+    if (!summary.ok) return;
+    expect(summary.summary.meshes).toBeGreaterThan(0);
+    expect(summary.summary.materials.length).toBeGreaterThan(0);
+    expect(summary.summary.triangles).toBeGreaterThan(0);
   });
 });

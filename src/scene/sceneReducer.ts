@@ -13,6 +13,7 @@ import { buildHardwareBom, type HardwareItem } from '../manufacturing/hardware';
 import { MAX_SHEET_MATERIALS_PER_OBJECT } from './types';
 import { PBR_LIMITS, type MaterialPresetId, type NumericRange } from '../materials/types';
 import { validateRoomConfig, validateSceneObject } from './sceneValidation';
+import { canonicalizeFurnitureSpec } from './configurator/canonicalSpec';
 import {
   nearestWall,
   placeAgainstWall,
@@ -33,6 +34,7 @@ import {
   MATERIAL_DEFAULTS,
   MATERIAL_LIMITS,
   MAX_ASSEMBLIES_PER_SCENE,
+  MAX_SPEC_HISTORY,
   OBJECT_NAME_MAX_LENGTH,
   OBJECT_LIMITS,
   ROOM_OBJECT_ID,
@@ -45,6 +47,10 @@ import {
   type SceneAssembly,
   type SceneData,
   type SceneObject,
+  type SceneSpec,
+  type SpecHistory,
+  type SpecHistoryEntry,
+  createUniversalSceneObject,
   type SceneState,
   type Vec3,
 } from './types';
@@ -68,6 +74,8 @@ export type SceneAction =
        */
       materialPresetId?: MaterialPresetId | null;
     }
+  | { type: 'UNDO_SPEC' }
+  | { type: 'REDO_SPEC' }
   | { type: 'SELECT'; id: string | null }
   | {
       type: 'UPDATE_TRANSFORM';
@@ -77,6 +85,23 @@ export type SceneAction =
       scale?: Partial<Vec3>;
     }
   | { type: 'RENAME_OBJECT'; id: string; name: string }
+  | {
+      type: 'ADD_UNIVERSAL_FURNITURE';
+      id: string;
+      definitionId: string;
+      /** Canonical spec produced by `updateFurnitureSpec`. */
+      spec: SceneSpec;
+    }
+  | {
+      type: 'UPDATE_SPEC';
+      id: string;
+      /**
+       * Canonical spec produced by `updateFurnitureSpec()`. The caller runs the
+       * full plan validation; the reducer never materialises geometry, so it only
+       * re-checks the structure and the definition parser here.
+       */
+      spec: SceneSpec;
+    }
   | { type: 'UPDATE_PARAMS'; id: string; params: FurnitureParams }
   | { type: 'UPDATE_MATERIAL'; id: string; material: Partial<ObjectMaterial> }
   | {
@@ -196,6 +221,11 @@ function mergeMaterial(base: ObjectMaterial, patch: Partial<ObjectMaterial>): Ob
 
 function withSettings(state: SceneState, settings: SceneSettings): SceneState {
   return { ...state, data: { ...state.data, schemaVersion: SCENE_SCHEMA_VERSION, settings } };
+}
+
+function pushHistory(history: SpecHistory | undefined, entry: SpecHistoryEntry): SpecHistory {
+  const past = [...(history?.past ?? []), entry];
+  return { past: past.slice(-MAX_SPEC_HISTORY), future: [] };
 }
 
 /**
@@ -350,8 +380,127 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
         };
       });
 
+    case 'ADD_UNIVERSAL_FURNITURE': {
+      if (state.data.objects.some((object) => object.id === action.id)) {
+        return state;
+      }
+
+      // Structure + parser only: the caller already ran the plan validation, and a
+      // reducer must not materialise geometry.
+      const canonical = canonicalizeFurnitureSpec(action.definitionId, action.spec);
+      if (!canonical.ok) {
+        return state;
+      }
+
+      const object = createUniversalSceneObject(
+        canonical.definitionId,
+        action.id,
+        canonical.spec,
+      );
+      return {
+        data: {
+          ...state.data,
+          schemaVersion: SCENE_SCHEMA_VERSION,
+          objects: [...state.data.objects, object],
+          settings: state.data.settings,
+        },
+        selectedId: object.id,
+      };
+    }
+
+    case 'UPDATE_SPEC': {
+      const object = findSceneObject(state, action.id);
+      // Only universal objects are spec-driven; legacy objects use UPDATE_PARAMS.
+      if (!object || object.definitionId === undefined || object.spec === undefined) {
+        return state;
+      }
+
+      // Light, geometry-free gate. The caller has already run the plan/budget
+      // validation in `updateFurnitureSpec()`; repeating it here would materialise
+      // geometry inside a state transition.
+      const canonical = canonicalizeFurnitureSpec(object.definitionId, action.spec);
+      if (!canonical.ok) {
+        return state;
+      }
+      if (JSON.stringify(canonical.spec) === JSON.stringify(object.spec)) {
+        return state;
+      }
+
+      const entry: SpecHistoryEntry = {
+        objectId: action.id,
+        before: object.spec,
+        after: canonical.spec,
+      };
+      return {
+        ...replaceObject(state, action.id, (current) => ({ ...current, spec: canonical.spec })),
+        history: pushHistory(state.history, entry),
+      };
+    }
+
+    case 'UNDO_SPEC': {
+      const past = state.history?.past ?? [];
+      if (past.length === 0) {
+        return state;
+      }
+
+      const entry = past[past.length - 1];
+      const object = state.data.objects.find((item) => item.id === entry.objectId);
+      if (!object) {
+        // The object is gone; keep the stack valid instead of resurrecting it.
+        return {
+          ...state,
+          history: { past: past.slice(0, -1), future: state.history?.future ?? [] },
+        };
+      }
+
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          objects: state.data.objects.map((item) =>
+            item.id === entry.objectId ? { ...item, spec: entry.before } : item,
+          ),
+        },
+        history: {
+          past: past.slice(0, -1),
+          future: [entry, ...(state.history?.future ?? [])].slice(0, MAX_SPEC_HISTORY),
+        },
+      };
+    }
+
+    case 'REDO_SPEC': {
+      const future = state.history?.future ?? [];
+      if (future.length === 0) {
+        return state;
+      }
+
+      const [entry, ...rest] = future;
+      const object = state.data.objects.find((item) => item.id === entry.objectId);
+      if (!object) {
+        return { ...state, history: { past: state.history?.past ?? [], future: rest } };
+      }
+
+      const past = [...(state.history?.past ?? []), entry].slice(-MAX_SPEC_HISTORY);
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          objects: state.data.objects.map((item) =>
+            item.id === entry.objectId ? { ...item, spec: entry.after } : item,
+          ),
+        },
+        history: { past, future: rest },
+      };
+    }
+
     case 'UPDATE_PARAMS':
       return replaceObject(state, action.id, (object) => {
+        // Universal objects are edited through UPDATE_SPEC: legacy params never
+        // drive their geometry, so accepting the write here would show a change
+        // the viewer never applies.
+        if (object.definitionId !== undefined) {
+          return object;
+        }
         // Re-validate against the object's own type so a wrong-type or invalid
         // parameter set can never replace a working model.
         const validated = validateFurnitureParams(object.type, action.params);
@@ -463,10 +612,19 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
       if (objects.length === state.data.objects.length) {
         return state;
       }
+      // Keep the undo stacks of other objects; only this object's entries go.
+      const history = state.history
+        ? {
+            past: state.history.past.filter((entry) => entry.objectId !== action.id),
+            future: state.history.future.filter((entry) => entry.objectId !== action.id),
+          }
+        : undefined;
+
       return {
         data: { ...state.data, objects },
         selectedId:
           state.selectedId === action.id ? (objects[0]?.id ?? ROOM_OBJECT_ID) : state.selectedId,
+        ...(history ? { history } : {}),
       };
     }
 

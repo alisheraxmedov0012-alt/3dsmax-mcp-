@@ -6,10 +6,15 @@ import {
 } from '../geometry/tableParams';
 import {
   FURNITURE_DEFAULT_NAMES,
+  createFurnitureParams,
   isFurnitureType,
   validateFurnitureParamsDetailed,
+  type FurnitureParams,
+  type FurnitureType,
   type ParamNormalization,
 } from '../geometry/furniture';
+import { getFurnitureDefinition } from '../geometry/universal/registry';
+import { checkSpecBuildable } from './configurator/buildability';
 import { validateSceneSettings } from './sceneSettings';
 import { MATERIAL_PRESET_IDS } from '../materials/presets';
 import { PBR_LIMITS } from '../materials/types';
@@ -24,6 +29,7 @@ import {
   MATERIAL_DEFAULTS,
   MATERIAL_LIMITS,
   MAX_ASSEMBLIES_PER_SCENE,
+  MAX_DEFINITION_ID_LENGTH,
   MAX_SHEET_MATERIALS_PER_OBJECT,
   MAX_OPENINGS_PER_ROOM,
   OBJECT_LIMITS,
@@ -35,6 +41,7 @@ import {
   SCENE_SCHEMA_VERSION,
   createTableSceneObject,
   isAssemblyKind,
+  normalizeSceneSpec,
   type NumericRange,
   type ObjectMaterial,
   type OpeningKind,
@@ -44,6 +51,7 @@ import {
   type SceneAssembly,
   type SceneData,
   type SceneObject,
+  type SceneSpec,
   type Vec3,
 } from './types';
 
@@ -275,6 +283,68 @@ export function validateSceneObject(value: unknown): SceneObject | null {
   return validateSceneObjectDetailed(value)?.object ?? null;
 }
 
+type UniversalObjectCheck =
+  | { readonly kind: 'legacy' }
+  | { readonly kind: 'invalid' }
+  | {
+      readonly kind: 'universal';
+      readonly definitionId: string;
+      readonly family: FurnitureType;
+      readonly label: string;
+      readonly spec: SceneSpec;
+    };
+
+/**
+ * Stage 3.0 — reads the universal fields of a stored object.
+ *
+ * `definitionId` and `spec` are a pair: absent together (legacy object) or
+ * present together (universal object). Anything else is `invalid` and the object
+ * is dropped by the caller. A universal object is only accepted when the
+ * definition exists and the spec produces a valid plan, so a persisted object can
+ * never reach the viewer with geometry that cannot be built.
+ */
+function checkUniversalObjectFields(value: Record<string, unknown>): UniversalObjectCheck {
+  const rawDefinitionId = value.definitionId;
+  const rawSpec = value.spec;
+  if (rawDefinitionId === undefined && rawSpec === undefined) {
+    return { kind: 'legacy' };
+  }
+  if (rawDefinitionId === undefined || rawSpec === undefined) {
+    return { kind: 'invalid' };
+  }
+  if (typeof rawDefinitionId !== 'string') {
+    return { kind: 'invalid' };
+  }
+
+  const definitionId = rawDefinitionId.trim();
+  if (definitionId === '' || definitionId.length > MAX_DEFINITION_ID_LENGTH) {
+    return { kind: 'invalid' };
+  }
+  const definition = getFurnitureDefinition(definitionId);
+  if (!definition) {
+    return { kind: 'invalid' };
+  }
+
+  const spec = normalizeSceneSpec(rawSpec);
+  if (!spec) {
+    return { kind: 'invalid' };
+  }
+  // Full pipeline (memoised with the configurator): parsing alone would let a
+  // spec that cannot be solved through.
+  const buildable = checkSpecBuildable(definition.id, spec);
+  if (!buildable.ok) {
+    return { kind: 'invalid' };
+  }
+
+  return {
+    kind: 'universal',
+    definitionId: definition.id,
+    family: definition.family,
+    label: definition.label,
+    spec: buildable.spec,
+  };
+}
+
 /**
  * Same as {@link validateSceneObject}, plus the list of parameter channels that
  * had to be rewritten. Used where the result is reported to the user.
@@ -291,21 +361,45 @@ function validateSceneObjectDetailed(
     return null;
   }
 
-  // Any known W2 furniture type is accepted; unknown types are dropped.
-  if (!isFurnitureType(value.type)) {
+  const universal = checkUniversalObjectFields(value);
+  if (universal.kind === 'invalid') {
     return null;
   }
 
-  const validated = validateFurnitureParamsDetailed(value.type, value.params);
-  if (!validated) {
-    return null;
+  let type: FurnitureType;
+  let params: FurnitureParams;
+  let nameFallback: string;
+  let normalized: string[] = [];
+
+  if (universal.kind === 'universal') {
+    // The definition owns the family, so a stale stored `type` cannot disagree
+    // with the geometry. `params` is only the legacy projection: a bad or
+    // missing value falls back to the family defaults instead of dropping a
+    // piece that is fully described by its spec.
+    type = universal.family;
+    params =
+      validateFurnitureParamsDetailed(type, value.params)?.params ?? createFurnitureParams(type);
+    nameFallback = universal.label;
+  } else {
+    // Any known W2 furniture type is accepted; unknown types are dropped.
+    if (!isFurnitureType(value.type)) {
+      return null;
+    }
+
+    const validated = validateFurnitureParamsDetailed(value.type, value.params);
+    if (!validated) {
+      return null;
+    }
+    type = value.type;
+    params = validated.params;
+    nameFallback = FURNITURE_DEFAULT_NAMES[type];
+    normalized = validated.normalized.map((entry: ParamNormalization) => entry.key);
   }
-  const params = validated.params;
 
   const object: SceneObject = {
     id: id.trim(),
-    type: value.type,
-    name: normalizeName(value.name, FURNITURE_DEFAULT_NAMES[value.type]),
+    type,
+    name: normalizeName(value.name, nameFallback),
     position: normalizeVec3(value.position, OBJECT_LIMITS.position.min, OBJECT_LIMITS.position.max),
     rotation: normalizeVec3(value.rotation, OBJECT_LIMITS.rotation.min, OBJECT_LIMITS.rotation.max),
     scale: normalizeVec3(value.scale, OBJECT_LIMITS.scale.min, OBJECT_LIMITS.scale.max),
@@ -318,12 +412,13 @@ function validateSceneObjectDetailed(
     // Invalid stored hardware is omitted rather than allowed to reach exports;
     // the package then reports the explicit "not specified" state.
     ...normalizeHardware(value.hardware),
+    // Omitted entirely for legacy objects so their stored JSON shape is unchanged.
+    ...(universal.kind === 'universal'
+      ? { definitionId: universal.definitionId, spec: universal.spec }
+      : {}),
   };
 
-  return {
-    object,
-    normalized: validated.normalized.map((entry: ParamNormalization) => entry.key),
-  };
+  return { object, normalized };
 }
 
 /**

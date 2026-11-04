@@ -10,7 +10,11 @@ import { analyzeMeshTopology } from './meshTopology';
 import { validatePrintReadiness } from './printValidation';
 import { analyzeObjectPrintReadiness, printFingerprint } from './printReadiness';
 import { resolvePrinterProfile } from './printerProfile';
-import { createFurnitureSceneObject, createTableSceneObject } from '../scene/types';
+import {
+  createFurnitureSceneObject,
+  createTableSceneObject,
+  createUniversalSceneObject,
+} from '../scene/types';
 
 function mesh(geometry: THREE.BufferGeometry): THREE.Mesh {
   const object = new THREE.Mesh(geometry);
@@ -390,5 +394,30 @@ describe('B3 — object readiness, units and staleness', () => {
       expect(report.totals.triangles, type).toBeGreaterThan(0);
       expect(report.exportable, type).toBe(true);
     }
+  });
+});
+
+describe('print fingerprint - universal objects', () => {
+  it('changes when the universal spec changes', () => {
+    const base = createUniversalSceneObject('desk.computer', 'u1');
+    const withoutDrawer = createUniversalSceneObject('desk.computer', 'u1', {
+      drawerEnabled: false,
+    });
+
+    expect(printFingerprint(withoutDrawer, null)).not.toBe(printFingerprint(base, null));
+  });
+});
+
+describe('print readiness - universal objects', () => {
+  it('analyses a universal object through the same build path', () => {
+    const object = createUniversalSceneObject('desk.computer', 'u-print', { width: 170 });
+
+    const report = analyzeObjectPrintReadiness(object, null);
+
+    expect(report.fingerprint).toBe(printFingerprint(object, null));
+    expect(report.checks.length).toBeGreaterThan(0);
+    expect(report.meshes.length).toBeGreaterThan(0);
+    expect(report.sizeMm).not.toBeNull();
+    expect(report.sizeMm?.x ?? 0).toBeGreaterThan(0);
   });
 });

@@ -9,6 +9,7 @@ import {
 import {
   createFurnitureSceneObject,
   createTableSceneObject,
+  createUniversalSceneObject,
   SCENE_SCHEMA_VERSION,
   type SceneData,
 } from '../scene/types';
@@ -189,5 +190,77 @@ describe('parseSceneJson rejects untrusted input', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.name).toBe('Import');
+  });
+});
+
+describe('universal objects in the JSON container', () => {
+  const UNIVERSAL_IDS = [
+    'desk.computer',
+    'desk.gaming',
+    'table.dining',
+    'desk.writing',
+    'chair.office',
+    'chair.dining',
+    'chair.armchair',
+    'chair.ergonomic',
+    'sofa.standard',
+    'cabinet.standard',
+    'bed.standard',
+    'kitchen.baseCabinet',
+    'stand.tv',
+  ] as const;
+
+  function mixedScene(): SceneData {
+    const scene = makeScene();
+    return {
+      ...scene,
+      objects: [
+        ...UNIVERSAL_IDS.map((definitionId, index) =>
+          createUniversalSceneObject(definitionId, `u${index}`),
+        ),
+        ...scene.objects,
+      ],
+    };
+  }
+
+  it('round-trips universal and legacy objects with their canonical spec', () => {
+    const scene = mixedScene();
+    const exportedAt = '2026-01-01T00:00:00.000Z';
+    const json = serializeSceneToJson(scene, META, exportedAt);
+
+    const result = parseSceneJson(json);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.droppedObjects).toBe(0);
+    expect(result.scene.objects).toEqual(scene.objects);
+    expect(result.scene.objects.filter((object) => object.definitionId !== undefined)).toHaveLength(
+      UNIVERSAL_IDS.length,
+    );
+
+    // Deterministic: a second save/load cycle keeps every object identical, so a
+    // spec does not drift (key order or values) between sessions.
+    const again = parseSceneJson(serializeSceneToJson(result.scene, META, exportedAt));
+    expect(again.ok).toBe(true);
+    if (!again.ok) return;
+    expect(again.scene.objects).toEqual(result.scene.objects);
+  });
+
+  it.each([
+    ['an unknown definition', { definitionId: 'desk.missing', spec: {} }],
+    ['fields without their partner', { definitionId: 'desk.computer' }],
+    ['a nested spec value', { definitionId: 'desk.computer', spec: { drawer: { on: true } } }],
+    ['a non-scalar spec value', { definitionId: 'desk.computer', spec: { width: [160] } }],
+    ['a spec the definition rejects', { definitionId: 'desk.computer', spec: { nope: 1 } }],
+  ])('drops an object with %s and keeps the rest of the scene', (_label, fields) => {
+    const doc = JSON.parse(serializeSceneToJson(makeScene(), META));
+    doc.scene.objects.push({ ...doc.scene.objects[0], id: 'broken', ...fields });
+
+    const result = parseSceneJson(JSON.stringify(doc));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.droppedObjects).toBe(1);
+    expect(result.scene.objects.map((object) => object.id)).toEqual(['t1', 'b1', 'w1']);
+    expect(result.scene.objects.every((object) => object.definitionId === undefined)).toBe(true);
   });
 });

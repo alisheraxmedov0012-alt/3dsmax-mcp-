@@ -21,6 +21,8 @@ export function printFingerprint(
 ): string {
   return JSON.stringify({
     type: object.type,
+    definitionId: object.definitionId ?? null,
+    spec: object.spec ?? null,
     params: object.params,
     position: object.position,
     rotation: object.rotation,

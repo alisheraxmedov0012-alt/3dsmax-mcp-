@@ -3,8 +3,12 @@ import { findSceneObject, sceneReducer } from './sceneReducer';
 import {
   MAX_ASSEMBLIES_PER_SCENE,
   type SceneAssembly,
+  type SceneState,
   createDefaultSceneState,
+  createFurnitureSceneObject,
   createTableSceneObject,
+  createUniversalSceneObject,
+  MAX_SPEC_HISTORY,
   ROOM_DEFAULTS,
   ROOM_LIMITS,
   ROOM_OBJECT_ID,
@@ -12,6 +16,8 @@ import {
 import { createLayoutObjects } from './layoutPresets';
 import { createDefaultSettings } from './sceneSettings';
 import { buildTable } from '../geometry/buildTable';
+import { registerFurnitureDefinition } from '../geometry/universal';
+import { getFurnitureParameters, updateFurnitureSpec } from './configurator';
 
 function initialState() {
   let counter = 0;
@@ -854,5 +860,409 @@ describe('C6 — SET_HARDWARE', () => {
 
     const cleared = sceneReducer(next, { type: 'SET_HARDWARE', id, hardware: [] });
     expect(findSceneObject(cleared, id)?.hardware).toBeUndefined();
+  });
+});
+
+describe('sceneReducer - universal objects', () => {
+  it('ignores UPDATE_PARAMS so the spec stays the only source of geometry', () => {
+    const object = createUniversalSceneObject('desk.computer', 'u1');
+    const base = createDefaultSceneState(() => 'x');
+    const state = { data: { ...base.data, objects: [object] }, selectedId: object.id };
+
+    const next = sceneReducer(state, {
+      type: 'UPDATE_PARAMS',
+      id: object.id,
+      params: { widthCm: 200, heightCm: 75, depthCm: 60, color: '#ffffff' },
+    });
+
+    expect(next.data.objects[0]).toBe(object);
+    expect(next.data.objects[0].definitionId).toBe('desk.computer');
+    expect(next.data.objects[0].spec).toEqual(object.spec);
+  });
+});
+
+describe('sceneReducer - UPDATE_SPEC', () => {
+  function universalState() {
+    const object = createUniversalSceneObject('desk.computer', 'u1');
+    const base = createDefaultSceneState(() => 'x');
+    return { state: { data: { ...base.data, objects: [object] }, selectedId: object.id }, object };
+  }
+
+  function canonicalSpec(definitionId: string, spec: unknown, patch: unknown) {
+    const result = updateFurnitureSpec(definitionId, spec, patch);
+    if (!result.ok) {
+      throw new Error(`unexpected configurator failure: ${JSON.stringify(result.issues)}`);
+    }
+    return result.spec;
+  }
+
+  it('applies a canonical spec produced by the configurator', () => {
+    const { state, object } = universalState();
+    if (!object.spec) throw new Error('missing spec');
+    const spec = canonicalSpec('desk.computer', object.spec, { drawerEnabled: false });
+
+    const next = sceneReducer(state, { type: 'UPDATE_SPEC', id: 'u1', spec });
+
+    expect(next).not.toBe(state);
+    const updated = next.data.objects[0];
+    expect(updated).not.toBe(object);
+    expect(updated.definitionId).toBe('desk.computer');
+    expect(updated.spec?.drawerEnabled).toBe(false);
+    expect(updated.spec?.width).toBe(160);
+    expect(updated.params).toBe(object.params);
+    expect(updated.material).toBe(object.material);
+    expect(updated.position).toEqual(object.position);
+    // The previous state keeps its own spec (immutable update).
+    expect(object.spec?.drawerEnabled).toBe(true);
+  });
+
+  it('rejects a spec the definition parser refuses', () => {
+    const { state } = universalState();
+
+    // Too narrow for the legs, an undeclared channel, and a string where a number
+    // is required: all three are refused by parseSpec, so no state transition.
+    const conflicts = sceneReducer(state, {
+      type: 'UPDATE_SPEC',
+      id: 'u1',
+      spec: { width: 10 },
+    });
+    const unknown = sceneReducer(state, { type: 'UPDATE_SPEC', id: 'u1', spec: { nope: 1 } });
+    const wrongType = sceneReducer(state, {
+      type: 'UPDATE_SPEC',
+      id: 'u1',
+      spec: { width: 'wide' },
+    });
+
+    expect(conflicts).toBe(state);
+    expect(unknown).toBe(state);
+    expect(wrongType).toBe(state);
+  });
+
+  it('reports no change when the canonical spec is already stored', () => {
+    const { state, object } = universalState();
+    if (!object.spec) throw new Error('missing spec');
+    const spec = canonicalSpec('desk.computer', object.spec, {});
+
+    expect(sceneReducer(state, { type: 'UPDATE_SPEC', id: 'u1', spec })).toBe(state);
+  });
+
+  it('ignores UPDATE_SPEC for legacy objects and unknown ids', () => {
+    const legacy = createFurnitureSceneObject('table', 't1');
+    const base = createDefaultSceneState(() => 'x');
+    const state = { data: { ...base.data, objects: [legacy] }, selectedId: legacy.id };
+    const spec = { width: 120 };
+
+    expect(sceneReducer(state, { type: 'UPDATE_SPEC', id: 't1', spec })).toBe(state);
+    expect(sceneReducer(state, { type: 'UPDATE_SPEC', id: 'missing', spec })).toBe(state);
+  });
+
+  it('ignores objects with an unknown definition or partial universal fields', () => {
+    const object = createUniversalSceneObject('desk.computer', 'u1');
+    if (!object.spec) throw new Error('missing spec');
+    const base = createDefaultSceneState(() => 'x');
+
+    const unknownDefinition = { ...object, definitionId: 'desk.missing' };
+    const unknownState = {
+      data: { ...base.data, objects: [unknownDefinition] },
+      selectedId: object.id,
+    };
+    expect(sceneReducer(unknownState, { type: 'UPDATE_SPEC', id: 'u1', spec: object.spec })).toBe(
+      unknownState,
+    );
+
+    const partialFields = { ...object };
+    delete partialFields.spec;
+    const partialState = { data: { ...base.data, objects: [partialFields] }, selectedId: object.id };
+    expect(sceneReducer(partialState, { type: 'UPDATE_SPEC', id: 'u1', spec: object.spec })).toBe(
+      partialState,
+    );
+  });
+
+  it('keeps the UPDATE_PARAMS guard after a spec edit', () => {
+    const { state, object } = universalState();
+    if (!object.spec) throw new Error('missing spec');
+    const spec = canonicalSpec('desk.computer', object.spec, { drawerEnabled: false });
+    const edited = sceneReducer(state, { type: 'UPDATE_SPEC', id: 'u1', spec });
+
+    const next = sceneReducer(edited, {
+      type: 'UPDATE_PARAMS',
+      id: 'u1',
+      params: { widthCm: 200, heightCm: 75, depthCm: 60, color: '#ffffff' },
+    });
+
+    // The object (and therefore its spec) is untouched; the reducer may still hand
+    // back a new state wrapper, exactly like the Stage 3.0 guard did.
+    expect(next.data.objects[0]).toBe(edited.data.objects[0]);
+    expect(next.data.objects[0].params.widthCm).toBe(edited.data.objects[0].params.widthCm);
+  });
+
+  it('never runs the plan pipeline: a spec the solver would reject is accepted', () => {
+    // This definition's solver throws, so any plan validation inside the reducer
+    // would surface here. The reducer only checks structure + parseSpec.
+    registerFurnitureDefinition({
+      id: 'test.reducerTrust',
+      version: 1,
+      family: 'table',
+      label: 'Test (reducer trust)',
+      fields: [{ key: 'width', label: 'Kenglik (sm)', kind: 'number' }],
+      defaults: { width: 100 },
+      slots: [
+        {
+          id: 'body',
+          label: 'Korpus',
+          color: '#a9744f',
+          materialId: 'wood-oak',
+          groupName: 'trust-body',
+        },
+      ],
+      limits: { maxParts: 4, maxPartVertices: 4096, maxPartTriangles: 4096, maxTotalVertices: 8192 },
+      parseSpec: (input) => {
+        if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+          return { ok: false, errors: ['Spec obyekt bo‘lishi kerak.'] };
+        }
+        const width = (input as Record<string, unknown>).width;
+        if (typeof width !== 'number' || !Number.isFinite(width) || width <= 0) {
+          return { ok: false, errors: ['width: musbat son bo‘lishi kerak.'] };
+        }
+        return { ok: true, spec: { width } };
+      },
+      solve: () => {
+        throw new Error('plan pipeline reducer ichida ishlamasligi kerak.');
+      },
+    });
+
+    const object = createUniversalSceneObject('test.reducerTrust', 'r1');
+    const base = createDefaultSceneState(() => 'x');
+    const state = { data: { ...base.data, objects: [object] }, selectedId: object.id };
+    if (!object.spec) throw new Error('missing spec');
+
+    const next = sceneReducer(state, {
+      type: 'UPDATE_SPEC',
+      id: 'r1',
+      spec: { ...object.spec, width: 120 },
+    });
+
+    expect(next).not.toBe(state);
+    expect(next.data.objects[0].spec?.width).toBe(120);
+  });
+});
+
+describe('sceneReducer - ADD_UNIVERSAL_FURNITURE', () => {
+  function defaultsOf(definitionId: string) {
+    const parameters = getFurnitureParameters(definitionId);
+    if (!parameters) throw new Error(`no parameters for ${definitionId}`);
+    return parameters.defaults;
+  }
+
+  it('adds a canonical universal object and selects it', () => {
+    const base = createDefaultSceneState(() => 'x');
+    const validated = updateFurnitureSpec('desk.computer', defaultsOf('desk.computer'), {
+      width: 150,
+    });
+    expect(validated.ok).toBe(true);
+    if (!validated.ok) return;
+
+    const next = sceneReducer(base, {
+      type: 'ADD_UNIVERSAL_FURNITURE',
+      id: 'new-1',
+      definitionId: 'desk.computer',
+      spec: validated.spec,
+    });
+
+    expect(next.data.objects).toHaveLength(2);
+    expect(next.selectedId).toBe('new-1');
+    const added = next.data.objects[1];
+    expect(added.definitionId).toBe('desk.computer');
+    expect(added.spec?.width).toBe(150);
+    expect(added.type).toBe('table');
+    // Legacy projection only; the spec drives the geometry.
+    expect(added.params.widthCm).toBe(120);
+  });
+
+  it('ignores an invalid spec and a duplicate id', () => {
+    const base = createDefaultSceneState(() => 'x');
+
+    expect(
+      sceneReducer(base, {
+        type: 'ADD_UNIVERSAL_FURNITURE',
+        id: 'bad',
+        definitionId: 'desk.computer',
+        spec: { width: 10 },
+      }),
+    ).toBe(base);
+
+    expect(
+      sceneReducer(base, {
+        type: 'ADD_UNIVERSAL_FURNITURE',
+        id: base.data.objects[0].id,
+        definitionId: 'desk.computer',
+        spec: defaultsOf('desk.computer'),
+      }),
+    ).toBe(base);
+  });
+
+  it('ignores an unknown definition without touching the state', () => {
+    const base = createDefaultSceneState(() => 'x');
+
+    expect(
+      sceneReducer(base, {
+        type: 'ADD_UNIVERSAL_FURNITURE',
+        id: 'n1',
+        definitionId: 'desk.missing',
+        spec: { width: 160 },
+      }),
+    ).toBe(base);
+  });
+
+  it('never runs the plan pipeline while adding', () => {
+    // This definition's solver throws, so any plan validation inside the reducer
+    // would surface here.
+    registerFurnitureDefinition({
+      id: 'test.addTrust',
+      version: 1,
+      family: 'table',
+      label: 'Test (add trust)',
+      fields: [{ key: 'width', label: 'Kenglik (sm)', kind: 'number' }],
+      defaults: { width: 100 },
+      slots: [
+        {
+          id: 'body',
+          label: 'Korpus',
+          color: '#a9744f',
+          materialId: 'wood-oak',
+          groupName: 'add-body',
+        },
+      ],
+      limits: { maxParts: 4, maxPartVertices: 4096, maxPartTriangles: 4096, maxTotalVertices: 8192 },
+      parseSpec: (input) => {
+        if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+          return { ok: false, errors: ['Spec obyekt bo‘lishi kerak.'] };
+        }
+        const width = (input as Record<string, unknown>).width;
+        if (typeof width !== 'number' || !Number.isFinite(width) || width <= 0) {
+          return { ok: false, errors: ['width: musbat son bo‘lishi kerak.'] };
+        }
+        return { ok: true, spec: { width } };
+      },
+      solve: () => {
+        throw new Error('plan pipeline reducer ichida ishlamasligi kerak.');
+      },
+    });
+
+    const base = createDefaultSceneState(() => 'x');
+    const next = sceneReducer(base, {
+      type: 'ADD_UNIVERSAL_FURNITURE',
+      id: 'trust-1',
+      definitionId: 'test.addTrust',
+      spec: { width: 120 },
+    });
+
+    expect(next.data.objects).toHaveLength(2);
+    expect(next.data.objects[1].spec?.width).toBe(120);
+  });
+});
+
+describe('sceneReducer - spec history (undo/redo)', () => {
+  function deskState(): SceneState {
+    const object = createUniversalSceneObject('desk.computer', 'u1');
+    const base = createDefaultSceneState(() => 'x');
+    return { ...base, data: { ...base.data, objects: [object] }, selectedId: object.id };
+  }
+
+  function apply(state: SceneState, patch: Record<string, number | boolean>) {
+    const object = state.data.objects[0];
+    if (!object.definitionId || !object.spec) throw new Error('not universal');
+    const result = updateFurnitureSpec(object.definitionId, object.spec, patch);
+    if (!result.ok) throw new Error(JSON.stringify(result.issues));
+    return sceneReducer(state, { type: 'UPDATE_SPEC', id: object.id, spec: result.spec });
+  }
+
+  it('undoes and redoes an applied edit', () => {
+    const base = deskState();
+    const edited = apply(base, { width: 180 });
+    expect(edited.data.objects[0].spec?.width).toBe(180);
+    expect(edited.history?.past).toHaveLength(1);
+    expect(edited.history?.future).toHaveLength(0);
+
+    const undone = sceneReducer(edited, { type: 'UNDO_SPEC' });
+    expect(undone.data.objects[0].spec?.width).toBe(160);
+    expect(undone.history?.past).toHaveLength(0);
+    expect(undone.history?.future).toHaveLength(1);
+
+    const redone = sceneReducer(undone, { type: 'REDO_SPEC' });
+    expect(redone.data.objects[0].spec?.width).toBe(180);
+    expect(redone.history?.past).toHaveLength(1);
+    expect(redone.history?.future).toHaveLength(0);
+  });
+
+  it('walks a sequence of edits in both directions', () => {
+    const base = deskState();
+    const first = apply(base, { width: 170 });
+    const second = apply(first, { width: 180 });
+    const third = apply(second, { depth: 90 });
+    expect(third.data.objects[0].spec?.width).toBe(180);
+    expect(third.data.objects[0].spec?.depth).toBe(90);
+
+    const back1 = sceneReducer(third, { type: 'UNDO_SPEC' });
+    expect(back1.data.objects[0].spec?.depth).toBe(80);
+    expect(back1.data.objects[0].spec?.width).toBe(180);
+
+    const back2 = sceneReducer(back1, { type: 'UNDO_SPEC' });
+    expect(back2.data.objects[0].spec?.width).toBe(170);
+
+    const forward = sceneReducer(back2, { type: 'REDO_SPEC' });
+    expect(forward.data.objects[0].spec?.width).toBe(180);
+    expect(forward.data.objects[0].spec?.depth).toBe(80);
+  });
+
+  it('caps the history and does not record duplicates', () => {
+    let state = deskState();
+    for (let index = 0; index < MAX_SPEC_HISTORY + 5; index += 1) {
+      state = apply(state, { width: 100 + index });
+    }
+    expect(state.history?.past).toHaveLength(MAX_SPEC_HISTORY);
+
+    const before = state.history?.past.length;
+    const object = state.data.objects[0];
+    const duplicate = sceneReducer(state, {
+      type: 'UPDATE_SPEC',
+      id: object.id,
+      spec: object.spec as NonNullable<typeof object.spec>,
+    });
+    expect(duplicate).toBe(state);
+    expect(duplicate.history?.past).toHaveLength(before ?? 0);
+  });
+
+  it('does not record a preview or a rejected edit', () => {
+    const base = deskState();
+    const object = base.data.objects[0];
+    if (!object.definitionId || !object.spec) throw new Error('not universal');
+
+    // A preview is computed but never dispatched.
+    const proposal = updateFurnitureSpec(object.definitionId, object.spec, { width: 180 });
+    expect(proposal.ok).toBe(true);
+    expect(base.history).toBeUndefined();
+    expect(sceneReducer(base, { type: 'UNDO_SPEC' })).toBe(base);
+
+    // A rejected spec never reaches the history either.
+    expect(
+      sceneReducer(base, { type: 'UPDATE_SPEC', id: object.id, spec: { width: 10 } }),
+    ).toBe(base);
+    expect(base.history).toBeUndefined();
+  });
+
+  it('drops history entries whose object no longer exists', () => {
+    const base = deskState();
+    const edited = apply(base, { width: 180 });
+    const deleted = sceneReducer(edited, { type: 'DELETE_OBJECT', id: 'u1' });
+    expect(deleted.data.objects).toHaveLength(0);
+    expect(deleted.history?.past ?? []).toHaveLength(0);
+
+    // Even a stale entry (e.g. from a scene load that replaced the objects) is
+    // dropped instead of resurrecting the object.
+    const stale = { ...edited, data: { ...edited.data, objects: [] } };
+    const undone = sceneReducer(stale, { type: 'UNDO_SPEC' });
+    expect(undone.data.objects).toHaveLength(0);
+    expect(undone.history?.past ?? []).toHaveLength(0);
   });
 });

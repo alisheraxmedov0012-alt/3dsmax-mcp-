@@ -1,7 +1,11 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { buildRoom } from '../geometry/buildRoom';
-import { applyObjectTransform, buildSceneObject } from '../scene/buildSceneObject';
+import {
+  applyObjectTransform,
+  buildSceneObject,
+  sceneObjectBuildKey,
+} from '../scene/buildSceneObject';
 import { ROOM_OBJECT_ID, type SceneData } from '../scene/types';
 import type { CameraPreset, SceneSettings } from '../scene/sceneSettings';
 import { computePresetFraming, computeRoomFraming } from './cameraFraming';
@@ -181,7 +185,7 @@ export class SceneViewer {
     }
 
     for (const object of data.objects) {
-      const paramsKey = JSON.stringify([object.params, object.material]);
+      const paramsKey = sceneObjectBuildKey(object);
       const existing = this.objects.get(object.id);
 
       if (!existing) {

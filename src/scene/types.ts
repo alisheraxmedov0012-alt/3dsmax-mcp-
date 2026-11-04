@@ -8,6 +8,8 @@ import {
 import type { MaterialPresetId } from '../materials/types';
 import type { SheetMaterialEntry } from '../manufacturing/sheetMaterial';
 import type { HardwareItem } from '../manufacturing/hardware';
+import { requireFurnitureDefinition } from '../geometry/universal/registry';
+import { FurniturePlanError } from '../geometry/universal/types';
 import { createDefaultSettings, type SceneSettings } from './sceneSettings';
 
 /**
@@ -127,6 +129,62 @@ export interface RoomConfig {
   openings?: RoomOpening[];
 }
 
+/** A JSON scalar stored inside a universal furniture spec. */
+export type SceneSpecValue = string | number | boolean;
+
+/** Stage 3.0: a flat, serializable furniture spec (no nested objects). */
+export type SceneSpec = Readonly<Record<string, SceneSpecValue>>;
+
+export const MAX_DEFINITION_ID_LENGTH = 64;
+export const MAX_SPEC_KEYS = 64;
+export const MAX_SPEC_KEY_LENGTH = 64;
+export const MAX_SPEC_STRING_LENGTH = 120;
+
+/**
+ * Structural normalizer for untrusted spec input.
+ *
+ * A spec is stored in the scene JSON and re-parsed by its definition on load, so
+ * it must be plain JSON scalars: no nested objects/arrays, no NaN/Infinity, no
+ * unknown prototypes. The definition itself remains the only thing that decides
+ * whether the *values* make a buildable piece (`parseSpec`), this only bounds the
+ * shape so a corrupt payload cannot reach it. Returns null instead of throwing.
+ */
+export function normalizeSceneSpec(value: unknown): SceneSpec | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record);
+  if (keys.length > MAX_SPEC_KEYS) {
+    return null;
+  }
+
+  const spec: Record<string, SceneSpecValue> = {};
+  for (const key of keys) {
+    if (key.trim() === '' || key.length > MAX_SPEC_KEY_LENGTH) {
+      return null;
+    }
+    const raw = record[key];
+    if (typeof raw === 'boolean') {
+      spec[key] = raw;
+      continue;
+    }
+    if (typeof raw === 'string') {
+      if (raw.length > MAX_SPEC_STRING_LENGTH) {
+        return null;
+      }
+      spec[key] = raw;
+      continue;
+    }
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+      spec[key] = raw;
+      continue;
+    }
+    return null;
+  }
+  return spec;
+}
+
 export interface SceneObject {
   id: string;
   type: SceneObjectType;
@@ -137,7 +195,10 @@ export interface SceneObject {
   scale: Vec3;
   visible: boolean;
   params: FurnitureParams;
-  /** PBR material overrides (metalness/roughness). Base colour is `params.color`. */
+  /**
+   * PBR material overrides (metalness/roughness). Base colour is `params.color` for
+   * legacy objects and the definition slot colour for universal ones.
+   */
   material: ObjectMaterial;
   /**
    * C3 board material per part group (what the piece is *made of*), independent
@@ -150,6 +211,15 @@ export interface SceneObject {
    * unchanged; absent/empty means the explicit "not specified" state.
    */
   hardware?: HardwareItem[];
+  /**
+   * Stage 3.0: universal definition id (e.g. `desk.computer`). Set together with
+   * `spec` or not at all. When set, the geometry is built from the definition and
+   * `params` is only the legacy projection (read by the legacy panels) — it does
+   * not drive this object's geometry.
+   */
+  definitionId?: string;
+  /** Stage 3.0: validated, canonical spec for `definitionId`. */
+  spec?: SceneSpec;
 }
 
 export interface ObjectMaterial {
@@ -185,10 +255,33 @@ export interface SceneData {
   assemblies?: SceneAssembly[];
 }
 
-/** Runtime scene state: persisted data plus transient selection. */
+/**
+ * Stage 3.4 — one applied spec change, as the history stack records it.
+ *
+ * Only applied changes are stored (a preview or a rejected edit never is), and
+ * both sides are canonical specs, so undo/redo restores an exact configuration
+ * instead of re-deriving one.
+ */
+export interface SpecHistoryEntry {
+  readonly objectId: string;
+  readonly before: SceneSpec;
+  readonly after: SceneSpec;
+}
+
+export interface SpecHistory {
+  readonly past: readonly SpecHistoryEntry[];
+  readonly future: readonly SpecHistoryEntry[];
+}
+
+/** Bounded so a long editing session cannot grow without limit. */
+export const MAX_SPEC_HISTORY = 50;
+
+/** Runtime scene state: persisted data plus transient selection and history. */
 export interface SceneState {
   data: SceneData;
   selectedId: string | null;
+  /** Undo/redo stack for spec edits; runtime-only, never serialized. */
+  history?: SpecHistory;
 }
 
 export const SCENE_SCHEMA_VERSION = 3;
@@ -267,6 +360,44 @@ export function createFurnitureSceneObject(
     material: { ...MATERIAL_DEFAULTS },
     ...overrides,
   };
+}
+
+/**
+ * Stage 3.0 — creates a scene object driven by a universal definition.
+ *
+ * `spec` is parsed (and canonicalised) by the definition, so the stored object
+ * always carries a complete, validated spec; an invalid or partial input throws
+ * instead of producing an object that cannot be built. `params` stays the family
+ * default projection for the legacy panels and never overrides the spec.
+ *
+ * The definition registry is populated by the scene pipeline (validation and the
+ * builder import the plan module), so an unknown id here means genuinely unknown,
+ * not "not loaded yet".
+ */
+export function createUniversalSceneObject(
+  definitionId: string,
+  id: string,
+  spec: unknown = undefined,
+  overrides: Partial<Omit<SceneObject, 'id' | 'type'>> = {},
+): SceneObject {
+  const definition = requireFurnitureDefinition(definitionId);
+  const parsed = definition.parseSpec(spec === undefined ? definition.defaults : spec);
+  if (!parsed.ok) {
+    throw new FurniturePlanError('invalid_spec', parsed.errors.join(' '));
+  }
+  const canonical = normalizeSceneSpec(parsed.spec);
+  if (!canonical) {
+    throw new FurniturePlanError(
+      'invalid_spec',
+      `"${definitionId}": spec canonical shaklga keltirilmadi.`,
+    );
+  }
+
+  const object = createFurnitureSceneObject(definition.family, id, {
+    name: definition.label,
+    ...overrides,
+  });
+  return { ...object, definitionId: definition.id, spec: canonical };
 }
 
 /** Default scene: a room with a single table standing at its centre. */
