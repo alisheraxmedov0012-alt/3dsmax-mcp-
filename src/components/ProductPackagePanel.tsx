@@ -65,6 +65,11 @@ interface ProductPackagePanelProps {
    * without previews and the readiness report says so.
    */
   onCaptureProductPreviews?: () => Promise<Array<{ name: string; bytes: Uint8Array }> | null>;
+  /**
+   * Set while an unapplied AI preview is on screen: image captures are blocked
+   * and this message explains why.
+   */
+  captureBlockedReason?: string;
   /** Saves a material assignment; reused from C3.1. */
   onAssignSheetMaterial?: (
     partId: string,
@@ -100,6 +105,7 @@ export function ProductPackagePanel({
   scene,
   projectName,
   cuttingPlan,
+  captureBlockedReason,
   onCapturePreview,
   onCaptureProductPreviews,
 }: ProductPackagePanelProps) {
@@ -155,7 +161,7 @@ export function ProductPackagePanel({
       // Take the shots first: the package builder needs the bytes, and a capture
       // failure must be visible rather than silently producing a text-only bundle.
       let previews: Array<{ name: string; bytes: Uint8Array }> | null = null;
-      if (onCaptureProductPreviews) {
+      if (onCaptureProductPreviews && !captureBlockedReason) {
         try {
           previews = await onCaptureProductPreviews();
         } catch (captureError) {
@@ -268,6 +274,10 @@ export function ProductPackagePanel({
     if (!onCapturePreview) {
       return;
     }
+    if (captureBlockedReason) {
+      setError(captureBlockedReason);
+      return;
+    }
     setError('');
     try {
       const blob = await onCapturePreview(PREVIEW_PRESET);
@@ -290,6 +300,10 @@ export function ProductPackagePanel({
   /** Build the A4 marketplace archive: model, previews, metadata, checksums. */
   const handleAssetDownload = async () => {
     if (assetBusy) {
+      return;
+    }
+    if (captureBlockedReason) {
+      setAssetError(captureBlockedReason);
       return;
     }
     setAssetBusy(true);

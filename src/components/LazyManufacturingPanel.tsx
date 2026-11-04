@@ -36,6 +36,7 @@ interface LazyManufacturingPanelProps {
   onAssignSheetMaterial?: (partId: string, materialId: SheetMaterialId, thicknessMm: number) => void;
   onRemoveSheetMaterial?: (partId: string) => void;
   onUpdateHardware?: (hardware: HardwareItem[]) => void;
+  captureBlockedReason?: string;
   onCapturePreview?: (preset: PngPreset) => Promise<Blob | null>;
   /** A2.2: multi-angle product shots for the ZIP, or null when unavailable. */
   onCaptureProductPreviews?: () => Promise<Array<{ name: string; bytes: Uint8Array }> | null>;

@@ -11,6 +11,10 @@ import { ExportControls, type ExportStatus } from './components/ExportControls';
 import { LightingPanel } from './components/LightingPanel';
 import { MaterialPanel } from './components/MaterialPanel';
 import { LazyManufacturingPanel } from './components/LazyManufacturingPanel';
+import { AiBudgetPanel } from './components/AiBudgetPanel';
+import { AiEditPanel } from './components/AiEditPanel';
+import { AiFurniturePanel } from './components/AiFurniturePanel';
+import { ConfiguratorPanel } from './components/ConfiguratorPanel';
 import { ObjectPanel } from './components/ObjectPanel';
 import { ProjectsPanel, type ProjectsStatus } from './components/ProjectsPanel';
 import { RenderExportPanel, type RenderStatus } from './components/RenderExportPanel';
@@ -50,6 +54,12 @@ import {
   type LayoutPresetId,
 } from './scene/layoutPresets';
 import { findPlacementIssues, type WallId } from './scene/placement';
+import {
+  isPreviewApplicable,
+  previewCaptureBlockReason,
+  previewScene,
+  type SpecPreview,
+} from './scene/preview';
 import { specToFurnitureParams } from './image/referenceInference';
 import type { DesignSpec } from './image/designSpec';
 import type { CameraPreset, LightSettings, RoomMaterialSettings } from './scene/sceneSettings';
@@ -61,6 +71,7 @@ import {
   type SceneAssembly,
   type OpeningKind,
   type RoomConfig,
+  type SceneSpec,
   type Vec3,
 } from './scene/types';
 import type { SceneViewer } from './viewer/SceneViewer';
@@ -119,6 +130,14 @@ export default function App() {
   };
 
   const selectedObject = findSceneObject(scene, scene.selectedId);
+  const [specPreview, setSpecPreview] = useState<SpecPreview | null>(null);
+  // A preview is only shown while it still belongs to the selected object and was
+  // computed from its current spec.
+  const activePreview = isPreviewApplicable(specPreview, selectedObject) ? specPreview : null;
+  const viewScene = useMemo(
+    () => (activePreview ? previewScene(scene.data, activePreview) : scene.data),
+    [scene.data, activePreview],
+  );
   const parsed = useMemo(
     () => (selectedObject ? parseFurnitureValues(selectedObject.type, values) : null),
     [selectedObject, values],
@@ -184,6 +203,10 @@ export default function App() {
   };
 
   useEffect(() => {
+    setSpecPreview(null);
+  }, [scene.selectedId]);
+
+  useEffect(() => {
     void refreshProjects();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -198,6 +221,39 @@ export default function App() {
     if (result.valid && result.params) {
       dispatch({ type: 'UPDATE_PARAMS', id: selectedObject.id, params: result.params });
     }
+  };
+
+  /**
+   * Stage 3.2: the configurator validates a patch through `updateFurnitureSpec`
+   * and hands over the canonical spec; the reducer only accepts that spec.
+   */
+  const handleSpecUpdate = (spec: SceneSpec) => {
+    if (selectedObject) {
+      dispatch({ type: 'UPDATE_SPEC', id: selectedObject.id, spec });
+    }
+  };
+
+  const handleSpecPreview = (preview: SpecPreview) => {
+    setSpecPreview(preview);
+  };
+
+  const handleSpecCancel = () => {
+    setSpecPreview(null);
+  };
+
+  const handleSpecApply = (spec: SceneSpec) => {
+    setSpecPreview(null);
+    if (selectedObject) {
+      dispatch({ type: 'UPDATE_SPEC', id: selectedObject.id, spec });
+    }
+  };
+
+  const handleSpecUndo = () => {
+    dispatch({ type: 'UNDO_SPEC' });
+  };
+
+  const handleSpecRedo = () => {
+    dispatch({ type: 'REDO_SPEC' });
   };
 
   const handleParamsReset = () => {
@@ -600,6 +656,11 @@ export default function App() {
    * showing a broken image.
    */
   const handleCapturePreview = async (preset: PngPreset): Promise<Blob | null> => {
+    // A pending AI proposal is rendered in the viewer; capturing it would export
+    // geometry the user has not applied.
+    if (previewCaptureBlockReason(activePreview)) {
+      return null;
+    }
     const viewer = viewerRef.current;
     if (!viewer) {
       return null;
@@ -618,6 +679,9 @@ export default function App() {
   const handleCaptureProductPreviews = async (): Promise<
     Array<{ name: string; bytes: Uint8Array }> | null
   > => {
+    if (previewCaptureBlockReason(activePreview)) {
+      return null;
+    }
     const viewer = viewerRef.current;
     if (!viewer) {
       return null;
@@ -629,6 +693,13 @@ export default function App() {
 
   const handleExportPng = async () => {
     if (renderStatus === 'working') {
+      return;
+    }
+
+    const captureBlock = previewCaptureBlockReason(activePreview);
+    if (captureBlock) {
+      setRenderStatus('error');
+      setRenderMessage(captureBlock);
       return;
     }
 
@@ -722,6 +793,7 @@ export default function App() {
             onDelete={() => selectedObject && handleDeleteObject(selectedObject.id)}
             onPlaceAgainstWall={handlePlaceAgainstWall}
           />
+          <ConfiguratorPanel object={selectedObject} onApplySpec={handleSpecUpdate} />
         </div>
 
         <div className="panel__section" data-section="materials">
@@ -734,6 +806,29 @@ export default function App() {
         </div>
 
         <div className="panel__section" data-section="ai">
+          <AiFurniturePanel
+            onCreate={(definitionId, spec) =>
+              dispatch({
+                type: 'ADD_UNIVERSAL_FURNITURE',
+                id: createSceneObjectId(),
+                definitionId,
+                spec,
+              })
+            }
+          />
+          <AiEditPanel
+            key={selectedObject?.id ?? 'none'}
+            object={selectedObject}
+            preview={activePreview}
+            canUndo={(scene.history?.past.length ?? 0) > 0}
+            canRedo={(scene.history?.future.length ?? 0) > 0}
+            onPreview={handleSpecPreview}
+            onApply={handleSpecApply}
+            onCancel={handleSpecCancel}
+            onUndo={handleSpecUndo}
+            onRedo={handleSpecRedo}
+          />
+          <AiBudgetPanel />
           <AiPromptPanel onApply={applyDesign} backendConfigured={BACKEND_CONFIGURED} />
           <ImageReferencePanel onConfirm={handleImageReferenceConfirm} />
         </div>
@@ -748,6 +843,7 @@ export default function App() {
             onAssignSheetMaterial={handleAssignSheetMaterial}
             onRemoveSheetMaterial={handleRemoveSheetMaterial}
             onUpdateHardware={handleUpdateHardware}
+            captureBlockedReason={previewCaptureBlockReason(activePreview) ?? undefined}
             onCapturePreview={handleCapturePreview}
             onCaptureProductPreviews={handleCaptureProductPreviews}
           />
@@ -833,7 +929,7 @@ export default function App() {
         {/* C8.2: three.js loads behind a lazy boundary so the shell paints first
             and a failed chunk request shows a retry instead of a blank stage. */}
         <LazyViewer
-          scene={scene.data}
+          scene={viewScene}
           selectedId={scene.selectedId}
           resetToken={resetToken}
           cameraPreset={settings.cameraPreset}

@@ -916,6 +916,404 @@ input[type='color'] {
   color: #8b96a2;
 }
 
+/* ---------------- AI furniture prompt (Stage 3.3) ---------------- */
+
+.ai-furniture {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid #2a2f36;
+}
+
+.ai-furniture__title {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.ai-furniture__hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #8b96a2;
+}
+
+.ai-furniture__form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-furniture__input {
+  min-height: 72px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.ai-furniture__submit {
+  padding: 9px 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #0f1419;
+  background: #4f9dff;
+  border: 1px solid #4f9dff;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.ai-furniture__submit:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ai-furniture__status {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #8b96a2;
+}
+
+.ai-furniture__clarify {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #2a2f36;
+  border-radius: 8px;
+}
+
+.ai-furniture__question {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+.ai-furniture__success {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #7ddc9a;
+}
+
+/* ---------------- AI budget dashboard (Stage 3.5) ---------------- */
+
+.budget {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid #2a2f36;
+}
+
+.budget__title {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.budget__provider {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #cdd6df;
+}
+
+.budget__note {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #8b96a2;
+}
+
+.budget__stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
+  margin: 0;
+  font-size: 0.78rem;
+}
+
+.budget__stats dt {
+  color: #8b96a2;
+}
+
+.budget__stats dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.budget__limit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.budget__limit progress {
+  width: 100%;
+  height: 8px;
+  accent-color: #4f9dff;
+}
+
+.budget__settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid #2a2f36;
+  border-radius: 8px;
+}
+
+.budget__save {
+  padding: 8px 12px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #0f1419;
+  background: #4f9dff;
+  border: 1px solid #4f9dff;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.budget__saved {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #7ddc9a;
+}
+
+.budget__history {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.budget__history-title {
+  margin: 0;
+  font-size: 0.84rem;
+}
+
+.budget__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.75rem;
+}
+
+.budget__list li {
+  display: grid;
+  grid-template-columns: 44px 1fr 1fr auto auto;
+  gap: 6px;
+  padding: 4px 0;
+  border-bottom: 1px solid #20252b;
+  color: #b8c3ce;
+}
+
+/* ---------------- AI editing + preview (Stage 3.4) ---------------- */
+
+.ai-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid #2a2f36;
+}
+
+.ai-edit__title {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.ai-edit__hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #8b96a2;
+}
+
+.ai-edit__form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-edit__input {
+  min-height: 56px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.ai-edit__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ai-edit__primary,
+.ai-edit__secondary {
+  flex: 1 1 110px;
+  min-width: 0;
+  padding: 8px 12px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.ai-edit__primary {
+  color: #0f1419;
+  background: #4f9dff;
+  border: 1px solid #4f9dff;
+}
+
+.ai-edit__secondary {
+  color: #e8edf2;
+  background: #262c33;
+  border: 1px solid #333b44;
+}
+
+.ai-edit__primary:disabled,
+.ai-edit__secondary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ai-edit__status {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #8b96a2;
+}
+
+.ai-edit__question {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #ffd7a8;
+}
+
+.ai-edit__preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #35506b;
+  border-radius: 8px;
+  background: #141a21;
+}
+
+.ai-edit__preview-title {
+  margin: 0;
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.ai-edit__changes {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+}
+
+.ai-edit__change {
+  color: #9fd0ff;
+}
+
+.ai-edit__history {
+  display: flex;
+  gap: 8px;
+}
+
+.usage-warning {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #ffd7a8;
+}
+
+/* ---------------- Universal configurator (Stage 3.2) ---------------- */
+
+.configurator {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 4px;
+  border-top: 1px solid #2a2f36;
+}
+
+.configurator__title {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.configurator__meta {
+  margin: 0;
+  font-size: 0.74rem;
+  color: #8b96a2;
+}
+
+.configurator__presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.configurator__preset {
+  flex: 1 1 auto;
+  min-width: 84px;
+  padding: 7px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #cdd6df;
+  background: #1d232a;
+  border: 1px solid #333b44;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.configurator__preset:hover {
+  background: #262d35;
+}
+
+.configurator__preset--active {
+  color: #0f1419;
+  background: #4f9dff;
+  border-color: #4f9dff;
+}
+
+.configurator__grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.configurator__field {
+  gap: 4px;
+}
+
+.configurator__hint {
+  margin: 0;
+  font-size: 0.72rem;
+  color: #8b96a2;
+}
+
+.configurator__toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid #2a2f36;
+  border-radius: 8px;
+}
+
+.configurator__toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+
+.configurator__toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: #4f9dff;
+}
+
 .room--selected {
   border-top-color: #4f9dff;
 }
@@ -1658,5 +2056,51 @@ input[type='color'] {
   .assembly-panel__add,
   .assembly-row__delete {
     min-height: 40px;
+  }
+
+  /* Stage 3.2: touch-sized targets for the universal configurator. */
+  .configurator__preset {
+    min-height: 40px;
+    flex: 1 1 40%;
+  }
+
+  .configurator__toggle {
+    min-height: 40px;
+  }
+
+  .configurator__field .field__input {
+    min-height: 40px;
+  }
+
+  /* Stage 3.3: the AI prompt keeps touch-sized controls on small screens. */
+  .ai-furniture__submit {
+    min-height: 40px;
+  }
+
+  .ai-furniture__input {
+    min-height: 96px;
+  }
+
+  /* Stage 3.4: editing controls stay touch-sized. */
+  .ai-edit__primary,
+  .ai-edit__secondary {
+    min-height: 40px;
+  }
+
+  .ai-edit__input {
+    min-height: 72px;
+  }
+
+  /* Stage 3.5: budget controls stay touch-sized and readable. */
+  .budget__stats {
+    grid-template-columns: 1fr;
+  }
+
+  .budget__save {
+    min-height: 40px;
+  }
+
+  .budget__list li {
+    grid-template-columns: 1fr 1fr;
   }
 }

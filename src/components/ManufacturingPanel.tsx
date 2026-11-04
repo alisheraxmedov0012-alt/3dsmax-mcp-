@@ -42,6 +42,7 @@ interface ManufacturingPanelProps {
   /** C6: replace the selected object's hardware list. */
   onUpdateHardware?: (hardware: HardwareItem[]) => void;
   /** C8: capture the live 3D view for the product panel (owned by the app). */
+  captureBlockedReason?: string;
   onCapturePreview?: (preset: PngPreset) => Promise<Blob | null>;
   /** A2.2: multi-angle product shots for the ZIP, or null when unavailable. */
   onCaptureProductPreviews?: () => Promise<Array<{ name: string; bytes: Uint8Array }> | null>;
@@ -74,6 +75,7 @@ export function ManufacturingPanel({
   onAssignSheetMaterial,
   onRemoveSheetMaterial,
   onUpdateHardware,
+  captureBlockedReason,
   onCapturePreview,
   onCaptureProductPreviews,
 }: ManufacturingPanelProps) {
@@ -461,6 +463,7 @@ export function ManufacturingPanel({
             scene={scene}
             projectName={projectName}
             cuttingPlan={cuttingPlan}
+            captureBlockedReason={captureBlockedReason}
             onCapturePreview={onCapturePreview}
             onCaptureProductPreviews={onCaptureProductPreviews}
           />

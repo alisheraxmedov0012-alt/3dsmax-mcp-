@@ -64,6 +64,8 @@ function renderPanel(options: {
   object?: SceneObject | null;
   cuttingPlan?: ReturnType<typeof planFor>;
   onCapturePreview?: () => Promise<Blob | null>;
+  onCaptureProductPreviews?: () => Promise<Array<{ name: string; bytes: Uint8Array }> | null>;
+  captureBlockedReason?: string;
 } = {}) {
   const object = options.object === undefined ? objectFor() : options.object;
   const scene = object ? sceneWith(object) : { ...sceneWith(objectFor()), objects: [] };
@@ -74,7 +76,9 @@ function renderPanel(options: {
       scene={scene}
       projectName="Stol loyihasi"
       cuttingPlan={cuttingPlan}
+      captureBlockedReason={options.captureBlockedReason}
       onCapturePreview={options.onCapturePreview}
+      onCaptureProductPreviews={options.onCaptureProductPreviews}
     />,
   );
 }
@@ -424,5 +428,43 @@ describe('A4 panel — marketplace asset package', () => {
     await waitFor(() => expect(screen.getByTestId('asset-error')).toBeTruthy());
     expect(screen.getByTestId('asset-error').textContent).toMatch(/Preview rasmlarini olishda xatolik/);
     expect(screen.queryByTestId('asset-message')).toBeNull();
+  });
+});
+
+describe('C8 panel — pending AI preview blocks image captures', () => {
+  const REASON = "Avval AI o‘zgarishini Apply yoki Cancel qiling.";
+
+  it('refuses the 3D preview capture and explains why', () => {
+    const capture = vi.fn(async () => new Blob(['png']));
+    renderPanel({ onCapturePreview: capture, captureBlockedReason: REASON });
+
+    fireEvent.click(screen.getByTestId('product-preview'));
+
+    expect(capture).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert').textContent).toContain('Apply yoki Cancel');
+  });
+
+  it('refuses the asset package capture and explains why', () => {
+    const previews = vi.fn(async () => []);
+    renderPanel({
+      onCaptureProductPreviews: previews,
+      captureBlockedReason: REASON,
+    });
+
+    fireEvent.click(screen.getByTestId('asset-download'));
+
+    expect(previews).not.toHaveBeenCalled();
+    expect(screen.getByTestId('asset-error').textContent).toContain('Apply yoki Cancel');
+  });
+
+  it('captures again once the preview is gone', async () => {
+    const create = vi.fn(() => 'blob:preview');
+    Object.assign(URL, { createObjectURL: create, revokeObjectURL: vi.fn() });
+    const capture = vi.fn(async () => new Blob(['png']));
+    renderPanel({ onCapturePreview: capture });
+
+    fireEvent.click(screen.getByTestId('product-preview'));
+
+    await waitFor(() => expect(capture).toHaveBeenCalledTimes(1));
   });
 });
