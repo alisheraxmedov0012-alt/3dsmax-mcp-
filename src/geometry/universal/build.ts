@@ -60,6 +60,7 @@ export function buildPlan(
         materialId: slot.materialId,
         ...options.materialOverrides?.[slot.id],
       });
+      builder.setSlotBase(slot.materialId, slot.color);
       builders.set(slot.id, builder);
     }
 

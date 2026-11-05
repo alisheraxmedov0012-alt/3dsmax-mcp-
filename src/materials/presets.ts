@@ -378,5 +378,7 @@ export function resolvePresetSettings(
     opacity: preset.opacity,
     textureScale: preset.textureScale,
     normalStrength: preset.normalStrength,
+    emissiveIntensity: 1,
+    aoIntensity: 1,
   });
 }

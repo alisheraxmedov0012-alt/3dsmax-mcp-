@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { TexturePicker } from './TexturePicker';
+import { TextureMapsPicker } from './TextureMapsPicker';
 import {
   filterMaterialCatalog,
   getMaterialCatalogEntry,
@@ -7,7 +8,7 @@ import {
   listMaterialCategories,
 } from '../materials/library';
 import { resolvePresetSettings } from '../materials/presets';
-import type { TextureAssetRef } from '../materials/asset';
+import type { TextureAssetRef, TextureMapRole } from '../materials/asset';
 import {
   MATERIAL_CATEGORY_LABELS,
   PBR_LIMITS,
@@ -20,8 +21,12 @@ interface MaterialPanelProps {
   object: SceneObject | null;
   onMaterial: (patch: Partial<ObjectMaterial>) => void;
   onApplyPreset: (presetId: string) => void;
-  onMaterialMap: (role: 'baseColor', ref: TextureAssetRef | null) => void;
+  onMaterialMap: (role: TextureMapRole, ref: TextureAssetRef | null) => void;
+  /** Legacy objects keep `params.color` as the single source of truth. */
+  onBaseColor?: (color: string) => void;
   onReset: () => void;
+  /** Test override; production reads the build-time backend flag. */
+  textureBackendConfigured?: boolean;
 }
 
 interface MaterialSliderProps {
@@ -76,7 +81,9 @@ export function MaterialPanel({
   onMaterial,
   onApplyPreset,
   onMaterialMap,
+  onBaseColor,
   onReset,
+  textureBackendConfigured,
 }: MaterialPanelProps) {
   const [category, setCategory] = useState<CategoryFilter>('all');
   const [query, setQuery] = useState('');
@@ -116,6 +123,25 @@ export function MaterialPanel({
           <span className="material__chip">{MATERIAL_CATEGORY_LABELS[activeEntry.category]}</span>
         ) : null}
       </p>
+
+      <h3 className="material__subtitle">Asosiy</h3>
+
+      <div className="field">
+        <label className="field__label" htmlFor="material-base-color">
+          Base Color (albedo)
+        </label>
+        <input
+          id="material-base-color"
+          className="field__input material__color"
+          type="color"
+          value={object.material.baseColor ?? object.params.color}
+          onChange={(event) =>
+            onBaseColor
+              ? onBaseColor(event.target.value)
+              : onMaterial({ baseColor: event.target.value })
+          }
+        />
+      </div>
 
       <div className="field">
         <label className="field__label" htmlFor="material-search">
@@ -190,11 +216,34 @@ export function MaterialPanel({
         </div>
       )}
 
+      <h3 className="material__subtitle">Advanced</h3>
+
+      <div className="field">
+        <label className="field__label" htmlFor="material-emissive-color">
+          Emissive rang
+        </label>
+        <input
+          id="material-emissive-color"
+          className="field__input material__color"
+          type="color"
+          value={object.material.emissiveColor ?? '#ffffff'}
+          onChange={(event) => onMaterial({ emissiveColor: event.target.value })}
+        />
+      </div>
+
       <TexturePicker
         objectId={object.id}
         currentRef={object.material.maps?.baseColor ?? null}
         onApply={(ref) => onMaterialMap('baseColor', ref)}
         onRemove={() => onMaterialMap('baseColor', null)}
+        backendConfigured={textureBackendConfigured}
+      />
+
+      <TextureMapsPicker
+        objectId={object.id}
+        maps={object.material.maps}
+        onMapChange={onMaterialMap}
+        backendConfigured={textureBackendConfigured}
       />
 
       <MaterialSlider
@@ -227,10 +276,24 @@ export function MaterialPanel({
       />
       <MaterialSlider
         id="material-normal-strength"
-        label="Normal karta kuchi"
+        label="Normal karta kuchi (normalScale)"
         range={PBR_LIMITS.normalStrength}
         value={resolved.normalStrength}
         onChange={(value) => onMaterial({ normalStrength: value })}
+      />
+      <MaterialSlider
+        id="material-ao-intensity"
+        label="AO kuchi"
+        range={PBR_LIMITS.aoIntensity}
+        value={resolved.aoIntensity}
+        onChange={(value) => onMaterial({ aoIntensity: value })}
+      />
+      <MaterialSlider
+        id="material-emissive-intensity"
+        label="Emissive kuchi"
+        range={PBR_LIMITS.emissiveIntensity}
+        value={resolved.emissiveIntensity}
+        onChange={(value) => onMaterial({ emissiveIntensity: value })}
       />
 
       <button type="button" className="visual-reset" onClick={onReset}>
@@ -239,8 +302,9 @@ export function MaterialPanel({
 
       <p className="visual__hint">
         Asosiy rang (albedo) — «Mebel parametrlari» bo&apos;limidagi rang boshqaruvi orqali.
-        Tekstura va normal karta lokal (protsedural) generatsiya qilinadi; tashqi bitmap
-        assetlar ishlatilmaydi.
+        Protsedural materiallar lokal generatsiya qilinadi; yuklangan PNG, JPEG yoki WebP
+        teksturalar serverda saqlanadi va faqat havola (id + versiya) sifatida saqlanadi.
+        Materialni tiklash barcha biriktirilgan kartalarni olib tashlaydi.
       </p>
     </section>
   );

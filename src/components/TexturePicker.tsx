@@ -19,26 +19,28 @@ import {
   isAuthError,
 } from '../api/client';
 import { getCsrfToken, setCsrfToken, subscribeCsrf } from '../api/csrfStore';
-import { listTextureAssets, uploadTextureAsset } from '../api/textureApi';
-import { defaultTextureTargetSize, normalizeTextureForUpload } from '../image/textureNormalize';
+import { listTextureAssets } from '../api/textureApi';
 import { loadTextureThumbnail } from '../image/textureThumbnail';
-import { MAX_TEXTURE_BYTES, validateTextureFileContent } from '../image/textureFile';
-import type { TextureAssetRef } from '../materials/asset';
+import type { TextureAssetRef, TextureMapRole } from '../materials/asset';
+import { TEXTURE_MAP_ROLE_LABELS } from '../materials/asset';
 import {
-  baseColorTextureRef,
   textureItemFromApi,
+  textureRefForRole,
   type TextureLibraryItem,
 } from '../materials/textureAssetApi';
 import {
   getTextureResolutionStatus,
   subscribeTextureResolution,
 } from '../materials/textureStatus';
+import { uploadTextureFile } from './textureUpload';
 
 interface TexturePickerProps {
   objectId: string;
   currentRef: TextureAssetRef | null;
   onApply: (ref: TextureAssetRef) => void;
   onRemove: () => void;
+  /** Map slot this picker edits. Defaults to the Phase 4.3 baseColor slot. */
+  role?: TextureMapRole;
   /** Test override; production reads the build-time backend flag. */
   backendConfigured?: boolean;
 }
@@ -66,6 +68,7 @@ export function TexturePicker({
   currentRef,
   onApply,
   onRemove,
+  role = 'baseColor',
   backendConfigured,
 }: TexturePickerProps) {
   const configured = backendConfigured ?? BACKEND_CONFIGURED;
@@ -204,38 +207,17 @@ export function TexturePicker({
 
     setUploading(true);
     try {
-      if (file.size > MAX_TEXTURE_BYTES) {
-        setMessageKind('error');
-        setMessage(
-          `Fayl hajmi juda katta (maksimum ${MAX_TEXTURE_BYTES / (1024 * 1024)} MB).`,
-        );
-        return;
-      }
-      const buffer = await file.arrayBuffer();
-      const validated = validateTextureFileContent({
-        buffer,
-        declaredMime: file.type,
-      });
-      if (!validated.ok) {
-        setMessageKind('error');
-        setMessage(validated.message);
-        return;
-      }
-
-      const normalized = await normalizeTextureForUpload(file, validated, {
-        maxDimension: defaultTextureTargetSize(),
-      });
-      const stem = file.name.replace(/\.[^.]+$/, '').trim() || 'texture';
-      const raw = await uploadTextureAsset(normalized.blob, `${stem}.png`, token);
-      const item = textureItemFromApi(raw);
+      const item = await uploadTextureFile(file, token);
 
       setItems((previous) => [
         item,
         ...previous.filter((entry) => entry.asset.id !== item.asset.id),
       ]);
-      onApply(baseColorTextureRef(item.asset));
+      onApply(textureRefForRole(item.asset, role));
       setMessageKind('success');
-      setMessage(`"${item.filename}" yuklandi va Base Color sifatida qo'llandi.`);
+      setMessage(
+        `"${item.filename}" yuklandi va ${TEXTURE_MAP_ROLE_LABELS[role]} sifatida qo'llandi.`,
+      );
     } catch (error) {
       if (
         error instanceof ApiRequestError &&
@@ -257,7 +239,7 @@ export function TexturePicker({
     return (
       <section className="texture-picker" data-testid="texture-picker">
         <div className="texture-picker__head">
-          <h3 className="texture-picker__title">Base Color tekstura</h3>
+          <h3 className="texture-picker__title">{TEXTURE_MAP_ROLE_LABELS[role]} tekstura</h3>
           {currentRef ? (
             <button type="button" className="texture-picker__remove" onClick={onRemove}>
               Olib tashlash
@@ -280,7 +262,7 @@ export function TexturePicker({
   return (
     <section className="texture-picker" data-testid="texture-picker">
       <div className="texture-picker__head">
-        <h3 className="texture-picker__title">Base Color tekstura</h3>
+        <h3 className="texture-picker__title">{TEXTURE_MAP_ROLE_LABELS[role]} tekstura</h3>
         {currentRef ? (
           <button type="button" className="texture-picker__remove" onClick={onRemove}>
             Olib tashlash
@@ -385,7 +367,7 @@ export function TexturePicker({
                 aria-pressed={active}
                 data-testid={`texture-item-${item.asset.id}`}
                 title={`${item.filename} — ${item.asset.width}×${item.asset.height}`}
-                onClick={() => onApply(baseColorTextureRef(item.asset))}
+                onClick={() => onApply(textureRefForRole(item.asset, role))}
               >
                 {thumbs[item.asset.id] ? (
                   <img

@@ -11,6 +11,7 @@ import {
   validateTextureAsset,
   type TextureAsset,
   type TextureAssetRef,
+  type TextureMapRole,
 } from './asset';
 
 export class TextureAssetMappingError extends Error {
@@ -65,15 +66,24 @@ export function textureItemFromApi(raw: unknown): TextureLibraryItem {
   return { asset: validated.asset, filename };
 }
 
-/** A baseColor reference for scene storage (refs only, never bytes). */
-export function baseColorTextureRef(asset: TextureAsset): TextureAssetRef {
+/** A texture reference for scene storage (refs only, never bytes). */
+export function textureRefForRole(
+  asset: TextureAsset,
+  role: TextureMapRole,
+  wrap: TextureAssetRef['wrap'] = 'repeat',
+): TextureAssetRef {
   return {
     id: asset.id,
     version: asset.version,
-    role: 'baseColor',
-    colorSpace: TEXTURE_ROLE_COLOR_SPACE.baseColor,
-    wrap: 'repeat',
+    role,
+    colorSpace: TEXTURE_ROLE_COLOR_SPACE[role],
+    wrap,
   };
+}
+
+/** A baseColor reference; kept for the Phase 4.3 call sites. */
+export function baseColorTextureRef(asset: TextureAsset): TextureAssetRef {
+  return textureRefForRole(asset, 'baseColor');
 }
 
 export type { TextureAssetApiResponse };

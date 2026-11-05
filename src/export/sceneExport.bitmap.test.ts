@@ -163,7 +163,7 @@ describe('GLB export with a baseColor bitmap', () => {
         includeRoom: false,
         textureProvider: provider,
       }),
-    ).rejects.toThrow(/teksturasi yuklanmadi/);
+    ).rejects.toThrow(/Base Color teksturasi \(tex-12345678@1\) yuklanmadi/);
     expect(provider.release).not.toHaveBeenCalled();
   });
 

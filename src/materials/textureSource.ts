@@ -6,7 +6,12 @@
  * bitmap later. It stays pure so it can be used by the serializable library and
  * tested without a canvas or a GL context.
  */
-import type { TextureAssetRef, TextureColorSpace, TextureMapRole } from './asset';
+import type {
+  ProceduralTextureMapRole,
+  TextureAssetRef,
+  TextureColorSpace,
+  TextureMapRole,
+} from './asset';
 import type { TextureKind } from './types';
 
 export const PROCEDURAL_TEXTURE_PREFIX = 'procedural:';
@@ -18,12 +23,12 @@ export const PROCEDURAL_TEXTURE_KINDS: readonly Exclude<TextureKind, 'none'>[] =
   'grain',
 ];
 
-const ROLE_SUFFIX: Record<TextureMapRole, string> = {
+const ROLE_SUFFIX: Record<ProceduralTextureMapRole, string> = {
   baseColor: 'color',
   normal: 'normal',
 };
 
-const SUFFIX_ROLE: Record<string, TextureMapRole> = {
+const SUFFIX_ROLE: Record<string, ProceduralTextureMapRole> = {
   color: 'baseColor',
   normal: 'normal',
 };
@@ -49,7 +54,7 @@ export type TextureSource = ProceduralTextureSource | BitmapTextureSource;
 /** Stable id for a built-in procedural map. */
 export function proceduralTextureId(
   kind: Exclude<TextureKind, 'none'>,
-  role: TextureMapRole,
+  role: ProceduralTextureMapRole,
 ): string {
   return `${PROCEDURAL_TEXTURE_PREFIX}${kind}:${ROLE_SUFFIX[role]}`;
 }
@@ -57,7 +62,7 @@ export function proceduralTextureId(
 /** Parse a procedural id, or null when it is not one (or is malformed). */
 export function parseProceduralTextureId(
   id: string,
-): { textureKind: Exclude<TextureKind, 'none'>; role: TextureMapRole } | null {
+): { textureKind: Exclude<TextureKind, 'none'>; role: ProceduralTextureMapRole } | null {
   if (!id.startsWith(PROCEDURAL_TEXTURE_PREFIX)) {
     return null;
   }

@@ -58,7 +58,10 @@ function clampRepeat(value: number | undefined): number {
 }
 
 function cacheKey(ref: TextureAssetRef, repeat: number): string {
-  return `${ref.id}@${ref.version}|${repeat}`;
+  // Role and colour space are part of the key: the same bytes used as a colour
+  // map and as a data map must produce two textures with different sampling,
+  // while repeat/wrap change the sampler and therefore cannot share an entry.
+  return `${ref.id}@${ref.version}|${ref.role}|${ref.colorSpace}|${ref.wrap}|${repeat}`;
 }
 
 function loadError(error: unknown): TextureLoadError {
@@ -124,8 +127,11 @@ export class TextureRegistry implements TextureProvider {
     texture.wrapS = wrap;
     texture.wrapT = wrap;
     texture.repeat.set(repeat, repeat);
+    // Three.js r186 reads AO/normal/roughness/metalness UVs from the texture's
+    // channel; 0 is the primary `uv` attribute produced by Phase 4.4.
+    texture.channel = 0;
     texture.needsUpdate = true;
-    texture.name = `texture:${ref.id}`;
+    texture.name = `texture:${ref.role}:${ref.id}`;
     return { texture, bitmap };
   }
 

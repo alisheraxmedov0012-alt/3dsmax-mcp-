@@ -76,7 +76,7 @@ import {
 } from './scene/types';
 import type { SceneViewer } from './viewer/SceneViewer';
 import type { MaterialPresetId } from './materials/types';
-import type { TextureAssetRef } from './materials/asset';
+import type { TextureAssetRef, TextureMapRole } from './materials/asset';
 import type {
   LightingPresetChoice,
   QualityPresetId,
@@ -372,7 +372,23 @@ export default function App() {
     }
   };
 
-  const handleMaterialMap = (role: 'baseColor', ref: TextureAssetRef | null) => {
+  const handleBaseColor = (color: string) => {
+    if (!selectedObject) {
+      return;
+    }
+    if (selectedObject.definitionId !== undefined) {
+      dispatch({ type: 'UPDATE_MATERIAL', id: selectedObject.id, material: { baseColor: color } });
+    } else {
+      // Legacy pieces keep params.color as the single source of truth.
+      dispatch({
+        type: 'UPDATE_PARAMS',
+        id: selectedObject.id,
+        params: { ...selectedObject.params, color },
+      });
+    }
+  };
+
+  const handleMaterialMap = (role: TextureMapRole, ref: TextureAssetRef | null) => {
     if (selectedObject) {
       dispatch({
         type: 'SET_MATERIAL_MAP',
@@ -814,6 +830,7 @@ export default function App() {
             onMaterial={handleMaterial}
             onApplyPreset={handleApplyMaterialPreset}
             onMaterialMap={handleMaterialMap}
+            onBaseColor={handleBaseColor}
             onReset={handleResetMaterial}
           />
         </div>

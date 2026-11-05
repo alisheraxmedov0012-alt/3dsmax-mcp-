@@ -36,20 +36,59 @@ export type MaterialColorPolicy = (typeof MATERIAL_COLOR_POLICIES)[number];
  * Map slots MaterialAsset v1 understands. A v1 document with any other slot is
  * rejected with `unknown_map_role`; silently dropping it would lose authored
  * data and only surface as a missing map much later.
+ *
+ * Phase 4.5 adds the professional PBR maps on top of the 4.1 baseColor/normal
+ * pair. The schema version stays 1 because every addition is an optional field:
+ * a v1 reader keeps ignoring maps it does not know at its own boundary, while
+ * this build rejects unknown roles explicitly.
  */
-export const TEXTURE_MAP_ROLES = ['baseColor', 'normal'] as const;
+export const TEXTURE_MAP_ROLES = [
+  'baseColor',
+  'normal',
+  'roughness',
+  'metalness',
+  'ao',
+  'orm',
+  'emissive',
+] as const;
 export type TextureMapRole = (typeof TEXTURE_MAP_ROLES)[number];
+
+/**
+ * Roles the procedural generator can synthesize. Imported bitmaps use any role;
+ * only these two exist as built-in library assets.
+ */
+export const PROCEDURAL_TEXTURE_MAP_ROLES = ['baseColor', 'normal'] as const;
+export type ProceduralTextureMapRole = (typeof PROCEDURAL_TEXTURE_MAP_ROLES)[number];
 
 /**
  * Color space is a property of the map's *role*, not of the file. Assigning an
  * sRGB space to a normal map (or vice versa) is a correctness bug, so the
  * mapping is fixed here and enforced by the builder and by validation.
+ *
+ * Data maps (normal/roughness/metalness/AO/ORM) are linear; only color maps
+ * (baseColor/emissive) are sRGB.
  */
 export type TextureColorSpace = 'srgb' | 'linear';
 
 export const TEXTURE_ROLE_COLOR_SPACE: Record<TextureMapRole, TextureColorSpace> = {
   baseColor: 'srgb',
   normal: 'linear',
+  roughness: 'linear',
+  metalness: 'linear',
+  ao: 'linear',
+  orm: 'linear',
+  emissive: 'srgb',
+};
+
+/** Human-readable role labels used by the material panel. */
+export const TEXTURE_MAP_ROLE_LABELS: Record<TextureMapRole, string> = {
+  baseColor: 'Base Color',
+  normal: 'Normal',
+  roughness: 'Roughness',
+  metalness: 'Metalness',
+  ao: 'Ambient Occlusion',
+  orm: 'ORM (O+R+M)',
+  emissive: 'Emissive',
 };
 
 export const TEXTURE_WRAPS = ['repeat', 'clamp'] as const;
@@ -75,6 +114,10 @@ export interface MaterialAssetPbr {
   opacity: number;
   normalStrength: number;
   textureScale: number;
+  /** Multiplier for the emissive map; 1 by default. */
+  emissiveIntensity: number;
+  /** Multiplier for the AO (or ORM red) channel; 1 by default. */
+  aoIntensity: number;
 }
 
 /** A pointer to texture bytes that live outside the asset document. */
@@ -89,6 +132,11 @@ export interface TextureAssetRef {
 export interface MaterialAssetMaps {
   baseColor?: TextureAssetRef;
   normal?: TextureAssetRef;
+  roughness?: TextureAssetRef;
+  metalness?: TextureAssetRef;
+  ao?: TextureAssetRef;
+  orm?: TextureAssetRef;
+  emissive?: TextureAssetRef;
 }
 
 export interface MaterialAssetUv {
@@ -231,6 +279,16 @@ function normalizePbr(value: unknown, warnings: string[]): MaterialAssetPbr {
       record.textureScale,
       PBR_LIMITS.textureScale,
       DEFAULT_PBR_MATERIAL.textureScale,
+    ),
+    emissiveIntensity: clampNumber(
+      record.emissiveIntensity,
+      PBR_LIMITS.emissiveIntensity,
+      DEFAULT_PBR_MATERIAL.emissiveIntensity,
+    ),
+    aoIntensity: clampNumber(
+      record.aoIntensity,
+      PBR_LIMITS.aoIntensity,
+      DEFAULT_PBR_MATERIAL.aoIntensity,
     ),
   };
 }
@@ -539,10 +597,17 @@ export function canonicalMaterialAsset(asset: MaterialAsset): MaterialAsset {
       opacity: asset.pbr.opacity,
       normalStrength: asset.pbr.normalStrength,
       textureScale: asset.pbr.textureScale,
+      emissiveIntensity: asset.pbr.emissiveIntensity,
+      aoIntensity: asset.pbr.aoIntensity,
     },
     maps: {
       ...(asset.maps.baseColor ? { baseColor: canonicalTextureRef(asset.maps.baseColor) } : {}),
       ...(asset.maps.normal ? { normal: canonicalTextureRef(asset.maps.normal) } : {}),
+      ...(asset.maps.roughness ? { roughness: canonicalTextureRef(asset.maps.roughness) } : {}),
+      ...(asset.maps.metalness ? { metalness: canonicalTextureRef(asset.maps.metalness) } : {}),
+      ...(asset.maps.ao ? { ao: canonicalTextureRef(asset.maps.ao) } : {}),
+      ...(asset.maps.orm ? { orm: canonicalTextureRef(asset.maps.orm) } : {}),
+      ...(asset.maps.emissive ? { emissive: canonicalTextureRef(asset.maps.emissive) } : {}),
     },
     uv: { mode: asset.uv.mode, tileCm: asset.uv.tileCm },
     license: {

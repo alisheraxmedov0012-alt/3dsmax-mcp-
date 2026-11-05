@@ -4,7 +4,11 @@ import {
   type FurnitureType,
 } from '../geometry/furniture';
 import { getMaterialPreset, MATERIAL_PRESET_IDS } from '../materials/presets';
-import { validateMaterialAssetMaps, type TextureAssetRef } from '../materials/asset';
+import {
+  validateMaterialAssetMaps,
+  type TextureAssetRef,
+  type TextureMapRole,
+} from '../materials/asset';
 import {
   isKnownSheetMaterial,
   validateSheetThickness,
@@ -108,7 +112,7 @@ export type SceneAction =
   | {
       type: 'SET_MATERIAL_MAP';
       id: string;
-      role: 'baseColor';
+      role: TextureMapRole;
       ref: TextureAssetRef | null;
     }
   | {
@@ -177,6 +181,14 @@ function replaceObject(
   return { ...state, data: { ...state.data, objects } };
 }
 
+function normalizeHexColor(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim().toLowerCase();
+  return /^#[0-9a-f]{6}$/.test(trimmed) ? trimmed : undefined;
+}
+
 /**
  * Merges a material patch into the current material, clamping numeric values
  * into their supported ranges. The W4 channels are optional and are only added
@@ -222,6 +234,29 @@ function mergeMaterial(base: ObjectMaterial, patch: Partial<ObjectMaterial>): Ob
     PBR_LIMITS.normalStrength,
   );
   if (normalStrength !== undefined) merged.normalStrength = normalStrength;
+  const emissiveIntensity = optionalChannel(
+    patch.emissiveIntensity,
+    base.emissiveIntensity,
+    PBR_LIMITS.emissiveIntensity,
+  );
+  if (emissiveIntensity !== undefined) merged.emissiveIntensity = emissiveIntensity;
+  const aoIntensity = optionalChannel(
+    patch.aoIntensity,
+    base.aoIntensity,
+    PBR_LIMITS.aoIntensity,
+  );
+  if (aoIntensity !== undefined) merged.aoIntensity = aoIntensity;
+
+  const baseColor = normalizeHexColor(patch.baseColor) ?? base.baseColor;
+  if (baseColor !== undefined) merged.baseColor = baseColor;
+  const emissiveColor = normalizeHexColor(patch.emissiveColor) ?? base.emissiveColor;
+  if (emissiveColor !== undefined) merged.emissiveColor = emissiveColor;
+
+  // Bitmap references are edited only through SET_MATERIAL_MAP; a scalar slider
+  // must never silently drop an assigned texture.
+  if (base.maps) {
+    merged.maps = base.maps;
+  }
 
   return merged;
 }
@@ -524,13 +559,13 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
       return replaceObject(state, action.id, (object) => {
         const maps = { ...object.material.maps };
         if (action.ref === null) {
-          delete maps.baseColor;
+          delete maps[action.role];
         } else {
-          const validated = validateMaterialAssetMaps({ baseColor: action.ref });
-          if (!validated.ok || !validated.maps.baseColor) {
+          const validated = validateMaterialAssetMaps({ [action.role]: action.ref });
+          if (!validated.ok || !validated.maps[action.role]) {
             return object;
           }
-          maps.baseColor = validated.maps.baseColor;
+          maps[action.role] = validated.maps[action.role];
         }
 
         const material: ObjectMaterial = { ...object.material };
@@ -612,9 +647,8 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
 
     case 'APPLY_MATERIAL_PRESET': {
       const preset = getMaterialPreset(action.presetId);
-      return replaceObject(state, action.id, (object) => ({
-        ...object,
-        material: {
+      return replaceObject(state, action.id, (object) => {
+        const material: ObjectMaterial = {
           materialId: preset.id,
           metalness: preset.metalness,
           roughness: preset.roughness,
@@ -624,11 +658,19 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
           // A preset changes the PBR response, not the user's uploaded bitmap.
           // Removing a texture is the explicit map action (or a material reset).
           ...(object.material.maps ? { maps: object.material.maps } : {}),
-        },
-        // A preset may suggest a base colour; apply it through the existing
-        // table colour so there is still a single source of truth.
-        params: preset.color ? { ...object.params, color: preset.color } : object.params,
-      }));
+        };
+        // Universal pieces render one material per slot, so the preset colour
+        // needs an explicit material override to be visible; legacy pieces use
+        // the existing param colour as the single source of truth.
+        if (object.definitionId !== undefined && preset.color) {
+          material.baseColor = preset.color;
+        }
+        return {
+          ...object,
+          material,
+          params: preset.color ? { ...object.params, color: preset.color } : object.params,
+        };
+      });
     }
 
     case 'RESET_MATERIAL':

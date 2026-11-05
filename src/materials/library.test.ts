@@ -43,6 +43,8 @@ describe('built-in material assets', () => {
         opacity: preset.opacity,
         normalStrength: preset.normalStrength,
         textureScale: preset.textureScale,
+        emissiveIntensity: 1,
+        aoIntensity: 1,
       });
     }
   });

@@ -54,6 +54,18 @@ export function sceneObjectBuildKey(object: SceneObject): string {
 }
 
 /**
+ * Identity of the geometry only. Material and base colour are updated in place
+ * on the existing meshes (Phase 4.6), so they are deliberately excluded: a
+ * slider drag must never allocate or dispose a BufferGeometry.
+ */
+export function sceneObjectGeometryKey(object: SceneObject): string {
+  const params = { ...object.params } as Record<string, unknown>;
+  // `color` drives the material, not the vertex positions.
+  delete params.color;
+  return JSON.stringify([object.definitionId ?? null, object.spec ?? null, params]);
+}
+
+/**
  * Per-slot material settings for a universal build.
  *
  * `buildPlan` merges this over `{ materialId: slot.materialId }`, so an explicit
@@ -78,6 +90,18 @@ function slotMaterialOverride(
   }
   if (material.normalStrength !== undefined) {
     override.normalStrength = material.normalStrength;
+  }
+  if (material.emissiveIntensity !== undefined) {
+    override.emissiveIntensity = material.emissiveIntensity;
+  }
+  if (material.aoIntensity !== undefined) {
+    override.aoIntensity = material.aoIntensity;
+  }
+  if (material.baseColor !== undefined) {
+    override.baseColor = material.baseColor;
+  }
+  if (material.emissiveColor !== undefined) {
+    override.emissiveColor = material.emissiveColor;
   }
   return override;
 }

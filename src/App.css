@@ -1508,6 +1508,22 @@ input[type='color'] {
   flex-wrap: wrap;
 }
 
+.material__subtitle {
+  margin: 4px 0 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #7f8b98;
+}
+
+.material__color {
+  width: 100%;
+  min-height: 34px;
+  padding: 3px;
+  cursor: pointer;
+}
+
 .material__chip {
   padding: 2px 7px;
   font-size: 0.66rem;
@@ -1738,6 +1754,20 @@ input[type='color'] {
   flex: 0 0 auto;
   padding: 7px 10px;
   font-size: 0.76rem;
+}
+
+.texture-maps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #2a2f36;
+}
+
+.texture-map-roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
 }
 
 .texture-grid {

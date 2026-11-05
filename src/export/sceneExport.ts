@@ -1,8 +1,15 @@
 import * as THREE from 'three';
 import { buildRoom } from '../geometry/buildRoom';
 import { applyTextureResolution } from '../materials/buildMaterial';
-import { applyBaseColorTextureToGroup } from '../materials/applyBaseColorTexture';
-import type { TextureAssetRef } from '../materials/asset';
+import {
+  applyTextureMapToGroup,
+  presentTextureMapRoles,
+} from '../materials/applyTextureMaps';
+import {
+  TEXTURE_MAP_ROLE_LABELS,
+  type TextureAssetRef,
+  type TextureMapRole,
+} from '../materials/asset';
 import { resolvePresetSettings } from '../materials/presets';
 import {
   textureRegistry,
@@ -361,19 +368,37 @@ async function exportRootToGlb(scene: THREE.Scene): Promise<ArrayBuffer> {
   addMetreScaleRoot(scene);
   const GltfExporter = await loadGltfExporter();
   const exporter = new GltfExporter();
-  const result = await exporter.parseAsync(scene, { binary: true });
 
-  if (!(result instanceof ArrayBuffer)) {
-    throw new Error('GLB eksport natijasi kutilgan ikkilik formatda emas.');
+  let result: ArrayBuffer;
+  try {
+    const parsed = await exporter.parseAsync(scene, { binary: true });
+    if (!(parsed instanceof ArrayBuffer)) {
+      throw new Error('natija ikkilik formatda emas');
+    }
+    result = parsed;
+  } catch (error) {
+    // The exporter can fail on an unreadable texture image or a canvas without a
+    // 2D backend. Keep the single typed error path instead of leaking a raw
+    // exception through the UI.
+    throw new ExportError(
+      'failed',
+      `GLB faylini yozib bo'lmadi. Material yoki tekstura ma'lumotini tekshiring. ${
+        error instanceof Error ? error.message : ''
+      }`.trim(),
+    );
   }
 
   return nameExportedMeshes(result);
 }
 
 /**
- * Load every baseColor bitmap referenced by the exported objects and attach it
- * to the fresh export materials. Acquired references are appended to `acquired`
- * immediately, so the caller can release them even if a later load fails.
+ * Load every bitmap referenced by the exported objects and attach it to the
+ * fresh export materials.
+ *
+ * Each object role is an independent acquisition, appended to `acquired` as
+ * soon as it succeeds, so the caller releases everything even when a later role
+ * fails. A role that cannot be loaded aborts the export with a clear error
+ * instead of silently shipping a model missing that map.
  */
 async function applyExportBitmapTextures(
   scene: THREE.Scene,
@@ -382,60 +407,62 @@ async function applyExportBitmapTextures(
   acquired: Array<{ ref: TextureAssetRef; options: TextureAcquireOptions }>,
 ): Promise<void> {
   const targets = objects.flatMap((object) => {
-    const ref = object.material.maps?.baseColor;
-    if (!ref || !object.visible) {
+    if (!object.visible) {
       return [];
     }
     const group = scene.getObjectByName(`object:${object.id}`);
     if (!group) {
       return [];
     }
-    return [
-      {
-        object,
-        group,
-        ref,
-        options: { repeat: resolvePresetSettings(object.material).textureScale },
-      },
-    ];
-  });
+    const settings = resolvePresetSettings(object.material);
+    return presentTextureMapRoles(object.material.maps).map((role) => {
+      const ref = object.material.maps?.[role];
+      return ref
+        ? {
+            object,
+            group,
+            role,
+            ref,
+            options: { repeat: settings.textureScale },
+            normalStrength: settings.normalStrength,
+            emissiveIntensity: settings.emissiveIntensity,
+            emissiveColor: object.material.emissiveColor,
+            aoIntensity: settings.aoIntensity,
+          }
+        : null;
+    });
+  }).filter((target): target is NonNullable<typeof target> => target !== null);
 
   const loaded = await Promise.all(
     targets.map(async (target) => {
       try {
         const texture = await provider.acquire(target.ref, target.options);
-        return {
-          object: target.object,
-          group: target.group,
-          ref: target.ref,
-          options: target.options,
-          texture,
-          error: null,
-        };
+        acquired.push({ ref: target.ref, options: target.options });
+        return Object.assign({}, target, { texture, error: null });
       } catch (error) {
-        return {
-          object: target.object,
-          group: target.group,
-          ref: target.ref,
-          options: target.options,
-          texture: null,
-          error,
-        };
+        return Object.assign({}, target, { texture: null, error });
       }
     }),
   );
 
   for (const item of loaded) {
-    if (item.texture) {
-      acquired.push({ ref: item.ref, options: item.options });
-      applyBaseColorTextureToGroup(item.group, item.texture);
+    if (!item.texture) {
+      continue;
     }
+    applyTextureMapToGroup(item.group, item.role, item.texture, {
+      normalStrength: item.normalStrength,
+      emissiveIntensity: item.emissiveIntensity,
+      emissiveColor: item.emissiveColor,
+      aoIntensity: item.aoIntensity,
+    });
   }
+
   const failed = loaded.find((item) => item.texture === null);
   if (failed) {
+    const roleLabel = TEXTURE_MAP_ROLE_LABELS[failed.role as TextureMapRole];
     throw new ExportError(
       'failed',
-      `"${failed.object.name}" teksturasi yuklanmadi; GLB eksporti bekor qilindi. ${
+      `"${failed.object.name}" ${roleLabel} teksturasi (${failed.ref.id}@${failed.ref.version}) yuklanmadi; GLB eksporti bekor qilindi. ${
         failed.error instanceof Error ? failed.error.message : ''
       }`.trim(),
     );

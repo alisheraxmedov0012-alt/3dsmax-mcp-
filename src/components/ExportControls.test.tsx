@@ -93,3 +93,44 @@ describe('X-01 — print export scope is explicit', () => {
     expect(screen.getByText(/material va tekstura YOZILMAYDI/i)).toBeTruthy();
   });
 });
+
+describe('Phase 4.7 — export feedback and repeat-click guard', () => {
+  it('disables the button and shows progress while exporting', () => {
+    const onExport = vi.fn();
+    render(
+      <ExportControls
+        {...makeProps({ status: 'exporting', message: 'Eksport qilinmoqda…', onExport })}
+      />,
+    );
+    const button = screen.getByRole('button', { name: 'Eksport qilinmoqda…' });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole('status').textContent).toContain('Eksport qilinmoqda');
+    fireEvent.click(button);
+    expect(onExport).not.toHaveBeenCalled();
+  });
+
+  it('announces a failure as an alert and keeps the editor usable', () => {
+    render(
+      <ExportControls
+        {...makeProps({
+          status: 'error',
+          message: '"Stol" Normal teksturasi (tex-normal@1) yuklanmadi.',
+        })}
+      />,
+    );
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toContain('Normal teksturasi');
+    expect((screen.getByRole('button', { name: /Eksport qilish/ }) as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+  });
+
+  it('reports a successful export', () => {
+    render(
+      <ExportControls
+        {...makeProps({ status: 'success', message: 'Sahna "model.glb" sifatida yuklab olindi.' })}
+      />,
+    );
+    expect(screen.getByRole('status').textContent).toContain('model.glb');
+  });
+});

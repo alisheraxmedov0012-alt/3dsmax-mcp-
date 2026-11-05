@@ -120,6 +120,8 @@ describe('validateMaterialAsset', () => {
       opacity: 1,
       normalStrength: 0,
       textureScale: 1,
+      emissiveIntensity: 1,
+      aoIntensity: 1,
     });
   });
 
@@ -166,8 +168,8 @@ describe('validateMaterialAsset', () => {
     expect(Object.keys(result.asset.maps).sort()).toEqual(['baseColor', 'normal']);
   });
 
-  for (const role of ['roughness', 'metalness', 'ao'] as const) {
-    it(`rejects the v1-unsupported "${role}" map role`, () => {
+  for (const role of ['specular', 'bump', 'displacement'] as const) {
+    it(`rejects the unsupported "${role}" map role`, () => {
       const result = validateMaterialAsset(
         rawAsset({
           maps: {
@@ -186,7 +188,7 @@ describe('validateMaterialAsset', () => {
       // The message must name the offending role and the supported set.
       expect(result.message).toContain(`"${role}"`);
       expect(result.message).toContain('baseColor');
-      expect(result.message).toContain('normal');
+      expect(result.message).toContain('emissive');
       expect(result).not.toHaveProperty('asset');
     });
   }
@@ -197,14 +199,14 @@ describe('validateMaterialAsset', () => {
       rawAsset({
         maps: {
           baseColor: baseRef,
-          roughness: { id: 'procedural:wood:normal' },
+          specular: { id: 'procedural:wood:normal' },
         },
       }),
     );
     expect(result.ok).toBe(false);
     expect(result).toMatchObject({ ok: false, code: 'unknown_map_role' });
     if (result.ok) return;
-    expect(result.message).toContain('"roughness"');
+    expect(result.message).toContain('"specular"');
     // No silently trimmed asset is offered alongside the error.
     expect('asset' in result).toBe(false);
   });
@@ -239,7 +241,7 @@ describe('validateMaterialAsset', () => {
 
   it('never mutates the original input on an unknown-role error', () => {
     const input = rawAsset({
-      maps: { roughness: { id: 'procedural:wood:normal' } },
+      maps: { specular: { id: 'procedural:wood:normal' } },
     });
     const before = JSON.stringify(input);
     const result = validateMaterialAsset(input);

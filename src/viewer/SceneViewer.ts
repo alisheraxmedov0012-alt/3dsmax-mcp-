@@ -4,13 +4,14 @@ import { buildRoom } from '../geometry/buildRoom';
 import {
   applyObjectTransform,
   buildSceneObject,
-  sceneObjectBuildKey,
+  sceneObjectGeometryKey,
 } from '../scene/buildSceneObject';
 import { ROOM_OBJECT_ID, type SceneData, type SceneObject } from '../scene/types';
 import type { CameraPreset, SceneSettings } from '../scene/sceneSettings';
-import { applyBaseColorTextureToGroup } from '../materials/applyBaseColorTexture';
+import { applyTextureMapToGroup } from '../materials/applyTextureMaps';
 import { resolvePresetSettings } from '../materials/presets';
-import { textureRegistry, TextureLoadError } from '../materials/textureRegistry';
+import { ObjectTextureMapLoader } from '../materials/textureMapLoader';
+import { updateObjectMaterials } from '../materials/updateMaterial';
 import {
   clearTextureResolutionStatus,
   setTextureResolutionStatus,
@@ -48,10 +49,8 @@ export interface SceneViewerOptions {
 interface ObjectEntry {
   group: THREE.Group;
   dispose: () => void;
-  paramsKey: string;
-  textureKey?: string;
-  textureToken?: number;
-  releaseTexture?: () => void;
+  geometryKey: string;
+  mapLoader: ObjectTextureMapLoader;
 }
 
 const CLICK_MOVE_THRESHOLD_PX = 6;
@@ -195,32 +194,17 @@ export class SceneViewer {
     }
 
     for (const object of data.objects) {
-      const paramsKey = sceneObjectBuildKey(object);
+      const geometryKey = sceneObjectGeometryKey(object);
       const existing = this.objects.get(object.id);
 
       if (!existing) {
-        const built = buildSceneObject(object);
-        this.scene.add(built.group);
-        const entry: ObjectEntry = {
-          group: built.group,
-          dispose: built.dispose,
-          paramsKey,
-        };
-        this.objects.set(object.id, entry);
-        this.applyObjectBaseColorTexture(object, entry);
-      } else if (existing.paramsKey !== paramsKey) {
+        this.objects.set(object.id, this.createObjectEntry(object, geometryKey));
+      } else if (existing.geometryKey !== geometryKey) {
         this.disposeObjectEntry(existing);
-        const built = buildSceneObject(object);
-        this.scene.add(built.group);
-        const entry: ObjectEntry = {
-          group: built.group,
-          dispose: built.dispose,
-          paramsKey,
-        };
-        this.objects.set(object.id, entry);
-        this.applyObjectBaseColorTexture(object, entry);
+        this.objects.set(object.id, this.createObjectEntry(object, geometryKey));
       } else {
         applyObjectTransform(existing.group, object);
+        this.refreshObjectMaterials(object, existing);
       }
     }
 
@@ -233,61 +217,50 @@ export class SceneViewer {
     this.controls.update();
   }
 
-  private disposeObjectEntry(entry: ObjectEntry): void {
-    entry.releaseTexture?.();
-    entry.releaseTexture = undefined;
-    entry.textureKey = undefined;
-    this.scene.remove(entry.group);
-    entry.dispose();
+  private createObjectEntry(object: SceneObject, geometryKey: string): ObjectEntry {
+    const built = buildSceneObject(object);
+    this.scene.add(built.group);
+    const loader = new ObjectTextureMapLoader({
+      apply: (role, texture, options) =>
+        applyTextureMapToGroup(built.group, role, texture, options),
+      onStatus: (status) => {
+        if (status === null) {
+          clearTextureResolutionStatus(object.id);
+        } else {
+          setTextureResolutionStatus(object.id, status);
+        }
+      },
+    });
+    const entry: ObjectEntry = {
+      group: built.group,
+      dispose: built.dispose,
+      geometryKey,
+      mapLoader: loader,
+    };
+    this.refreshObjectMaterials(object, entry);
+    return entry;
   }
 
   /**
-   * Resolve the object's baseColor bitmap after its geometry is built and apply
-   * it to every material in the group. Loading is async and token-guarded, so a
-   * rapid rebuild cannot let an older request overwrite the newer material.
+   * Project the current material model onto the already-built materials. The
+   * group is never replaced here, so geometry identity and GPU buffers survive a
+   * slider drag; the map loader only swaps textures whose references changed.
    */
-  private applyObjectBaseColorTexture(object: SceneObject, entry: ObjectEntry): void {
-    const ref = object.material.maps?.baseColor;
-    if (!ref) {
-      clearTextureResolutionStatus(object.id);
-      return;
-    }
+  private refreshObjectMaterials(object: SceneObject, entry: ObjectEntry): void {
+    updateObjectMaterials(entry.group, object);
+    const settings = resolvePresetSettings(object.material);
+    entry.mapLoader.sync(object.material.maps, settings.textureScale, {
+      normalStrength: settings.normalStrength,
+      emissiveIntensity: settings.emissiveIntensity,
+      emissiveColor: object.material.emissiveColor,
+      aoIntensity: settings.aoIntensity,
+    });
+  }
 
-    const repeat = resolvePresetSettings(object.material).textureScale;
-    const key = `${ref.id}@${ref.version}|${repeat}`;
-    if (entry.textureKey === key) {
-      return;
-    }
-
-    const token = (entry.textureToken ?? 0) + 1;
-    entry.textureToken = token;
-    setTextureResolutionStatus(object.id, { state: 'loading' });
-
-    void textureRegistry
-      .acquire(ref, { repeat })
-      .then((texture) => {
-        if (this.objects.get(object.id) !== entry || entry.textureToken !== token) {
-          textureRegistry.release(ref, { repeat });
-          return;
-        }
-        entry.releaseTexture?.();
-        entry.textureKey = key;
-        entry.releaseTexture = () => textureRegistry.release(ref, { repeat });
-        applyBaseColorTextureToGroup(entry.group, texture);
-        setTextureResolutionStatus(object.id, { state: 'ready' });
-      })
-      .catch((error: unknown) => {
-        if (this.objects.get(object.id) !== entry || entry.textureToken !== token) {
-          return;
-        }
-        // The built procedural/colour material stays visible; the panel shows
-        // this message instead of silently pretending the texture loaded.
-        const message =
-          error instanceof TextureLoadError
-            ? error.message
-            : "Teksturani yuklab bo'lmadi, mavjud material ko'rsatilmoqda.";
-        setTextureResolutionStatus(object.id, { state: 'error', message });
-      });
+  private disposeObjectEntry(entry: ObjectEntry): void {
+    entry.mapLoader.dispose();
+    this.scene.remove(entry.group);
+    entry.dispose();
   }
 
   /** Applies background, lighting, render quality, tone mapping and shadows. */

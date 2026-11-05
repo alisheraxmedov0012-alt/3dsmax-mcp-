@@ -235,11 +235,19 @@ export interface ObjectMaterial {
   opacity?: number;
   textureScale?: number;
   normalStrength?: number;
+  /** Phase 4.5/4.6: multiplier for the emissive map. */
+  emissiveIntensity?: number;
+  /** Phase 4.6: multiplier for the AO (or ORM red) channel. */
+  aoIntensity?: number;
+  /** Phase 4.6: per-object base-colour override (hex). */
+  baseColor?: string;
+  /** Phase 4.6: emissive tint (hex); an emissive map renders white by default. */
+  emissiveColor?: string;
   /**
-   * Phase 4.3: serializable bitmap texture references (no binary data). Only
-   * `baseColor` is produced by the UI today; the map type is shared with
-   * MaterialAsset v1 so stored values go through the same validation. Optional
-   * so every pre-4.3 scene loads unchanged.
+   * Phase 4.3/4.5: serializable bitmap texture references (no binary data).
+   * Every map role is a `TextureAssetRef`; the type is shared with MaterialAsset
+   * v1 so stored values go through the same validation. Optional so every
+   * pre-4.3 scene loads unchanged.
    */
   maps?: MaterialAssetMaps;
 }

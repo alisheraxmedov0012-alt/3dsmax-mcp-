@@ -8,7 +8,8 @@
  */
 import * as THREE from 'three';
 import { buildPbrMaterial } from '../../materials/buildMaterial';
-import type { MaterialSettingsInput } from '../../materials/types';
+import { DEFAULT_MATERIAL_ID, type MaterialSettingsInput } from '../../materials/types';
+import { setSlotMaterialInfo } from '../../materials/materialRuntimeMetadata';
 import {
   applyPhysicalBoxUvs,
   applyUvMapping,
@@ -98,9 +99,22 @@ export class PartBuilder {
     // One PBR material per object, shared by all of its parts: this is where a
     // furniture piece picks up its preset and procedural texture. `buildPbrMaterial`
     // owns the texture lifetime, so it must be disposed through `built.dispose`.
-    this.built = buildPbrMaterial(color, material);
+    this.built = buildPbrMaterial(material.baseColor ?? color, material);
     this.material = this.built.material;
     this.material.name = `${groupName}-material`;
+    setSlotMaterialInfo(this.material, {
+      presetId: DEFAULT_MATERIAL_ID,
+      color: material.baseColor ?? color,
+    });
+  }
+
+  /**
+   * Record the intrinsic slot preset/colour. Universal builds override the
+   * material with an object-level preset; keeping the slot defaults lets the
+   * real-time editor fall back correctly when that override is removed.
+   */
+  setSlotBase(presetId: string, color: string): void {
+    setSlotMaterialInfo(this.material, { presetId, color, scope: 'slot' });
   }
 
   /** Adds a box part centred at `position` (cm). */

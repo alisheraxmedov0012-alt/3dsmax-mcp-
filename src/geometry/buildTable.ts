@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { buildPbrMaterial } from '../materials/buildMaterial';
-import type { MaterialSettingsInput } from '../materials/types';
+import { DEFAULT_MATERIAL_ID, type MaterialSettingsInput } from '../materials/types';
+import { setSlotMaterialInfo } from '../materials/materialRuntimeMetadata';
 import { applyPhysicalBoxUvs } from '../materials/uv';
 import type { TableParams } from './tableParams';
 
@@ -58,9 +59,13 @@ export function buildTable(params: TableBuildParams, material: TableMaterial = {
   const group = new THREE.Group();
   group.name = 'table';
 
-  const built = buildPbrMaterial(color, material);
+  const built = buildPbrMaterial(material.baseColor ?? color, material);
   const pbr = built.material;
   pbr.name = 'table-material';
+  setSlotMaterialInfo(pbr, {
+    presetId: DEFAULT_MATERIAL_ID,
+    color: material.baseColor ?? color,
+  });
   const geometries: THREE.BufferGeometry[] = [];
 
   const topGeometry = new THREE.BoxGeometry(widthCm, topThicknessCm, depthCm);

@@ -74,6 +74,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function normalizeHexColor(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim().toLowerCase();
+  return /^#[0-9a-f]{6}$/.test(trimmed) ? trimmed : undefined;
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
@@ -183,14 +191,25 @@ function normalizeMaterial(value: unknown): ObjectMaterial {
   if (textureScale !== undefined) material.textureScale = textureScale;
   const normalStrength = optionalNumber(record.normalStrength, PBR_LIMITS.normalStrength);
   if (normalStrength !== undefined) material.normalStrength = normalStrength;
+  const emissiveIntensity = optionalNumber(
+    record.emissiveIntensity,
+    PBR_LIMITS.emissiveIntensity,
+  );
+  if (emissiveIntensity !== undefined) material.emissiveIntensity = emissiveIntensity;
+  const aoIntensity = optionalNumber(record.aoIntensity, PBR_LIMITS.aoIntensity);
+  if (aoIntensity !== undefined) material.aoIntensity = aoIntensity;
+  const baseColor = normalizeHexColor(record.baseColor);
+  if (baseColor !== undefined) material.baseColor = baseColor;
+  const emissiveColor = normalizeHexColor(record.emissiveColor);
+  if (emissiveColor !== undefined) material.emissiveColor = emissiveColor;
 
-  // Phase 4.3: only the baseColor bitmap reference is stored today. The shared
-  // validator enforces the same role/colorSpace rules as MaterialAsset v1 and
-  // drops malformed/unknown refs instead of failing the whole scene.
-  if (isRecord(record.maps) && record.maps.baseColor !== undefined) {
-    const validated = validateMaterialAssetMaps({ baseColor: record.maps.baseColor });
-    if (validated.ok && validated.maps.baseColor) {
-      material.maps = { baseColor: validated.maps.baseColor };
+  // Phase 4.5: every map role goes through the shared validator, which enforces
+  // role/color-space rules and rejects unknown roles. Malformed stored data is
+  // dropped without failing the whole scene, matching the pre-4.5 behaviour.
+  if (isRecord(record.maps)) {
+    const validated = validateMaterialAssetMaps(record.maps);
+    if (validated.ok && Object.keys(validated.maps).length > 0) {
+      material.maps = validated.maps;
     }
   }
 

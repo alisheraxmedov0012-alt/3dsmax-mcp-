@@ -115,6 +115,10 @@ export const PBR_LIMITS = {
   textureScale: { min: 0.25, max: 8, step: 0.25 },
   // Normal-map strength.
   normalStrength: { min: 0, max: 2, step: 0.05 },
+  // Multiplier applied to the emissive map (glTF emissiveStrength semantics).
+  emissiveIntensity: { min: 0, max: 5, step: 0.05 },
+  // Ambient-occlusion multiplier applied to the AO (or ORM red) channel.
+  aoIntensity: { min: 0, max: 2, step: 0.05 },
 } satisfies Record<string, NumericRange>;
 
 export const DEFAULT_MATERIAL_ID = 'default';
@@ -131,6 +135,8 @@ export const DEFAULT_PBR_MATERIAL = {
   opacity: 1,
   textureScale: 1,
   normalStrength: 0,
+  emissiveIntensity: 1,
+  aoIntensity: 1,
 } as const;
 
 /**
@@ -145,6 +151,12 @@ export interface MaterialSettingsInput {
   opacity?: number;
   textureScale?: number;
   normalStrength?: number;
+  emissiveIntensity?: number;
+  aoIntensity?: number;
+  /** Per-object base-colour override (hex); falls back to the slot/object colour. */
+  baseColor?: string;
+  /** Emissive tint (hex). Without it an emissive map is rendered white. */
+  emissiveColor?: string;
 }
 
 /** Fully-resolved material settings — every field present and valid. */
@@ -155,6 +167,8 @@ export interface ResolvedMaterialSettings {
   opacity: number;
   textureScale: number;
   normalStrength: number;
+  emissiveIntensity: number;
+  aoIntensity: number;
 }
 
 function clampRange(value: unknown, range: NumericRange, fallback: number): number {
@@ -190,6 +204,8 @@ export function resolveMaterialSettings(
     opacity: DEFAULT_PBR_MATERIAL.opacity,
     textureScale: DEFAULT_PBR_MATERIAL.textureScale,
     normalStrength: DEFAULT_PBR_MATERIAL.normalStrength,
+    emissiveIntensity: DEFAULT_PBR_MATERIAL.emissiveIntensity,
+    aoIntensity: DEFAULT_PBR_MATERIAL.aoIntensity,
   },
 ): ResolvedMaterialSettings {
   const source: MaterialSettingsInput = input ?? {};
@@ -204,5 +220,11 @@ export function resolveMaterialSettings(
       PBR_LIMITS.normalStrength,
       fallback.normalStrength,
     ),
+    emissiveIntensity: clampRange(
+      source.emissiveIntensity,
+      PBR_LIMITS.emissiveIntensity,
+      fallback.emissiveIntensity,
+    ),
+    aoIntensity: clampRange(source.aoIntensity, PBR_LIMITS.aoIntensity, fallback.aoIntensity),
   };
 }

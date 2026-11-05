@@ -8,7 +8,7 @@
  */
 import {
   MATERIAL_ASSET_VERSION,
-  TEXTURE_MAP_ROLES,
+  PROCEDURAL_TEXTURE_MAP_ROLES,
   TEXTURE_ROLE_COLOR_SPACE,
   canonicalMaterialAsset,
   validateMaterialAsset,
@@ -32,7 +32,7 @@ export function materialAssetFromPreset(preset: MaterialPreset): MaterialAsset {
   const maps: MaterialAssetMaps = {};
   const kind = textureKindFor(preset.type);
   if (kind !== 'none') {
-    for (const role of TEXTURE_MAP_ROLES) {
+    for (const role of PROCEDURAL_TEXTURE_MAP_ROLES) {
       maps[role] = {
         id: proceduralTextureId(kind, role),
         version: 1,
@@ -56,6 +56,8 @@ export function materialAssetFromPreset(preset: MaterialPreset): MaterialAsset {
       opacity: preset.opacity,
       normalStrength: preset.normalStrength,
       textureScale: preset.textureScale,
+      emissiveIntensity: 1,
+      aoIntensity: 1,
     },
     maps,
     uv: { mode: 'physical-box', tileCm: DEFAULT_UV_TILE_CM },
@@ -77,7 +79,7 @@ function deepFreeze<T>(value: T): T {
 /** Ids of every procedural map the generator can produce. */
 const PROCEDURAL_TEXTURE_IDS: ReadonlySet<string> = new Set(
   PROCEDURAL_TEXTURE_KINDS.flatMap((kind) =>
-    TEXTURE_MAP_ROLES.map((role) => proceduralTextureId(kind, role)),
+    PROCEDURAL_TEXTURE_MAP_ROLES.map((role) => proceduralTextureId(kind, role)),
   ),
 );
 
@@ -106,7 +108,7 @@ export const BUILT_IN_MATERIAL_ASSETS: readonly MaterialAsset[] = deepFreeze(
  */
 export const BUILT_IN_TEXTURE_ASSETS: readonly TextureAsset[] = PROCEDURAL_TEXTURE_KINDS.flatMap(
   (kind) =>
-    TEXTURE_MAP_ROLES.map((role) => ({
+    PROCEDURAL_TEXTURE_MAP_ROLES.map((role) => ({
       id: proceduralTextureId(kind, role),
       version: 1,
       mimeType: null,

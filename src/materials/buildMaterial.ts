@@ -9,9 +9,16 @@
  */
 import * as THREE from 'three';
 import type { MaterialAsset, TextureAssetRef, TextureMapRole } from './asset';
+import { applyTextureMapToMaterial, TEXTURE_MAP_APPLY_ORDER } from './applyTextureMaps';
 import { getMaterialPreset, resolvePresetSettings } from './presets';
 import { textureSourceFromRef } from './textureSource';
-import { createProceduralTextures, textureKindFor } from './textures';
+import {
+  createProceduralTextures,
+  DEFAULT_TEXTURE_SIZE,
+  textureKindFor,
+  type ProceduralTextures,
+  type TextureKind,
+} from './textures';
 import type { MaterialSettingsInput } from './types';
 
 export interface BuiltMaterial {
@@ -25,16 +32,99 @@ export interface PbrMaterialBuildOptions {
   textureSize?: 128 | 512;
 }
 
+/** Runtime-only procedural texture ownership; kept off userData for GLB purity. */
+const proceduralStates = new WeakMap<THREE.Material, ProceduralState>();
+
+export interface ProceduralState {
+  kind: TextureKind;
+  scale: number;
+  size: number;
+  textures: ProceduralTextures | null;
+  disposed: boolean;
+  dispose: () => void;
+}
+
+/** Read the procedural state attached by `buildPbrMaterial`. */
+export function getProceduralState(
+  material: THREE.MeshStandardMaterial,
+): ProceduralState | null {
+  return proceduralStates.get(material) ?? null;
+}
+
+/**
+ * Bring one material's procedural maps to the requested pattern/scale.
+ *
+ * Returns the new texture handle (or null) when a rebuild was needed, and
+ * `undefined` when the current maps already match. The caller decides whether to
+ * assign them, because an uploaded bitmap must win over a procedural map.
+ */
+export function syncProceduralTextures(
+  material: THREE.MeshStandardMaterial,
+  kind: TextureKind,
+  scale: number,
+  size: number = DEFAULT_TEXTURE_SIZE,
+): ProceduralTextures | null | undefined {
+  const state = getProceduralState(material);
+  if (state && state.kind === kind && state.scale === scale && state.size === size) {
+    return undefined;
+  }
+
+  const next = createProceduralTextures(kind, scale, size);
+  if (state) {
+    state.kind = kind;
+    state.scale = scale;
+    state.size = size;
+    const previous = state.textures;
+    state.textures = next;
+    previous?.dispose();
+  } else {
+    attachProceduralState(material, kind, scale, size, next);
+  }
+  return next;
+}
+
+function attachProceduralState(
+  material: THREE.MeshStandardMaterial,
+  kind: TextureKind,
+  scale: number,
+  size: number,
+  textures: ProceduralTextures | null,
+): ProceduralState {
+  const state: ProceduralState = {
+    kind,
+    scale,
+    size,
+    textures,
+    disposed: false,
+    dispose: () => {
+      if (state.disposed) {
+        return;
+      }
+      state.disposed = true;
+      state.textures?.dispose();
+      state.textures = null;
+    },
+  };
+  proceduralStates.set(material, state);
+  return state;
+}
+
 function resolveMaterialTextures(
   input: MaterialSettingsInput | null | undefined,
   options: PbrMaterialBuildOptions,
-): { settings: ReturnType<typeof resolvePresetSettings>; textures: ReturnType<typeof createProceduralTextures> } {
+): {
+  settings: ReturnType<typeof resolvePresetSettings>;
+  kind: TextureKind;
+  textures: ProceduralTextures | null;
+} {
   const settings = resolvePresetSettings(input);
   const preset = getMaterialPreset(settings.materialId);
+  const kind = textureKindFor(preset.type);
   return {
     settings,
+    kind,
     textures: createProceduralTextures(
-      textureKindFor(preset.type),
+      kind,
       settings.textureScale,
       options.textureSize,
     ),
@@ -51,7 +141,7 @@ export function buildPbrMaterial(
   input?: MaterialSettingsInput | null,
   options: PbrMaterialBuildOptions = {},
 ): BuiltMaterial {
-  const { settings, textures } = resolveMaterialTextures(input, options);
+  const { settings, kind, textures } = resolveMaterialTextures(input, options);
 
   const parameters: THREE.MeshStandardMaterialParameters = {
     color: new THREE.Color(baseColor),
@@ -59,6 +149,9 @@ export function buildPbrMaterial(
     roughness: settings.roughness,
     opacity: settings.opacity,
     transparent: settings.opacity < 1,
+    emissive: new THREE.Color(input?.emissiveColor ?? '#000000'),
+    emissiveIntensity: settings.emissiveIntensity,
+    aoMapIntensity: settings.aoIntensity,
   };
 
   if (textures) {
@@ -68,11 +161,18 @@ export function buildPbrMaterial(
   }
 
   const material = new THREE.MeshStandardMaterial(parameters);
+  const state = attachProceduralState(
+    material,
+    kind,
+    settings.textureScale,
+    options.textureSize ?? DEFAULT_TEXTURE_SIZE,
+    textures,
+  );
 
   return {
     material,
     dispose: () => {
-      textures?.dispose();
+      state.dispose();
       material.dispose();
     },
   };
@@ -91,9 +191,19 @@ export function applyTextureResolution(
   input: MaterialSettingsInput | null | undefined,
   textureSize: 128 | 512,
 ): (() => void) | null {
-  const { textures } = resolveMaterialTextures(input, { textureSize });
+  const { settings, kind, textures } = resolveMaterialTextures(input, { textureSize });
   if (!textures) {
     return null;
+  }
+  const state = getProceduralState(material);
+  if (state) {
+    state.textures?.dispose();
+    state.textures = textures;
+    state.kind = kind;
+    state.scale = settings.textureScale;
+    state.size = textureSize;
+  } else {
+    attachProceduralState(material, kind, settings.textureScale, textureSize, textures);
   }
   material.map = textures.map;
   material.normalMap = textures.normalMap;
@@ -192,6 +302,8 @@ export function buildMaterialFromAsset(
     roughness: asset.pbr.roughness,
     opacity: asset.pbr.opacity,
     transparent: asset.pbr.opacity < 1,
+    emissiveIntensity: asset.pbr.emissiveIntensity,
+    aoMapIntensity: asset.pbr.aoIntensity,
   };
 
   const disposers: Array<() => void> = [];
@@ -210,20 +322,24 @@ export function buildMaterialFromAsset(
     return resolved.texture;
   };
 
-  const baseMap = asset.maps.baseColor ? resolve(asset.maps.baseColor) : null;
-  if (baseMap) {
-    parameters.map = baseMap;
-  }
-  const normalMap = asset.maps.normal ? resolve(asset.maps.normal) : null;
-  if (normalMap) {
-    parameters.normalMap = normalMap;
-    parameters.normalScale = new THREE.Vector2(
-      asset.pbr.normalStrength,
-      asset.pbr.normalStrength,
-    );
-  }
-
   const material = new THREE.MeshStandardMaterial(parameters);
+
+  for (const role of TEXTURE_MAP_APPLY_ORDER) {
+    const ref = asset.maps[role];
+    if (!ref) {
+      continue;
+    }
+    const texture = resolve(ref);
+    if (!texture) {
+      continue;
+    }
+    applyTextureMapToMaterial(material, role, texture, {
+      normalStrength: asset.pbr.normalStrength,
+      emissiveIntensity: asset.pbr.emissiveIntensity,
+      aoIntensity: asset.pbr.aoIntensity,
+      whiteBaseColor: false,
+    });
+  }
 
   let disposed = false;
   return {

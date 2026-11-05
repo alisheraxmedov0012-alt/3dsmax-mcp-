@@ -24,6 +24,8 @@ describe('resolveMaterialSettings', () => {
       opacity: 0.8,
       textureScale: 3,
       normalStrength: 1.2,
+      emissiveIntensity: 1,
+      aoIntensity: 1,
     });
   });
 
