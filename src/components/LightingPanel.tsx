@@ -1,8 +1,12 @@
-import { LIGHT_LIMITS, type LightSettings } from '../scene/sceneSettings';
+import { LIGHT_LIMITS, SHADOW_LIMITS, type LightSettings, type NumericRange } from '../scene/sceneSettings';
+import { ENVIRONMENT_INTENSITY_LIMITS } from '../render/renderPresets';
 
 interface LightingPanelProps {
   lights: LightSettings;
+  environmentEnabled: boolean;
+  environmentIntensity: number;
   onUpdate: (patch: Partial<LightSettings>) => void;
+  onEnvironmentUpdate: (patch: { enabled?: boolean; intensity?: number }) => void;
   onReset: () => void;
 }
 
@@ -11,23 +15,24 @@ const RANGE = LIGHT_LIMITS.intensity;
 interface SliderRowProps {
   label: string;
   value: number;
+  range?: NumericRange;
   onChange: (value: number) => void;
 }
 
-function IntensityRow({ label, value, onChange }: SliderRowProps) {
+function IntensityRow({ label, value, range = RANGE, onChange }: SliderRowProps) {
   return (
     <div className="field">
       <label className="field__label">
         {label}
         <span className="field__range">
-          {RANGE.min}–{RANGE.max}
+          {range.min}–{range.max}
         </span>
       </label>
       <input
         type="range"
-        min={RANGE.min}
-        max={RANGE.max}
-        step={RANGE.step}
+        min={range.min}
+        max={range.max}
+        step={range.step}
         value={value}
         aria-label={`${label} slayder`}
         onChange={(event) => onChange(Number(event.target.value))}
@@ -36,9 +41,9 @@ function IntensityRow({ label, value, onChange }: SliderRowProps) {
         className="field__input"
         type="number"
         inputMode="decimal"
-        min={RANGE.min}
-        max={RANGE.max}
-        step={RANGE.step}
+        min={range.min}
+        max={range.max}
+        step={range.step}
         value={value}
         aria-label={label}
         onChange={(event) => onChange(Number(event.target.value))}
@@ -47,7 +52,14 @@ function IntensityRow({ label, value, onChange }: SliderRowProps) {
   );
 }
 
-export function LightingPanel({ lights, onUpdate, onReset }: LightingPanelProps) {
+export function LightingPanel({
+  lights,
+  environmentEnabled,
+  environmentIntensity,
+  onUpdate,
+  onEnvironmentUpdate,
+  onReset,
+}: LightingPanelProps) {
   return (
     <section className="lighting">
       <h2 className="lighting__title">Yorug'lik</h2>
@@ -116,11 +128,80 @@ export function LightingPanel({ lights, onUpdate, onReset }: LightingPanelProps)
       <label className="toggle">
         <input
           type="checkbox"
+          checked={lights.rimEnabled}
+          onChange={(event) => onUpdate({ rimEnabled: event.target.checked })}
+        />
+        Orqa (rim) yorug&apos;lik
+      </label>
+      <IntensityRow
+        label="Rim intensivligi"
+        value={lights.rimIntensity}
+        onChange={(value) => onUpdate({ rimIntensity: value })}
+      />
+      <div className="field">
+        <span className="field__label">Rim rangi</span>
+        <input
+          type="color"
+          value={lights.rimColor}
+          aria-label="Rim yorug'lik rangi"
+          onChange={(event) => onUpdate({ rimColor: event.target.value })}
+        />
+      </div>
+
+      <label className="toggle">
+        <input
+          type="checkbox"
           checked={lights.shadowsEnabled}
           onChange={(event) => onUpdate({ shadowsEnabled: event.target.checked })}
         />
         Soyalar
       </label>
+
+      <div className="field">
+        <span className="field__label">Soya sozlamalari</span>
+        <IntensityRow
+          label="Soya radiusi"
+          value={lights.shadowRadius}
+          range={SHADOW_LIMITS.radius}
+          onChange={(value) => onUpdate({ shadowRadius: value })}
+        />
+        <IntensityRow
+          label="Soya kuchi"
+          value={lights.shadowIntensity}
+          range={SHADOW_LIMITS.intensity}
+          onChange={(value) => onUpdate({ shadowIntensity: value })}
+        />
+        <IntensityRow
+          label="Soya bias"
+          value={lights.shadowBias}
+          range={SHADOW_LIMITS.bias}
+          onChange={(value) => onUpdate({ shadowBias: value })}
+        />
+        <IntensityRow
+          label="Soya normal bias"
+          value={lights.shadowNormalBias}
+          range={SHADOW_LIMITS.normalBias}
+          onChange={(value) => onUpdate({ shadowNormalBias: value })}
+        />
+      </div>
+
+      <label className="toggle">
+        <input
+          type="checkbox"
+          checked={environmentEnabled}
+          onChange={(event) => onEnvironmentUpdate({ enabled: event.target.checked })}
+        />
+        Muhit yorug&apos;ligi (environment)
+      </label>
+      <IntensityRow
+        label="Muhit intensivligi"
+        value={environmentIntensity}
+        range={ENVIRONMENT_INTENSITY_LIMITS}
+        onChange={(value) => onEnvironmentUpdate({ intensity: value })}
+      />
+      <p className="visual__hint">
+        RoomEnvironment asosida; tashqi HDRI yuklanmaydi.
+      </p>
 
       <button type="button" className="visual-reset" onClick={onReset}>
         Yorug'likni tiklash

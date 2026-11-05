@@ -403,9 +403,14 @@ describe('sceneReducer', () => {
     expect(findSceneObject(nan, id)?.material.opacity).toBeUndefined();
   });
 
-  it('sets the scene background', () => {
-    const state = sceneReducer(initialState(), { type: 'SET_BACKGROUND', color: '#ff0000' });
+  it('sets the scene background and marks the lighting preset custom', () => {
+    const applied = sceneReducer(initialState(), {
+      type: 'APPLY_LIGHTING_PRESET',
+      preset: 'neutralProduct',
+    });
+    const state = sceneReducer(applied, { type: 'SET_BACKGROUND', color: '#ff0000' });
     expect(state.data.settings.background).toBe('#ff0000');
+    expect(state.data.settings.lightingPreset).toBe('custom');
   });
 
   it('ignores an invalid background colour (keeps the current one)', () => {
@@ -460,6 +465,81 @@ describe('sceneReducer', () => {
     expect(settings.lights.keyIntensity).toBe(3.2);
     expect(settings.lights.ambientIntensity).toBe(0.35);
     expect(settings.lights.keyColor).toBe('#ffffff');
+    expect(settings.environmentEnabled).toBe(true);
+    expect(settings.environmentIntensity).toBe(0.35);
+    expect(settings.background).toBe('#101113');
+    expect(settings.lights.rimEnabled).toBe(true);
+    expect(settings.lights.rimIntensity).toBe(1.5);
+    expect(settings.lights.shadowRadius).toBe(1.5);
+    expect(settings.lights.shadowIntensity).toBe(1);
+    expect(settings.lights).not.toHaveProperty('environmentEnabled');
+    expect(settings.lights).not.toHaveProperty('environmentIntensity');
+  });
+
+  it('sets and clamps the environment manually, marking the preset custom', () => {
+    const applied = sceneReducer(initialState(), {
+      type: 'APPLY_LIGHTING_PRESET',
+      preset: 'studioSoft',
+    });
+    expect(applied.data.settings.environmentEnabled).toBe(true);
+
+    const enabled = sceneReducer(applied, {
+      type: 'SET_ENVIRONMENT',
+      enabled: true,
+      intensity: 99,
+    });
+    expect(enabled.data.settings.environmentEnabled).toBe(true);
+    expect(enabled.data.settings.environmentIntensity).toBe(3);
+    expect(enabled.data.settings.lightingPreset).toBe('custom');
+
+    const disabled = sceneReducer(enabled, {
+      type: 'SET_ENVIRONMENT',
+      enabled: false,
+    });
+    expect(disabled.data.settings.environmentEnabled).toBe(false);
+    expect(disabled.data.settings.environmentIntensity).toBe(3);
+  });
+
+  it('updates and clamps shadow settings through SET_SHADOWS', () => {
+    const updated = sceneReducer(initialState(), {
+      type: 'SET_SHADOWS',
+      shadows: {
+        shadowsEnabled: false,
+        shadowBias: -99,
+        shadowNormalBias: 99,
+        shadowRadius: 99,
+        shadowIntensity: 99,
+      },
+    });
+    expect(updated.data.settings.lights.shadowsEnabled).toBe(false);
+    expect(updated.data.settings.lights.shadowBias).toBe(-0.01);
+    expect(updated.data.settings.lights.shadowNormalBias).toBe(10);
+    expect(updated.data.settings.lights.shadowRadius).toBe(10);
+    expect(updated.data.settings.lights.shadowIntensity).toBe(1);
+    expect(updated.data.settings.lightingPreset).toBe('custom');
+  });
+
+  it('resets shadow settings together with the lights', () => {
+    const changed = sceneReducer(initialState(), {
+      type: 'SET_SHADOWS',
+      shadows: { shadowRadius: 7, shadowIntensity: 0.2 },
+    });
+    const reset = sceneReducer(changed, { type: 'RESET_LIGHTS' });
+    expect(reset.data.settings.lights.shadowRadius).toBe(2);
+    expect(reset.data.settings.lights.shadowIntensity).toBe(1);
+  });
+
+  it('resets environment settings together with the lights', () => {
+    const applied = sceneReducer(initialState(), {
+      type: 'APPLY_LIGHTING_PRESET',
+      preset: 'neutralProduct',
+    });
+    const reset = sceneReducer(applied, { type: 'RESET_LIGHTS' });
+    expect(reset.data.settings.environmentEnabled).toBe(false);
+    expect(reset.data.settings.environmentIntensity).toBe(1);
+    expect(reset.data.settings.background).toBe('#1b1f24');
+    expect(reset.data.settings.lightingPreset).toBe('custom');
+    expect(reset.data.settings.lights.keyIntensity).toBe(2);
   });
 
   it('marks lighting as custom after a manual light edit', () => {

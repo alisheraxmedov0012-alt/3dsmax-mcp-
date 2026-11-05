@@ -49,8 +49,24 @@ export interface LightingPresetConfig {
   keyColor: string;
   fillIntensity: number;
   fillColor: string;
+  rimEnabled: boolean;
+  rimIntensity: number;
+  rimColor: string;
   shadowsEnabled: boolean;
+  shadowBias: number;
+  shadowNormalBias: number;
+  shadowRadius: number;
+  shadowIntensity: number;
+  /** Phase 5.2: whether the RoomEnvironment IBL is active for this preset. */
+  environmentEnabled: boolean;
+  /** Phase 5.2: scene.environmentIntensity written by the preset. */
+  environmentIntensity: number;
+  /** Viewer-only background/backdrop colour. Never written to the export scene. */
+  background: string;
 }
+
+/** Environment intensity limits shared by validation and the manual control. */
+export const ENVIRONMENT_INTENSITY_LIMITS = { min: 0, max: 3, step: 0.05 } as const;
 
 export const LIGHTING_PRESET_CONFIGS: Record<LightingPresetId, LightingPresetConfig> = {
   studioSoft: {
@@ -60,7 +76,17 @@ export const LIGHTING_PRESET_CONFIGS: Record<LightingPresetId, LightingPresetCon
     keyColor: '#fff6ec',
     fillIntensity: 1.0,
     fillColor: '#dbe6f2',
+    rimEnabled: true,
+    rimIntensity: 0.8,
+    rimColor: '#fff4e8',
     shadowsEnabled: true,
+    shadowBias: -0.0004,
+    shadowNormalBias: 1.2,
+    shadowRadius: 4,
+    shadowIntensity: 0.85,
+    environmentEnabled: true,
+    environmentIntensity: 1.0,
+    background: '#262a2f',
   },
   neutralProduct: {
     ambientIntensity: 1.2,
@@ -69,7 +95,17 @@ export const LIGHTING_PRESET_CONFIGS: Record<LightingPresetId, LightingPresetCon
     keyColor: '#ffffff',
     fillIntensity: 0.9,
     fillColor: '#f2f5f8',
+    rimEnabled: true,
+    rimIntensity: 0.55,
+    rimColor: '#ffffff',
     shadowsEnabled: true,
+    shadowBias: -0.0005,
+    shadowNormalBias: 1,
+    shadowRadius: 2,
+    shadowIntensity: 1,
+    environmentEnabled: true,
+    environmentIntensity: 1.15,
+    background: '#1f2327',
   },
   warmInterior: {
     ambientIntensity: 0.8,
@@ -78,7 +114,17 @@ export const LIGHTING_PRESET_CONFIGS: Record<LightingPresetId, LightingPresetCon
     keyColor: '#ffd9a8',
     fillIntensity: 0.7,
     fillColor: '#ffcf9a',
+    rimEnabled: true,
+    rimIntensity: 0.65,
+    rimColor: '#ffd0a0',
     shadowsEnabled: true,
+    shadowBias: -0.0005,
+    shadowNormalBias: 1.2,
+    shadowRadius: 3,
+    shadowIntensity: 0.8,
+    environmentEnabled: true,
+    environmentIntensity: 0.8,
+    background: '#2a2320',
   },
   coolDaylight: {
     ambientIntensity: 1.3,
@@ -87,7 +133,17 @@ export const LIGHTING_PRESET_CONFIGS: Record<LightingPresetId, LightingPresetCon
     keyColor: '#eaf2ff',
     fillIntensity: 1.1,
     fillColor: '#cfe0f5',
+    rimEnabled: true,
+    rimIntensity: 0.75,
+    rimColor: '#e6f0ff',
     shadowsEnabled: true,
+    shadowBias: -0.0004,
+    shadowNormalBias: 1,
+    shadowRadius: 2.5,
+    shadowIntensity: 0.9,
+    environmentEnabled: true,
+    environmentIntensity: 1.0,
+    background: '#1b242e',
   },
   highContrast: {
     ambientIntensity: 0.35,
@@ -96,7 +152,17 @@ export const LIGHTING_PRESET_CONFIGS: Record<LightingPresetId, LightingPresetCon
     keyColor: '#ffffff',
     fillIntensity: 0.25,
     fillColor: '#ccd6e0',
+    rimEnabled: true,
+    rimIntensity: 1.5,
+    rimColor: '#ffffff',
     shadowsEnabled: true,
+    shadowBias: -0.0003,
+    shadowNormalBias: 0.8,
+    shadowRadius: 1.5,
+    shadowIntensity: 1,
+    environmentEnabled: true,
+    environmentIntensity: 0.35,
+    background: '#101113',
   },
 };
 
@@ -108,14 +174,35 @@ export const LIGHTING_PRESET_CONFIGS: Record<LightingPresetId, LightingPresetCon
 export interface LightingPresetPositions {
   key: readonly [number, number, number];
   fill: readonly [number, number, number];
+  rim: readonly [number, number, number];
 }
 
 export const LIGHTING_PRESET_POSITIONS: Record<LightingPresetId, LightingPresetPositions> = {
-  studioSoft: { key: [420, 760, 520], fill: [-520, 420, -420] },
-  neutralProduct: { key: [360, 820, 560], fill: [-460, 460, -380] },
-  warmInterior: { key: [520, 620, 480], fill: [-420, 360, -500] },
-  coolDaylight: { key: [280, 900, 620], fill: [-540, 520, -360] },
-  highContrast: { key: [680, 700, 420], fill: [-380, 300, -560] },
+  studioSoft: {
+    key: [420, 760, 520],
+    fill: [-520, 420, -420],
+    rim: [-450, 420, -650],
+  },
+  neutralProduct: {
+    key: [360, 820, 560],
+    fill: [-460, 460, -380],
+    rim: [-420, 500, -600],
+  },
+  warmInterior: {
+    key: [520, 620, 480],
+    fill: [-420, 360, -500],
+    rim: [-380, 380, -700],
+  },
+  coolDaylight: {
+    key: [280, 900, 620],
+    fill: [-540, 520, -360],
+    rim: [-600, 550, -520],
+  },
+  highContrast: {
+    key: [680, 700, 420],
+    fill: [-380, 300, -560],
+    rim: [-750, 650, -350],
+  },
 };
 
 export function isLightingPresetId(value: unknown): value is LightingPresetId {
@@ -137,7 +224,7 @@ export const QUALITY_PRESET_LABELS: Record<QualityPresetId, string> = {
 };
 
 /** Shadow filter, mapped to the matching Three.js constant by the viewer. */
-export type ShadowMapKind = 'basic' | 'pcf' | 'pcfSoft';
+export type ShadowMapKind = 'pcf' | 'vsm';
 
 export interface QualityPresetConfig {
   /** Device-pixel-ratio cap for the interactive canvas. */
@@ -162,14 +249,14 @@ export const QUALITY_PRESET_CONFIGS: Record<QualityPresetId, QualityPresetConfig
   standard: {
     maxPixelRatio: 1.5,
     antialias: true,
-    shadowMapKind: 'pcfSoft',
+    shadowMapKind: 'pcf',
     shadowMapSize: 1024,
     targetResolution: { width: 1280, height: 720 },
   },
   high: {
     maxPixelRatio: 2,
     antialias: true,
-    shadowMapKind: 'pcfSoft',
+    shadowMapKind: 'pcf',
     shadowMapSize: 2048,
     targetResolution: { width: 2560, height: 1440 },
   },

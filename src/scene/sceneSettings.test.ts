@@ -4,8 +4,14 @@ import {
   DEFAULT_SETTINGS,
   LIGHT_LIMITS,
   createDefaultSettings,
+  SHADOW_LIMITS,
   validateColor,
+  validateEnvironmentIntensity,
   validateIntensity,
+  validateShadowBias,
+  validateShadowNormalBias,
+  validateShadowIntensity,
+  validateShadowRadius,
   validateSceneSettings,
 } from './sceneSettings';
 
@@ -17,7 +23,14 @@ describe('scene settings defaults', () => {
     expect(DEFAULT_SETTINGS.lights.fillIntensity).toBe(0.6);
     expect(DEFAULT_SETTINGS.lights.keyEnabled).toBe(true);
     expect(DEFAULT_SETTINGS.lights.fillEnabled).toBe(true);
+    expect(DEFAULT_SETTINGS.lights.rimEnabled).toBe(false);
+    expect(DEFAULT_SETTINGS.lights.rimIntensity).toBe(0.6);
+    expect(DEFAULT_SETTINGS.lights.rimColor).toBe('#ffffff');
     expect(DEFAULT_SETTINGS.lights.shadowsEnabled).toBe(true);
+    expect(DEFAULT_SETTINGS.lights.shadowBias).toBe(-0.0005);
+    expect(DEFAULT_SETTINGS.lights.shadowNormalBias).toBe(1);
+    expect(DEFAULT_SETTINGS.lights.shadowRadius).toBe(2);
+    expect(DEFAULT_SETTINGS.lights.shadowIntensity).toBe(1);
     expect(DEFAULT_SETTINGS.cameraPreset).toBe('iso');
     expect(CAMERA_PRESETS).toContain('front');
     expect(CAMERA_PRESETS).toContain('product');
@@ -28,6 +41,8 @@ describe('scene settings defaults', () => {
     expect(DEFAULT_SETTINGS.qualityPreset).toBe('standard');
     expect(DEFAULT_SETTINGS.exposure).toBe(1);
     expect(DEFAULT_SETTINGS.toneMapping).toBe('none');
+    expect(DEFAULT_SETTINGS.environmentEnabled).toBe(false);
+    expect(DEFAULT_SETTINGS.environmentIntensity).toBe(1);
   });
 
   it('returns an independent copy from createDefaultSettings', () => {
@@ -37,6 +52,8 @@ describe('scene settings defaults', () => {
     const b = createDefaultSettings();
     expect(b.lights.keyIntensity).toBe(DEFAULT_SETTINGS.lights.keyIntensity);
     expect(b.roomMaterials.floorColor).toBe(DEFAULT_SETTINGS.roomMaterials.floorColor);
+    expect(b.environmentEnabled).toBe(DEFAULT_SETTINGS.environmentEnabled);
+    expect(b.environmentIntensity).toBe(DEFAULT_SETTINGS.environmentIntensity);
   });
 });
 
@@ -55,6 +72,37 @@ describe('validateIntensity', () => {
     expect(validateIntensity(Number.POSITIVE_INFINITY, 1)).toBe(1);
     expect(validateIntensity('3', 1)).toBe(1);
     expect(validateIntensity(undefined, 1)).toBe(1);
+  });
+});
+
+describe('validateEnvironmentIntensity', () => {
+  it('clamps in-range values and falls back for malformed input', () => {
+    expect(validateEnvironmentIntensity(1.5, 1)).toBe(1.5);
+    expect(validateEnvironmentIntensity(99, 1)).toBe(3);
+    expect(validateEnvironmentIntensity(-1, 1)).toBe(0);
+    expect(validateEnvironmentIntensity(Number.NaN, 1.2)).toBe(1.2);
+    expect(validateEnvironmentIntensity('2', 1.2)).toBe(1.2);
+    expect(validateEnvironmentIntensity(undefined, 1.2)).toBe(1.2);
+  });
+});
+
+describe('shadow parameter validators', () => {
+  it('clamps within the conservative shadow ranges', () => {
+    expect(validateShadowBias(-0.0004, 0)).toBe(-0.0004);
+    expect(validateShadowBias(-99, 0)).toBe(SHADOW_LIMITS.bias.min);
+    expect(validateShadowNormalBias(0.5, 1)).toBe(0.5);
+    expect(validateShadowNormalBias(99, 1)).toBe(SHADOW_LIMITS.normalBias.max);
+    expect(validateShadowRadius(3, 2)).toBe(3);
+    expect(validateShadowRadius(-1, 2)).toBe(SHADOW_LIMITS.radius.min);
+    expect(validateShadowIntensity(0.5, 1)).toBe(0.5);
+    expect(validateShadowIntensity(2, 1)).toBe(SHADOW_LIMITS.intensity.max);
+  });
+
+  it('falls back for malformed shadow values', () => {
+    expect(validateShadowBias(Number.NaN, -0.0005)).toBe(-0.0005);
+    expect(validateShadowNormalBias('1' as never, 1)).toBe(1);
+    expect(validateShadowRadius(Number.POSITIVE_INFINITY, 2)).toBe(2);
+    expect(validateShadowIntensity(undefined, 1)).toBe(1);
   });
 });
 
@@ -89,6 +137,7 @@ describe('validateSceneSettings', () => {
     expect(settings.lights.fillIntensity).toBe(LIGHT_LIMITS.intensity.min);
     expect(settings.lights.keyColor).toBe(DEFAULT_SETTINGS.lights.keyColor);
     expect(settings.lights.shadowsEnabled).toBe(false);
+    expect(settings.lights.rimColor).toBe(DEFAULT_SETTINGS.lights.rimColor);
     expect(settings.roomMaterials.floorColor).toBe('#111111');
     expect(settings.roomMaterials.wallColor).toBe(DEFAULT_SETTINGS.roomMaterials.wallColor);
     expect(settings.cameraPreset).toBe('top');
@@ -96,6 +145,53 @@ describe('validateSceneSettings', () => {
 
   it('rejects an unknown camera preset', () => {
     expect(validateSceneSettings({ cameraPreset: 'diagonal' }).cameraPreset).toBe('iso');
+  });
+
+  it('fills additive Phase 5.3 shadow defaults for legacy settings', () => {
+    const legacy = validateSceneSettings({ lights: { shadowsEnabled: false } });
+    expect(legacy.lights.shadowsEnabled).toBe(false);
+    expect(legacy.lights.shadowBias).toBe(DEFAULT_SETTINGS.lights.shadowBias);
+    expect(legacy.lights.shadowNormalBias).toBe(DEFAULT_SETTINGS.lights.shadowNormalBias);
+    expect(legacy.lights.shadowRadius).toBe(DEFAULT_SETTINGS.lights.shadowRadius);
+    expect(legacy.lights.shadowIntensity).toBe(DEFAULT_SETTINGS.lights.shadowIntensity);
+    expect(legacy.lights.rimEnabled).toBe(DEFAULT_SETTINGS.lights.rimEnabled);
+    expect(legacy.lights.rimIntensity).toBe(DEFAULT_SETTINGS.lights.rimIntensity);
+
+    const custom = validateSceneSettings({
+      lights: {
+        shadowBias: 99,
+        shadowNormalBias: -1,
+        shadowRadius: 99,
+        shadowIntensity: 99,
+      },
+    });
+    expect(custom.lights.shadowBias).toBe(SHADOW_LIMITS.bias.max);
+    expect(custom.lights.shadowNormalBias).toBe(SHADOW_LIMITS.normalBias.min);
+    expect(custom.lights.shadowRadius).toBe(SHADOW_LIMITS.radius.max);
+    expect(custom.lights.shadowIntensity).toBe(SHADOW_LIMITS.intensity.max);
+  });
+
+  it('fills additive Phase 5.2 environment defaults for legacy settings', () => {
+    const legacy = validateSceneSettings({
+      background: '#101010',
+      cameraPreset: 'front',
+    });
+    expect(legacy.environmentEnabled).toBe(false);
+    expect(legacy.environmentIntensity).toBe(1);
+
+    const enabled = validateSceneSettings({
+      environmentEnabled: true,
+      environmentIntensity: 2.4,
+    });
+    expect(enabled.environmentEnabled).toBe(true);
+    expect(enabled.environmentIntensity).toBe(2.4);
+
+    const clamped = validateSceneSettings({
+      environmentEnabled: 'yes',
+      environmentIntensity: 99,
+    });
+    expect(clamped.environmentEnabled).toBe(false);
+    expect(clamped.environmentIntensity).toBe(3);
   });
 
   it('normalizes the W5 render fields and rejects unknown values', () => {

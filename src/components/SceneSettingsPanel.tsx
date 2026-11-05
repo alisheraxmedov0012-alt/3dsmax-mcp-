@@ -5,6 +5,11 @@ import {
   type RoomMaterialSettings,
 } from '../scene/sceneSettings';
 import {
+  CAMERA_ANGLES,
+  CAMERA_ANGLE_LABELS,
+  type CameraAngleId,
+} from '../viewer/cameraAngles';
+import {
   EXPOSURE_LIMITS,
   LIGHTING_PRESETS,
   LIGHTING_PRESET_LABELS,
@@ -17,12 +22,14 @@ import {
 interface SceneSettingsPanelProps {
   background: string;
   cameraPreset: CameraPreset;
+  cameraAngle: CameraAngleId | null;
   roomMaterials: RoomMaterialSettings;
   lightingPreset: LightingPresetChoice;
   exposure: number;
   toneMapping: ToneMappingMode;
   onBackground: (color: string) => void;
   onCameraPreset: (preset: CameraPreset) => void;
+  onCameraAngle: (angle: CameraAngleId) => void;
   onRoomMaterials: (patch: Partial<RoomMaterialSettings>) => void;
   onLightingPreset: (preset: LightingPresetChoice) => void;
   onExposure: (value: number) => void;
@@ -34,12 +41,14 @@ const BACKGROUND_SWATCHES = ['#1b1f24', '#0f1115', '#2a2f36', '#f2f4f7', '#c9d3e
 export function SceneSettingsPanel({
   background,
   cameraPreset,
+  cameraAngle,
   roomMaterials,
   lightingPreset,
   exposure,
   toneMapping,
   onBackground,
   onCameraPreset,
+  onCameraAngle,
   onRoomMaterials,
   onLightingPreset,
   onExposure,
@@ -85,6 +94,23 @@ export function SceneSettingsPanel({
               onClick={() => onCameraPreset(preset)}
             >
               {CAMERA_PRESET_LABELS[preset]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="field">
+        <span className="field__label">Product kamera rakurslari</span>
+        <div className="preset-grid">
+          {CAMERA_ANGLES.map((angle) => (
+            <button
+              key={angle}
+              type="button"
+              className={angle === cameraAngle ? 'preset preset--active' : 'preset'}
+              aria-pressed={angle === cameraAngle}
+              onClick={() => onCameraAngle(angle)}
+            >
+              {CAMERA_ANGLE_LABELS[angle]}
             </button>
           ))}
         </div>

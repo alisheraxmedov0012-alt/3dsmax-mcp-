@@ -149,7 +149,14 @@ describe('validateSavedProject', () => {
             fillEnabled: true,
             fillIntensity: 0.2,
             fillColor: '#ffffff',
+            rimEnabled: true,
+            rimIntensity: 0.6,
+            rimColor: '#ffffff',
             shadowsEnabled: false,
+            shadowBias: -0.0004,
+            shadowNormalBias: 0.8,
+            shadowRadius: 3,
+            shadowIntensity: 0.7,
           },
           roomMaterials: { floorColor: '#111111', wallColor: '#222222', ceilingColor: '#333333' },
           cameraPreset: 'top',
@@ -157,6 +164,8 @@ describe('validateSavedProject', () => {
           qualityPreset: 'high',
           exposure: 1.4,
           toneMapping: 'reinhard',
+          environmentEnabled: true,
+          environmentIntensity: 1.2,
         },
         objects: [createTableSceneObject('t1', { material: { metalness: 0.8, roughness: 0.3 } })],
       },
@@ -174,6 +183,15 @@ describe('validateSavedProject', () => {
     expect(restored.scene.settings.qualityPreset).toBe('high');
     expect(restored.scene.settings.exposure).toBeCloseTo(1.4, 5);
     expect(restored.scene.settings.toneMapping).toBe('reinhard');
+    expect(restored.scene.settings.environmentEnabled).toBe(true);
+    expect(restored.scene.settings.environmentIntensity).toBeCloseTo(1.2, 5);
+    expect(restored.scene.settings.lights.shadowBias).toBeCloseTo(-0.0004, 8);
+    expect(restored.scene.settings.lights.shadowNormalBias).toBeCloseTo(0.8, 8);
+    expect(restored.scene.settings.lights.shadowRadius).toBe(3);
+    expect(restored.scene.settings.lights.shadowIntensity).toBeCloseTo(0.7, 8);
+    expect(restored.scene.settings.lights.rimEnabled).toBe(true);
+    expect(restored.scene.settings.lights.rimIntensity).toBeCloseTo(0.6, 8);
+    expect(restored.scene.settings.lights.rimColor).toBe('#ffffff');
     expect(restored.scene.objects[0].material).toEqual({ metalness: 0.8, roughness: 0.3 });
   });
 

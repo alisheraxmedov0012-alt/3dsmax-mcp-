@@ -5,6 +5,7 @@
  * context.
  */
 import {
+  ENVIRONMENT_INTENSITY_LIMITS,
   isLightingPresetId,
   isQualityPresetId,
   isToneMappingMode,
@@ -37,7 +38,18 @@ export interface LightSettings {
   fillEnabled: boolean;
   fillIntensity: number;
   fillColor: string;
+  rimEnabled: boolean;
+  rimIntensity: number;
+  rimColor: string;
   shadowsEnabled: boolean;
+  /** Phase 5.3: depth bias applied to the key light shadow. */
+  shadowBias: number;
+  /** Phase 5.3: world-space normal bias (cm). */
+  shadowNormalBias: number;
+  /** Phase 5.3: PCF softness radius in texels. */
+  shadowRadius: number;
+  /** Phase 5.3: light-shadow strength in [0, 1]. */
+  shadowIntensity: number;
 }
 
 export interface RoomMaterialSettings {
@@ -60,6 +72,13 @@ export interface SceneSettings {
   exposure: number;
   /** W5: tone mapping operator. */
   toneMapping: ToneMappingMode;
+  /**
+   * Phase 5.2: RoomEnvironment IBL. Defaults to false so scenes saved before
+   * Phase 5.2 keep their exact pre-environment appearance.
+   */
+  environmentEnabled: boolean;
+  /** Phase 5.2: scene.environmentIntensity (0–3). */
+  environmentIntensity: number;
 }
 
 export interface NumericRange {
@@ -71,6 +90,14 @@ export interface NumericRange {
 export const LIGHT_LIMITS: Record<'intensity', NumericRange> = {
   intensity: { min: 0, max: 5, step: 0.1 },
 };
+
+/** Phase 5.3 shadow controls; conservative ranges keep the depth pass usable. */
+export const SHADOW_LIMITS = {
+  bias: { min: -0.01, max: 0.01, step: 0.0001 },
+  normalBias: { min: 0, max: 10, step: 0.1 },
+  radius: { min: 0, max: 10, step: 0.1 },
+  intensity: { min: 0, max: 1, step: 0.05 },
+} satisfies Record<'bias' | 'normalBias' | 'radius' | 'intensity', NumericRange>;
 
 export const DEFAULT_SETTINGS: SceneSettings = {
   background: '#1b1f24',
@@ -86,7 +113,14 @@ export const DEFAULT_SETTINGS: SceneSettings = {
     fillEnabled: true,
     fillIntensity: 0.6,
     fillColor: '#ffffff',
+    rimEnabled: false,
+    rimIntensity: 0.6,
+    rimColor: '#ffffff',
     shadowsEnabled: true,
+    shadowBias: -0.0005,
+    shadowNormalBias: 1,
+    shadowRadius: 2,
+    shadowIntensity: 1,
   },
   roomMaterials: {
     floorColor: '#3b3f45',
@@ -100,6 +134,8 @@ export const DEFAULT_SETTINGS: SceneSettings = {
   // exposure 1 with no tone mapping is exactly the previous behaviour.
   exposure: 1,
   toneMapping: 'none',
+  environmentEnabled: false,
+  environmentIntensity: 1,
 };
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
@@ -128,6 +164,43 @@ export function validateIntensity(value: unknown, fallback: number): number {
     return fallback;
   }
   return clamp(value, INTENSITY.min, INTENSITY.max);
+}
+
+/** Clamps the Phase 5.2 environment intensity; malformed input falls back. */
+export function validateEnvironmentIntensity(value: unknown, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return clamp(
+    value,
+    ENVIRONMENT_INTENSITY_LIMITS.min,
+    ENVIRONMENT_INTENSITY_LIMITS.max,
+  );
+}
+
+function validateRange(
+  value: unknown,
+  fallback: number,
+  range: NumericRange,
+): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return clamp(value, range.min, range.max);
+}
+
+/** Phase 5.3 shadow parameter validators. */
+export function validateShadowBias(value: unknown, fallback: number): number {
+  return validateRange(value, fallback, SHADOW_LIMITS.bias);
+}
+export function validateShadowNormalBias(value: unknown, fallback: number): number {
+  return validateRange(value, fallback, SHADOW_LIMITS.normalBias);
+}
+export function validateShadowRadius(value: unknown, fallback: number): number {
+  return validateRange(value, fallback, SHADOW_LIMITS.radius);
+}
+export function validateShadowIntensity(value: unknown, fallback: number): number {
+  return validateRange(value, fallback, SHADOW_LIMITS.intensity);
 }
 
 function validatePreset(value: unknown): CameraPreset {
@@ -181,10 +254,35 @@ export function validateSceneSettings(value: unknown): SceneSettings {
           : DEFAULT_SETTINGS.lights.fillEnabled,
       fillIntensity: validateIntensity(lights.fillIntensity, DEFAULT_SETTINGS.lights.fillIntensity),
       fillColor: validateColor(lights.fillColor, DEFAULT_SETTINGS.lights.fillColor),
+      rimEnabled:
+        typeof lights.rimEnabled === 'boolean'
+          ? lights.rimEnabled
+          : DEFAULT_SETTINGS.lights.rimEnabled,
+      rimIntensity: validateIntensity(
+        lights.rimIntensity,
+        DEFAULT_SETTINGS.lights.rimIntensity,
+      ),
+      rimColor: validateColor(lights.rimColor, DEFAULT_SETTINGS.lights.rimColor),
       shadowsEnabled:
         typeof lights.shadowsEnabled === 'boolean'
           ? lights.shadowsEnabled
           : DEFAULT_SETTINGS.lights.shadowsEnabled,
+      shadowBias: validateShadowBias(
+        lights.shadowBias,
+        DEFAULT_SETTINGS.lights.shadowBias,
+      ),
+      shadowNormalBias: validateShadowNormalBias(
+        lights.shadowNormalBias,
+        DEFAULT_SETTINGS.lights.shadowNormalBias,
+      ),
+      shadowRadius: validateShadowRadius(
+        lights.shadowRadius,
+        DEFAULT_SETTINGS.lights.shadowRadius,
+      ),
+      shadowIntensity: validateShadowIntensity(
+        lights.shadowIntensity,
+        DEFAULT_SETTINGS.lights.shadowIntensity,
+      ),
     },
     roomMaterials: {
       floorColor: validateColor(room.floorColor, DEFAULT_SETTINGS.roomMaterials.floorColor),
@@ -199,6 +297,14 @@ export function validateSceneSettings(value: unknown): SceneSettings {
     qualityPreset: validateQuality(record.qualityPreset),
     exposure: validateExposure(record.exposure, DEFAULT_SETTINGS.exposure),
     toneMapping: validateToneMapping(record.toneMapping),
+    environmentEnabled:
+      typeof record.environmentEnabled === 'boolean'
+        ? record.environmentEnabled
+        : DEFAULT_SETTINGS.environmentEnabled,
+    environmentIntensity: validateEnvironmentIntensity(
+      record.environmentIntensity,
+      DEFAULT_SETTINGS.environmentIntensity,
+    ),
   };
 }
 
@@ -212,5 +318,7 @@ export function createDefaultSettings(): SceneSettings {
     qualityPreset: DEFAULT_SETTINGS.qualityPreset,
     exposure: DEFAULT_SETTINGS.exposure,
     toneMapping: DEFAULT_SETTINGS.toneMapping,
+    environmentEnabled: DEFAULT_SETTINGS.environmentEnabled,
+    environmentIntensity: DEFAULT_SETTINGS.environmentIntensity,
   };
 }

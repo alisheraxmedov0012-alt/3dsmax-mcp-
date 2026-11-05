@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { LIGHT_LIMITS } from '../scene/sceneSettings';
+import { LIGHT_LIMITS, SHADOW_LIMITS } from '../scene/sceneSettings';
 import { MAX_RENDER_DIMENSION, MAX_RENDER_PIXELS } from '../export/sceneImage';
 import {
+  ENVIRONMENT_INTENSITY_LIMITS,
   EXPOSURE_LIMITS,
   LIGHTING_PRESETS,
   LIGHTING_PRESET_CONFIGS,
@@ -33,7 +34,12 @@ describe('lighting presets', () => {
   it('gives every preset concrete, in-range light values', () => {
     for (const id of LIGHTING_PRESETS) {
       const config = LIGHTING_PRESET_CONFIGS[id];
-      for (const intensity of [config.ambientIntensity, config.keyIntensity, config.fillIntensity]) {
+      for (const intensity of [
+        config.ambientIntensity,
+        config.keyIntensity,
+        config.fillIntensity,
+        config.rimIntensity,
+      ]) {
         expect(Number.isFinite(intensity)).toBe(true);
         expect(intensity).toBeGreaterThanOrEqual(INTENSITY.min);
         expect(intensity).toBeLessThanOrEqual(INTENSITY.max);
@@ -41,14 +47,56 @@ describe('lighting presets', () => {
       expect(config.ambientColor).toMatch(HEX);
       expect(config.keyColor).toMatch(HEX);
       expect(config.fillColor).toMatch(HEX);
+      expect(config.rimColor).toMatch(HEX);
+      expect(typeof config.rimEnabled).toBe('boolean');
+      expect(config.background).toMatch(HEX);
       expect(typeof config.shadowsEnabled).toBe('boolean');
+      expect(config.shadowBias).toBeGreaterThanOrEqual(SHADOW_LIMITS.bias.min);
+      expect(config.shadowBias).toBeLessThanOrEqual(SHADOW_LIMITS.bias.max);
+      expect(config.shadowNormalBias).toBeGreaterThanOrEqual(SHADOW_LIMITS.normalBias.min);
+      expect(config.shadowNormalBias).toBeLessThanOrEqual(SHADOW_LIMITS.normalBias.max);
+      expect(config.shadowRadius).toBeGreaterThanOrEqual(SHADOW_LIMITS.radius.min);
+      expect(config.shadowRadius).toBeLessThanOrEqual(SHADOW_LIMITS.radius.max);
+      expect(config.shadowIntensity).toBeGreaterThanOrEqual(SHADOW_LIMITS.intensity.min);
+      expect(config.shadowIntensity).toBeLessThanOrEqual(SHADOW_LIMITS.intensity.max);
+      expect(typeof config.environmentEnabled).toBe('boolean');
+      expect(config.environmentIntensity).toBeGreaterThanOrEqual(
+        ENVIRONMENT_INTENSITY_LIMITS.min,
+      );
+      expect(config.environmentIntensity).toBeLessThanOrEqual(
+        ENVIRONMENT_INTENSITY_LIMITS.max,
+      );
     }
+  });
+
+  it('defines a visually distinct studio configuration for every preset', () => {
+    const serialized = LIGHTING_PRESETS.map((id) => JSON.stringify(LIGHTING_PRESET_CONFIGS[id]));
+    expect(new Set(serialized).size).toBe(LIGHTING_PRESETS.length);
+
+    for (const id of LIGHTING_PRESETS) {
+      const config = LIGHTING_PRESET_CONFIGS[id];
+      expect(config.rimEnabled).toBe(true);
+      expect(config.rimIntensity).toBeGreaterThan(0);
+      expect(config.shadowsEnabled).toBe(true);
+      expect(config.environmentEnabled).toBe(true);
+    }
+  });
+
+  it('defines environment state for every lighting preset', () => {
+    for (const id of LIGHTING_PRESETS) {
+      const config = LIGHTING_PRESET_CONFIGS[id];
+      expect(config.environmentEnabled).toBe(true);
+      expect(config.environmentIntensity).toBeGreaterThan(0);
+    }
+    expect(LIGHTING_PRESET_CONFIGS.highContrast.environmentIntensity).toBeLessThan(
+      LIGHTING_PRESET_CONFIGS.neutralProduct.environmentIntensity,
+    );
   });
 
   it('provides finite light positions for every preset', () => {
     for (const id of LIGHTING_PRESETS) {
       const positions = LIGHTING_PRESET_POSITIONS[id];
-      for (const value of [...positions.key, ...positions.fill]) {
+      for (const value of [...positions.key, ...positions.fill, ...positions.rim]) {
         expect(Number.isFinite(value)).toBe(true);
       }
     }
@@ -114,10 +162,16 @@ describe('resolveRendererConfig', () => {
     }
   });
 
+  it('uses only supported r186 shadow filters', () => {
+    for (const id of QUALITY_PRESETS) {
+      expect(['pcf', 'vsm']).toContain(QUALITY_PRESET_CONFIGS[id].shadowMapKind);
+    }
+  });
+
   it('reports the shadow filter kind and AA per quality', () => {
     expect(resolveRendererConfig('preview', {}).shadowMapKind).toBe('pcf');
     expect(resolveRendererConfig('preview', {}).antialias).toBe(false);
-    expect(resolveRendererConfig('high', {}).shadowMapKind).toBe('pcfSoft');
+    expect(resolveRendererConfig('high', {}).shadowMapKind).toBe('pcf');
     expect(resolveRendererConfig('high', {}).antialias).toBe(true);
   });
 });

@@ -24,7 +24,7 @@ import {
   placeAgainstWall,
   type WallId,
 } from './placement';
-import { createDefaultSettings, validateColor, validateSceneSettings, CAMERA_PRESETS, type LightSettings, type CameraPreset, type SceneSettings } from './sceneSettings';
+import { createDefaultSettings, validateColor, validateEnvironmentIntensity, validateSceneSettings, CAMERA_PRESETS, type LightSettings, type CameraPreset, type SceneSettings } from './sceneSettings';
 import {
   LIGHTING_PRESET_CONFIGS,
   isLightingPresetId,
@@ -133,6 +133,16 @@ export type SceneAction =
   | { type: 'SET_BACKGROUND'; color: string }
   | { type: 'UPDATE_LIGHTS'; lights: Partial<LightSettings> }
   | { type: 'RESET_LIGHTS' }
+  | {
+      type: 'SET_SHADOWS';
+      shadows: Partial<
+        Pick<
+          LightSettings,
+          'shadowsEnabled' | 'shadowBias' | 'shadowNormalBias' | 'shadowRadius' | 'shadowIntensity'
+        >
+      >;
+    }
+  | { type: 'SET_ENVIRONMENT'; enabled?: boolean; intensity?: number }
   | { type: 'APPLY_LIGHTING_PRESET'; preset: LightingPresetId }
   | { type: 'UPDATE_ROOM_MATERIALS'; floorColor?: string; wallColor?: string; ceilingColor?: string }
   | { type: 'SET_CAMERA_PRESET'; preset: CameraPreset }
@@ -754,7 +764,11 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
 
     case 'SET_BACKGROUND': {
       const background = validateColor(action.color, state.data.settings.background);
-      return withSettings(state, { ...state.data.settings, background });
+      return withSettings(state, {
+        ...state.data.settings,
+        background,
+        lightingPreset: 'custom',
+      });
     }
 
     case 'UPDATE_LIGHTS': {
@@ -766,11 +780,49 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
       return withSettings(state, { ...state.data.settings, lights, lightingPreset: 'custom' });
     }
 
-    case 'RESET_LIGHTS':
+    case 'RESET_LIGHTS': {
+      const defaults = createDefaultSettings();
       return withSettings(state, {
         ...state.data.settings,
-        lights: createDefaultSettings().lights,
+        lights: defaults.lights,
+        background: defaults.background,
+        environmentEnabled: defaults.environmentEnabled,
+        environmentIntensity: defaults.environmentIntensity,
+        lightingPreset: defaults.lightingPreset,
       });
+    }
+
+    case 'SET_SHADOWS': {
+      const lights = validateSceneSettings({
+        ...state.data.settings,
+        lights: { ...state.data.settings.lights, ...action.shadows },
+      }).lights;
+      return withSettings(state, {
+        ...state.data.settings,
+        lights,
+        lightingPreset: 'custom',
+      });
+    }
+
+    case 'SET_ENVIRONMENT': {
+      const enabled =
+        typeof action.enabled === 'boolean'
+          ? action.enabled
+          : state.data.settings.environmentEnabled;
+      const intensity =
+        action.intensity === undefined
+          ? state.data.settings.environmentIntensity
+          : validateEnvironmentIntensity(
+              action.intensity,
+              state.data.settings.environmentIntensity,
+            );
+      return withSettings(state, {
+        ...state.data.settings,
+        environmentEnabled: enabled,
+        environmentIntensity: intensity,
+        lightingPreset: 'custom',
+      });
+    }
 
     case 'APPLY_LIGHTING_PRESET': {
       const preset = isLightingPresetId(action.preset)
@@ -779,14 +831,25 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
       if (preset === 'custom') {
         return state;
       }
-      const config = LIGHTING_PRESET_CONFIGS[preset];
+      const {
+        background,
+        environmentEnabled,
+        environmentIntensity,
+        ...lightConfig
+      } = LIGHTING_PRESET_CONFIGS[preset];
       // Write the preset's concrete light values so the manual controls reflect
       // exactly what the renderer will use (single source of truth = settings.lights).
-      const lights = validateSceneSettings({
+      const validated = validateSceneSettings({
         ...state.data.settings,
-        lights: { ...state.data.settings.lights, ...config },
-      }).lights;
-      return withSettings(state, { ...state.data.settings, lights, lightingPreset: preset });
+        background,
+        lights: { ...state.data.settings.lights, ...lightConfig },
+      });
+      return withSettings(state, {
+        ...validated,
+        environmentEnabled,
+        environmentIntensity,
+        lightingPreset: preset,
+      });
     }
 
     case 'UPDATE_ROOM_MATERIALS':

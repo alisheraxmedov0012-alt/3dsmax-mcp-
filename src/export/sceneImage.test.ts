@@ -7,6 +7,7 @@ import {
   exportScenePng,
   pngFileName,
   resolvePngSize,
+  validateCaptureSize,
 } from './sceneImage';
 
 describe('resolvePngSize', () => {
@@ -59,6 +60,33 @@ describe('clampPngSize', () => {
       height: 600,
       clamped: false,
     });
+  });
+
+  it('accepts 4K UHD within the revised pixel cap', () => {
+    expect(MAX_RENDER_PIXELS).toBeGreaterThanOrEqual(3840 * 2160);
+    expect(clampPngSize({ width: 3840, height: 2160 })).toEqual({
+      width: 3840,
+      height: 2160,
+      clamped: false,
+    });
+  });
+});
+describe('validateCaptureSize', () => {
+  it('accepts Full HD and 4K UHD exactly', () => {
+    expect(validateCaptureSize(1920, 1080)).toEqual({ width: 1920, height: 1080 });
+    expect(validateCaptureSize(3840, 2160, 4096)).toEqual({ width: 3840, height: 2160 });
+  });
+
+  it('rejects invalid dimensions and oversized requests', () => {
+    expect(() => validateCaptureSize(0, 1080)).toThrow(/musbat/);
+    expect(() => validateCaptureSize(Number.NaN, 1080)).toThrow(/musbat/);
+    expect(() => validateCaptureSize(5000, 1080)).toThrow(/juda katta/);
+    expect(() => validateCaptureSize(4096, 3000)).toThrow(/piksel limitidan/);
+  });
+
+  it('honours a lower GPU texture-size capability', () => {
+    expect(validateCaptureSize(1920, 1080, 2048)).toEqual({ width: 1920, height: 1080 });
+    expect(() => validateCaptureSize(3840, 2160, 2048)).toThrow(/2048px/);
   });
 });
 

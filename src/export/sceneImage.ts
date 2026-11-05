@@ -11,9 +11,9 @@ export const PNG_PRESETS = {
 
 export type PngPreset = keyof typeof PNG_PRESETS;
 
-/** Upper safety bounds so a high-resolution capture cannot exhaust mobile memory. */
+/** Upper safety bounds for capture targets. 9 MP accommodates 4K UHD. */
 export const MAX_RENDER_DIMENSION = 4096;
-export const MAX_RENDER_PIXELS = 8_000_000;
+export const MAX_RENDER_PIXELS = 9_000_000;
 
 export interface ResolvedPngSize extends PngSize {
   /** True when the requested size had to be scaled down to satisfy the caps. */
@@ -27,6 +27,46 @@ export interface ResolvedPngSize extends PngSize {
 export function resolvePngSize(preset: PngPreset): ResolvedPngSize {
   const requested = PNG_PRESETS[preset];
   return clampPngSize(requested);
+}
+
+/**
+ * Validate an explicit capture size. Unlike `clampPngSize`, this rejects a
+ * request instead of silently shrinking it, so a caller asking for 4K gets
+ * either exactly 4K or a clear capability/size error.
+ */
+export function validateCaptureSize(
+  width: number,
+  height: number,
+  maxTextureSize: number = MAX_RENDER_DIMENSION,
+): PngSize {
+  if (
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    throw new Error("Capture o'lchami musbat va chekli bo'lishi kerak.");
+  }
+  const normalized = {
+    width: Math.round(width),
+    height: Math.round(height),
+  };
+  const textureLimit =
+    Number.isFinite(maxTextureSize) && maxTextureSize > 0
+      ? Math.min(MAX_RENDER_DIMENSION, maxTextureSize)
+      : MAX_RENDER_DIMENSION;
+  if (normalized.width > textureLimit || normalized.height > textureLimit) {
+    throw new Error(
+      `Capture ${normalized.width}x${normalized.height} bu qurilma uchun juda katta; maksimal ${textureLimit}px.`,
+    );
+  }
+  const pixels = normalized.width * normalized.height;
+  if (pixels > MAX_RENDER_PIXELS) {
+    throw new Error(
+      `Capture ${normalized.width}x${normalized.height} piksel limitidan oshadi (${MAX_RENDER_PIXELS}).`,
+    );
+  }
+  return normalized;
 }
 
 export function clampPngSize(requested: PngSize): ResolvedPngSize {

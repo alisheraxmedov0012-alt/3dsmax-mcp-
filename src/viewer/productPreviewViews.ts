@@ -1,56 +1,65 @@
 /**
- * A2.2 — the preview shots a product package ships with.
+ * Phase 5.5 — the preview shots a product package ships with.
  *
- * Kept separate from `SceneViewer` on purpose: the file names and the camera
- * angles are a *product* decision that the package builder, the tests and the UI
- * all need to agree on, and the package builder runs without a renderer. Putting
- * them here means the ZIP can validate what it was handed without importing
- * Three.js or a WebGL context.
+ * The filenames and camera angles are a *product* decision that the package
+ * builder, tests and UI must agree on. The data stays renderer-free so the ZIP
+ * builder can validate a set without a WebGL context.
  *
- * Each view maps onto an existing camera preset (`render/framing.ts`
- * `PRESET_DIRECTIONS`), so no new camera math is introduced:
- *
- * - `product` — slightly elevated three-quarter from the front; the hero shot.
- * - `side`    — lateral elevation, which shows depth and the silhouette.
- * - `iso`     — steeper three-quarter from the same corner; reads as a detail /
- *               alternative angle rather than a duplicate of the hero shot.
- *
- * The three directions are numerically distinct, so a working renderer produces
- * three different images; a test asserts they cannot collapse onto one preset.
+ * The runtime `CameraAngleId` vocabulary is separate from the persisted
+ * `SceneSettings.cameraPreset` values, so adding product angles does not change
+ * scene schema v3.
  */
-import type { CameraPreset } from '../scene/sceneSettings';
+import type { CameraAngleId } from './cameraAngles';
 
-export type ProductPreviewId = 'front' | 'side' | 'detail';
+export type ProductPreviewId = 'hero' | 'front' | 'side' | 'back' | 'top' | 'detail';
 
 export interface ProductPreviewView {
   id: ProductPreviewId;
   /** Stable filename inside the ZIP. No paths, no user text. */
   filename: `preview-${ProductPreviewId}.png`;
-  /** Existing camera preset used to frame this shot. */
-  cameraPreset: CameraPreset;
+  /** Runtime camera angle used to frame this shot. */
+  cameraAngle: CameraAngleId;
   /** Uzbek label for the UI. */
   label: string;
 }
 
-/** The shots every product package carries, in presentation order. */
+/** The default marketplace gallery, in presentation order. */
 export const PRODUCT_PREVIEW_VIEWS: readonly ProductPreviewView[] = [
+  {
+    id: 'hero',
+    filename: 'preview-hero.png',
+    cameraAngle: 'hero',
+    label: 'Hero (uch chorak)',
+  },
   {
     id: 'front',
     filename: 'preview-front.png',
-    cameraPreset: 'product',
-    label: "Old tomondan uch chorak ko'rinish",
+    cameraAngle: 'front',
+    label: 'Old tomondan',
   },
   {
     id: 'side',
     filename: 'preview-side.png',
-    cameraPreset: 'side',
-    label: 'Yon ko‘rinish',
+    cameraAngle: 'right',
+    label: "O'ng yon ko'rinish",
+  },
+  {
+    id: 'back',
+    filename: 'preview-back.png',
+    cameraAngle: 'back',
+    label: 'Orqa tomondan',
+  },
+  {
+    id: 'top',
+    filename: 'preview-top.png',
+    cameraAngle: 'top',
+    label: 'Yuqoridan',
   },
   {
     id: 'detail',
     filename: 'preview-detail.png',
-    cameraPreset: 'iso',
-    label: 'Yuqori uch chorak (qo‘shimcha rakurs)',
+    cameraAngle: 'detail',
+    label: 'Detal (yaqin)',
   },
 ];
 

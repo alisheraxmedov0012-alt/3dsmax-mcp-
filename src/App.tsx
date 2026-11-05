@@ -75,6 +75,7 @@ import {
   type Vec3,
 } from './scene/types';
 import type { SceneViewer } from './viewer/SceneViewer';
+import type { CameraAngleId } from './viewer/cameraAngles';
 import type { MaterialPresetId } from './materials/types';
 import type { TextureAssetRef, TextureMapRole } from './materials/asset';
 import type {
@@ -96,6 +97,7 @@ export default function App() {
   );
   const [resetToken, setResetToken] = useState(0);
   const [cameraPresetToken, setCameraPresetToken] = useState(0);
+  const [cameraAngle, setCameraAngle] = useState<CameraAngleId | null>(null);
 
   const [exportStatus, setExportStatus] = useState<ExportStatus>('idle');
   const [exportFormat, setExportFormat] = useState<ExportFormatId>('glb');
@@ -301,7 +303,10 @@ export default function App() {
 
   const handleDeleteAssembly = (id: string) => dispatch({ type: 'DELETE_ASSEMBLY', id });
 
-  const handleResetView = () => setResetToken((token) => token + 1);
+  const handleResetView = () => {
+    setCameraAngle(null);
+    setResetToken((token) => token + 1);
+  };
 
   const handleSetRoom = (room: Partial<RoomConfig>) => dispatch({ type: 'SET_ROOM', room });
   const handleResetRoom = () => dispatch({ type: 'SET_ROOM', room: { ...ROOM_DEFAULTS } });
@@ -456,6 +461,8 @@ export default function App() {
   const handleBackground = (color: string) => dispatch({ type: 'SET_BACKGROUND', color });
   const handleLights = (lights: Partial<LightSettings>) =>
     dispatch({ type: 'UPDATE_LIGHTS', lights });
+  const handleEnvironment = (patch: { enabled?: boolean; intensity?: number }) =>
+    dispatch({ type: 'SET_ENVIRONMENT', ...patch });
   const handleResetLights = () => dispatch({ type: 'RESET_LIGHTS' });
   const handleRoomMaterials = (patch: Partial<RoomMaterialSettings>) =>
     dispatch({
@@ -464,8 +471,14 @@ export default function App() {
       wallColor: patch.wallColor,
     });
   const handleCameraPreset = (preset: CameraPreset) => {
+    setCameraAngle(null);
     dispatch({ type: 'SET_CAMERA_PRESET', preset });
     setCameraPresetToken((token) => token + 1);
+  };
+
+  const handleCameraAngle = (angle: CameraAngleId) => {
+    setCameraAngle(angle);
+    viewerRef.current?.applyCameraAngle(angle);
   };
 
   const handleLightingPreset = (preset: LightingPresetChoice) => {
@@ -785,12 +798,14 @@ export default function App() {
           <SceneSettingsPanel
             background={settings.background}
             cameraPreset={settings.cameraPreset}
+            cameraAngle={cameraAngle}
             roomMaterials={settings.roomMaterials}
             lightingPreset={settings.lightingPreset}
             exposure={settings.exposure}
             toneMapping={settings.toneMapping}
             onBackground={handleBackground}
             onCameraPreset={handleCameraPreset}
+            onCameraAngle={handleCameraAngle}
             onRoomMaterials={handleRoomMaterials}
             onLightingPreset={handleLightingPreset}
             onExposure={handleExposure}
@@ -798,7 +813,10 @@ export default function App() {
           />
           <LightingPanel
             lights={settings.lights}
+            environmentEnabled={settings.environmentEnabled}
+            environmentIntensity={settings.environmentIntensity}
             onUpdate={handleLights}
+            onEnvironmentUpdate={handleEnvironment}
             onReset={handleResetLights}
           />
         </div>
@@ -967,6 +985,9 @@ export default function App() {
           onSelect={handleSelect}
           onReady={(viewer) => {
             viewerRef.current = viewer;
+            if (viewer && cameraAngle) {
+              viewer.applyCameraAngle(cameraAngle);
+            }
           }}
         />
 

@@ -21,7 +21,7 @@ import {
   isPngBytes,
   isProductPreviewFilename,
 } from '../viewer/productPreviewViews';
-import { computeObjectFraming } from '../render/framing';
+import { computeCameraAngleFraming } from '../viewer/cameraAngles';
 import {
   PRODUCT_PACKAGE_ENTRIES,
   buildProductPackage,
@@ -112,7 +112,7 @@ function makePng(width = 1, height = 1): Uint8Array {
 function previewSet(): Array<{ name: string; bytes: Uint8Array }> {
   return PRODUCT_PREVIEW_FILENAMES.map((name, index) => ({
     name,
-    // Distinct payload lengths so the three files are distinguishable.
+    // Distinct payload lengths so the six files are distinguishable.
     bytes: makePng(index + 1, index + 1),
   }));
 }
@@ -150,23 +150,26 @@ function packageInput(previews?: Array<{ name: string; bytes: Uint8Array }> | nu
 }
 
 describe('A2.2 preview vocabulary', () => {
-  it('declares exactly the three documented files', () => {
+  it('declares exactly the six documented files', () => {
     expect(PRODUCT_PREVIEW_FILENAMES).toEqual([
+      'preview-hero.png',
       'preview-front.png',
       'preview-side.png',
+      'preview-back.png',
+      'preview-top.png',
       'preview-detail.png',
     ]);
     // Distinct, stable, no paths.
-    expect(new Set(PRODUCT_PREVIEW_FILENAMES).size).toBe(3);
+    expect(new Set(PRODUCT_PREVIEW_FILENAMES).size).toBe(6);
     for (const name of PRODUCT_PREVIEW_FILENAMES) {
       expect(name).not.toContain('/');
       expect(name).toMatch(/^preview-[a-z]+\.png$/);
     }
   });
 
-  it('frames each shot with a different camera preset', () => {
-    const presets = PRODUCT_PREVIEW_VIEWS.map((view) => view.cameraPreset);
-    expect(new Set(presets).size).toBe(3);
+  it('frames each shot with a different camera angle', () => {
+    const angles = PRODUCT_PREVIEW_VIEWS.map((view) => view.cameraAngle);
+    expect(new Set(angles).size).toBe(6);
   });
 
   it('places the camera somewhere different for each shot', () => {
@@ -174,7 +177,7 @@ describe('A2.2 preview vocabulary', () => {
     // resolved to the same camera position the "gallery" would be duplicates.
     const bounds = { min: { x: -60, y: 0, z: -30 }, max: { x: 60, y: 75, z: 30 } };
     const positions = PRODUCT_PREVIEW_VIEWS.map((view) =>
-      computeObjectFraming(bounds, view.cameraPreset, 16 / 9),
+      computeCameraAngleFraming(bounds, view.cameraAngle, 16 / 9),
     );
     for (let i = 0; i < positions.length; i += 1) {
       for (let j = i + 1; j < positions.length; j += 1) {
@@ -191,7 +194,7 @@ describe('A2.2 preview vocabulary', () => {
 
   it('accepts only the declared names', () => {
     expect(isProductPreviewFilename('preview-front.png')).toBe(true);
-    expect(isProductPreviewFilename('preview-back.png')).toBe(false);
+    expect(isProductPreviewFilename('preview-back.png')).toBe(true);
     expect(isProductPreviewFilename('../escape.png')).toBe(false);
     expect(isProductPreviewFilename('model.glb')).toBe(false);
   });
@@ -255,7 +258,7 @@ describe('A2.2 previews in the ZIP', () => {
     expect(Object.keys(unzipSync(outcome.product.bytes))).toHaveLength(14);
   });
 
-  it('writes all three images as real PNGs, alongside the fourteen documents', async () => {
+  it('writes all six images as real PNGs, alongside the fourteen documents', async () => {
     const outcome = await buildProductPackage(packageInput(previewSet()));
     expect(outcome.ok, outcome.ok ? '' : outcome.reason).toBe(true);
     if (!outcome.ok) return;
@@ -263,7 +266,7 @@ describe('A2.2 previews in the ZIP', () => {
     // unzipSync verifies each entry's CRC while inflating.
     const files = unzipSync(outcome.product.bytes);
     const names = Object.keys(files);
-    expect(names).toHaveLength(17);
+    expect(names).toHaveLength(20);
 
     for (const name of PRODUCT_PREVIEW_FILENAMES) {
       expect(files[name], name).toBeDefined();
@@ -325,7 +328,7 @@ describe('A2.2 previews in the ZIP', () => {
     expect(outcome.product.entries.map((entry) => entry.name)).toEqual(
       outcome.product.expectedEntries,
     );
-    expect(outcome.product.expectedEntries).toHaveLength(17);
+    expect(outcome.product.expectedEntries).toHaveLength(20);
   });
 });
 
