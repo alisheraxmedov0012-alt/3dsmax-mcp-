@@ -120,6 +120,24 @@ describe('EnvironmentManager', () => {
     expect(pmrem.dispose).toHaveBeenCalledTimes(1);
   });
 
+  it('regenerates GPU-scoped resources after a context loss', () => {
+    const { scene, room, targets, pmrem, manager, createPmremGenerator } = makeHarness();
+    const first = targets[0];
+    manager.apply({ enabled: true, intensity: 1 });
+
+    manager.resetAfterContextLoss();
+
+    expect(first.dispose).toHaveBeenCalledTimes(1);
+    expect(room.dispose).toHaveBeenCalledTimes(1);
+    expect(pmrem.dispose).toHaveBeenCalledTimes(1);
+    expect(scene.environment).toBeNull();
+
+    manager.apply({ enabled: true, intensity: 1.4 });
+    expect(createPmremGenerator).toHaveBeenCalledTimes(2);
+    expect(scene.environment).not.toBeNull();
+    expect(scene.environmentIntensity).toBe(1.4);
+  });
+
   it('does not retry a failed PMREM generation on every update', () => {
     const { scene, manager, pmrem, createPmremGenerator } = makeHarness();
     pmrem.fromScene = vi.fn(() => {

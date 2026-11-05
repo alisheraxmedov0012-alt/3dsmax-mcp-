@@ -47,6 +47,14 @@ import { captureRendererState, restoreRendererState } from './rendererState';
 import { readCapturePixels } from './captureReadback';
 import { validateCaptureSize } from '../export/sceneImage';
 import {
+  TRANSPARENT_PROBE_HEIGHT,
+  TRANSPARENT_PROBE_WIDTH,
+  analyzeAlphaProbe,
+  type TransparentProbeResult,
+} from './alphaProbe';
+import { CaptureError, describeCaptureError } from './captureErrors';
+import { selectionHelperAction } from './selectionHelper';
+import {
   LIGHTING_PRESET_POSITIONS,
   isLightingPresetId,
   isQualityPresetId,
@@ -72,6 +80,9 @@ const SHADOW_MAP_KIND: Record<ShadowMapKind, THREE.ShadowMapType> = {
 
 export interface SceneViewerOptions {
   onSelect?: (id: string | null) => void;
+  /** Fired when the WebGL context is lost; the viewer cannot render until restored. */
+  onContextLost?: () => void;
+  onContextRestored?: () => void;
 }
 
 export interface CapturePngOptions {
@@ -98,6 +109,10 @@ export interface CapturePngOptions {
   background?: string | null;
   /** Capture-only shadow/window quality override. */
   qualityPreset?: QualityPresetId;
+  /** Clear the framebuffer with alpha 0 so the PNG keeps a transparent background. */
+  transparent?: boolean;
+  /** Probe-only: hide the contact shadow plane that would tint corner pixels. */
+  hideShadowCatcher?: boolean;
 }
 
 export interface CaptureProductPreviewsOptions {
@@ -143,6 +158,8 @@ export class SceneViewer {
   private room: { group: THREE.Group; dispose: () => void; key: string } | null = null;
   private readonly objects = new Map<string, ObjectEntry>();
   private selectionHelper: THREE.BoxHelper | null = null;
+  /** Instance currently outlined; identity decides update vs recreate. */
+  private selectionHelperTarget: THREE.Object3D | null = null;
 
   private data: SceneData | null = null;
   private selectedId: string | null = null;
@@ -153,14 +170,21 @@ export class SceneViewer {
   private renderPaused = false;
   private captureDepth = 0;
   private outputPass: OutputPass | null = null;
+  private contextLost = false;
+  private readonly onContextLost?: () => void;
+  private readonly onContextRestored?: () => void;
 
   private pointerDown: { x: number; y: number } | null = null;
   private readonly handlePointerDown: (event: PointerEvent) => void;
   private readonly handlePointerUp: (event: PointerEvent) => void;
+  private readonly handleContextLost: (event: Event) => void;
+  private readonly handleContextRestored: () => void;
 
   constructor(container: HTMLElement, options: SceneViewerOptions = {}) {
     this.container = container;
     this.onSelect = options.onSelect;
+    this.onContextLost = options.onContextLost;
+    this.onContextRestored = options.onContextRestored;
 
     this.scene = new THREE.Scene();
     this.scene.background = this.background;
@@ -227,8 +251,41 @@ export class SceneViewer {
 
     this.handlePointerDown = (event) => this.onPointerDown(event);
     this.handlePointerUp = (event) => this.onPointerUp(event);
+    this.handleContextLost = (event) => {
+      // Without preventDefault the browser will not attempt a restore.
+      event.preventDefault();
+      this.contextLost = true;
+      this.onContextLost?.();
+    };
+    this.handleContextRestored = () => {
+      this.contextLost = false;
+      try {
+        // Programs, the shadow map and the PMREM target live only on the GPU.
+        this.environment.resetAfterContextLoss();
+        this.outputPass?.dispose();
+        this.outputPass = null;
+        this.keyLight.shadow.map?.dispose();
+        this.keyLight.shadow.map = null;
+        this.renderer.shadowMap.needsUpdate = true;
+        if (this.data) {
+          this.applySettings(this.data.settings);
+        }
+        this.resize();
+        this.renderer.render(this.scene, this.camera);
+      } catch (error) {
+        // Restore is best-effort: the canvas stays visible and a later scene
+        // update retries the rebuild rather than leaving a blank editor.
+        console.error('WebGL kontekstini tiklashda xato:', error);
+      }
+      this.onContextRestored?.();
+    };
     this.renderer.domElement.addEventListener('pointerdown', this.handlePointerDown);
     this.renderer.domElement.addEventListener('pointerup', this.handlePointerUp);
+    this.renderer.domElement.addEventListener('webglcontextlost', this.handleContextLost);
+    this.renderer.domElement.addEventListener(
+      'webglcontextrestored',
+      this.handleContextRestored,
+    );
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
@@ -794,6 +851,91 @@ export class SceneViewer {
     height: number,
     options: CapturePngOptions = {},
   ): Promise<Blob> {
+    const captured = await this.renderCapturePixels(width, height, options);
+    return this.encodePng(captured.pixels, captured.width, captured.height);
+  }
+
+  /**
+   * Render a tiny transparent frame and inspect the alpha channel that comes
+   * back. `scene.background = null` alone is not proof: a lost alpha channel or
+   * an opaque output pass still produces a fully opaque PNG.
+   */
+  async probeTransparentCapture(): Promise<TransparentProbeResult> {
+    try {
+      const captured = await this.renderCapturePixels(
+        TRANSPARENT_PROBE_WIDTH,
+        TRANSPARENT_PROBE_HEIGHT,
+        {
+          transparent: true,
+          includeRoom: false,
+          hideSelection: true,
+          hideShadowCatcher: true,
+          reframeSelection: false,
+        },
+      );
+      return analyzeAlphaProbe(captured.pixels, captured.width, captured.height);
+    } catch (error) {
+      return {
+        supported: false,
+        cornerAlpha: [],
+        reason: describeCaptureError(error),
+      };
+    }
+  }
+
+  isContextLost(): boolean {
+    return this.contextLost || this.renderer.getContext().isContextLost();
+  }
+
+  /**
+   * Renderer memory/draw counters for the performance probe. These are Three's
+   * numbers, not a GPU benchmark; they show whether repeated exports leak
+   * geometries or textures.
+   */
+  getRenderStats(): {
+    geometries: number;
+    textures: number;
+    programs: number;
+    drawCalls: number;
+    triangles: number;
+    maxTextureSize: number;
+  } {
+    const info = this.renderer.info;
+    return {
+      geometries: info.memory.geometries,
+      textures: info.memory.textures,
+      programs: info.programs?.length ?? 0,
+      drawCalls: info.render.calls,
+      triangles: info.render.triangles,
+      maxTextureSize: this.renderer.capabilities.maxTextureSize,
+    };
+  }
+
+  private assertContextAvailable(): void {
+    if (this.isContextLost()) {
+      throw new CaptureError(
+        'context-lost',
+        "WebGL konteksti yo'q. Eksportni qayta urinib ko'ring.",
+      );
+    }
+  }
+
+  /**
+   * One offscreen render transaction: framing, quality override, targets,
+   * readback and restoration. Kept separate from PNG encoding so the alpha probe
+   * can inspect the pixels without paying for an encode.
+   */
+  private async renderCapturePixels(
+    width: number,
+    height: number,
+    options: CapturePngOptions,
+  ): Promise<{ pixels: Uint8Array; width: number; height: number }> {
+    if (this.captureDepth > 0) {
+      throw new CaptureError(
+        'busy',
+        "Boshqa eksport davom etmoqda. U tugagach qayta urinib ko'ring.",
+      );
+    }
     const size = validateCaptureSize(
       width,
       height,
@@ -802,6 +944,7 @@ export class SceneViewer {
     const captureWidth = size.width;
     const captureHeight = size.height;
     const aspect = captureAspect(captureWidth, captureHeight);
+    const transparent = options.transparent === true;
     const requestedQuality =
       options.qualityPreset && isQualityPresetId(options.qualityPreset)
         ? options.qualityPreset
@@ -816,6 +959,7 @@ export class SceneViewer {
         ? 4
         : 0;
 
+    this.assertContextAvailable();
     this.beginCapture();
     const rendererState = captureRendererState(this.renderer);
     const prevRoomVisible = this.room?.group.visible ?? null;
@@ -823,7 +967,6 @@ export class SceneViewer {
     const prevBackground = this.scene.background;
     const temporaryTargets: THREE.WebGLRenderTarget[] = [];
     let restoreQuality: (() => void) | null = null;
-    let pixels: Uint8Array | null = null;
 
     try {
       if (options.includeRoom === false && this.room) {
@@ -832,14 +975,23 @@ export class SceneViewer {
       if (options.hideSelection !== false && this.selectionHelper) {
         this.selectionHelper.visible = false;
       }
-      if (options.background !== undefined) {
-        this.scene.background =
-          options.background === null ? null : new THREE.Color(options.background);
+      if (transparent) {
+        this.scene.background = null;
+        this.renderer.setClearAlpha(0);
+      } else {
+        this.renderer.setClearAlpha(1);
+        if (options.background !== undefined) {
+          this.scene.background =
+            options.background === null ? null : new THREE.Color(options.background);
+        }
       }
       this.refreshShadowCatcher();
+      if (options.hideShadowCatcher) {
+        this.shadowCatcher.object.visible = false;
+      }
       restoreQuality = this.applyCaptureQuality(options.qualityPreset);
 
-      pixels = await withRestoredCameraState(this.camera, this.controls, async () => {
+      const pixels = await withRestoredCameraState(this.camera, this.controls, async () => {
         this.camera.aspect = aspect;
         this.camera.updateProjectionMatrix();
         if (options.cameraAngle) {
@@ -904,68 +1056,98 @@ export class SceneViewer {
         // OutputPass writes already-encoded sRGB bytes; do not let the target
         // perform a second sRGB conversion.
         outputTarget.texture.colorSpace = THREE.NoColorSpace;
+        // Straight (non-premultiplied) alpha is what the 2D canvas and PNG expect.
+        outputTarget.texture.premultiplyAlpha = false;
         temporaryTargets.push(outputTarget);
 
         this.renderer.setRenderTarget(hdrTarget);
         this.renderer.render(this.scene, this.camera);
         this.getOutputPass().render(this.renderer, outputTarget, hdrTarget, 0, false);
 
+        this.assertContextAvailable();
         const buffer = new Uint8Array(captureWidth * captureHeight * 4);
-        await readCapturePixels(
-          this.renderer,
-          outputTarget,
-          captureWidth,
-          captureHeight,
-          buffer,
-        );
+        try {
+          await readCapturePixels(
+            this.renderer,
+            outputTarget,
+            captureWidth,
+            captureHeight,
+            buffer,
+          );
+        } catch (error) {
+          if (this.isContextLost()) {
+            throw new CaptureError(
+              'context-lost',
+              "WebGL konteksti capture vaqtida yo'qoldi.",
+              { cause: error },
+            );
+          }
+          throw new CaptureError('readback-failed', "Render natijasini o'qib bo'lmadi.", {
+            cause: error,
+          });
+        }
+        this.assertContextAvailable();
+        if (buffer.byteLength !== captureWidth * captureHeight * 4) {
+          throw new CaptureError('empty-buffer', "Render natijasi to'liq emas.");
+        }
         return buffer;
       });
+
+      return { pixels, width: captureWidth, height: captureHeight };
     } finally {
-      restoreQuality?.();
-      if (this.room && prevRoomVisible !== null) {
-        this.room.group.visible = prevRoomVisible;
+      try {
+        restoreQuality?.();
+        if (this.room && prevRoomVisible !== null) {
+          this.room.group.visible = prevRoomVisible;
+        }
+        if (this.selectionHelper && prevSelectionVisible !== null) {
+          this.selectionHelper.visible = prevSelectionVisible;
+        }
+        this.scene.background = prevBackground;
+        for (const target of temporaryTargets) {
+          target.dispose();
+        }
+        this.refreshShadowCatcher();
+        // A lost context cannot accept state restoration; three will rebuild the
+        // renderer state after `webglcontextrestored`.
+        if (!this.isContextLost()) {
+          restoreRendererState(this.renderer, rendererState);
+          this.renderer.render(this.scene, this.camera);
+        }
+      } finally {
+        // Always release the capture lock, even if a restore step throws.
+        this.endCapture();
       }
-      if (this.selectionHelper && prevSelectionVisible !== null) {
-        this.selectionHelper.visible = prevSelectionVisible;
-      }
-      this.scene.background = prevBackground;
-      restoreRendererState(this.renderer, rendererState);
-      for (const target of temporaryTargets) {
-        target.dispose();
-      }
-      this.refreshShadowCatcher();
-      this.endCapture();
-      // Redraw the visible frame with the restored composition immediately,
-      // before the PNG encoder runs asynchronously.
-      this.renderer.render(this.scene, this.camera);
     }
+  }
 
-    if (!pixels) {
-      throw new Error("Render natijasini o'qib bo'lmadi.");
-    }
-
+  private async encodePng(
+    pixels: Uint8Array,
+    width: number,
+    height: number,
+  ): Promise<Blob> {
     const canvas = document.createElement('canvas');
-    canvas.width = captureWidth;
-    canvas.height = captureHeight;
-    const context = canvas.getContext('2d', { colorSpace: 'srgb' });
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d', { colorSpace: 'srgb', alpha: true });
     if (!context) {
-      throw new Error('2D kontekst mavjud emas.');
+      throw new CaptureError('encode-failed', '2D kontekst mavjud emas.');
     }
 
-    const imageData = context.createImageData(captureWidth, captureHeight);
+    const imageData = context.createImageData(width, height);
     // WebGL reads bottom-up; flip vertically into the 2D canvas.
-    for (let y = 0; y < captureHeight; y += 1) {
-      const src = (captureHeight - 1 - y) * captureWidth * 4;
-      imageData.data.set(
-        pixels.subarray(src, src + captureWidth * 4),
-        y * captureWidth * 4,
-      );
+    for (let y = 0; y < height; y += 1) {
+      const src = (height - 1 - y) * width * 4;
+      imageData.data.set(pixels.subarray(src, src + width * 4), y * width * 4);
     }
     context.putImageData(imageData, 0, 0);
 
     return await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob(
-        (result) => (result ? resolve(result) : reject(new Error("PNG yaratib bo'lmadi."))),
+        (result) =>
+          result
+            ? resolve(result)
+            : reject(new CaptureError('encode-failed', "PNG yaratib bo'lmadi.")),
         'image/png',
       );
     });
@@ -1043,35 +1225,54 @@ export class SceneViewer {
     }
   }
 
-  private updateSelectionHelper(): void {
-    if (this.selectionHelper) {
-      this.scene.remove(this.selectionHelper);
-      this.selectionHelper.geometry.dispose();
-      (this.selectionHelper.material as THREE.Material).dispose();
-      this.selectionHelper = null;
-    }
-
-    if (!this.selectedId || !this.data) {
+  private disposeSelectionHelper(): void {
+    if (!this.selectionHelper) {
+      this.selectionHelperTarget = null;
       return;
     }
+    this.scene.remove(this.selectionHelper);
+    this.selectionHelper.geometry.dispose();
+    (this.selectionHelper.material as THREE.Material).dispose();
+    this.selectionHelper = null;
+    this.selectionHelperTarget = null;
+  }
 
+  private updateSelectionHelper(): void {
     let target: THREE.Object3D | null = null;
-    if (this.selectedId === ROOM_OBJECT_ID) {
-      target = this.room?.group ?? null;
-    } else {
-      const entry = this.objects.get(this.selectedId);
-      const object = this.data.objects.find((item) => item.id === this.selectedId);
-      if (entry && object?.visible) {
-        target = entry.group;
+    if (this.selectedId && this.data) {
+      if (this.selectedId === ROOM_OBJECT_ID) {
+        target = this.room?.group ?? null;
+      } else {
+        const entry = this.objects.get(this.selectedId);
+        const object = this.data.objects.find((item) => item.id === this.selectedId);
+        if (entry && object?.visible) {
+          target = entry.group;
+        }
       }
     }
 
-    if (!target) {
+    const action = selectionHelperAction(this.selectionHelperTarget, target);
+    if (action === 'none') {
+      return;
+    }
+    if (action === 'dispose') {
+      this.disposeSelectionHelper();
+      return;
+    }
+    if (action === 'update' && this.selectionHelper) {
+      // Geometry transforms changed but the object instance is the same: move
+      // the existing box instead of paying for a new helper every scene edit.
+      this.selectionHelper.setFromObject(this.selectionHelperTarget as THREE.Object3D);
       return;
     }
 
+    this.disposeSelectionHelper();
+    if (!target) {
+      return;
+    }
     this.selectionHelper = new THREE.BoxHelper(target, 0x4f9dff);
     this.selectionHelper.name = 'selection-helper';
+    this.selectionHelperTarget = target;
     this.scene.add(this.selectionHelper);
   }
 
@@ -1134,7 +1335,7 @@ export class SceneViewer {
     const loop = () => {
       this.frameId = requestAnimationFrame(loop);
       this.controls.update();
-      if (!this.renderPaused) {
+      if (!this.renderPaused && !this.contextLost) {
         this.renderer.render(this.scene, this.camera);
       }
     };
@@ -1170,16 +1371,16 @@ export class SceneViewer {
 
     this.renderer.domElement.removeEventListener('pointerdown', this.handlePointerDown);
     this.renderer.domElement.removeEventListener('pointerup', this.handlePointerUp);
+    this.renderer.domElement.removeEventListener('webglcontextlost', this.handleContextLost);
+    this.renderer.domElement.removeEventListener(
+      'webglcontextrestored',
+      this.handleContextRestored,
+    );
 
     this.resizeObserver.disconnect();
     this.controls.dispose();
 
-    if (this.selectionHelper) {
-      this.scene.remove(this.selectionHelper);
-      this.selectionHelper.geometry.dispose();
-      (this.selectionHelper.material as THREE.Material).dispose();
-      this.selectionHelper = null;
-    }
+    this.disposeSelectionHelper();
 
     if (this.room) {
       this.scene.remove(this.room.group);

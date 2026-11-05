@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { SceneData } from '../scene/types';
 import type { CameraPreset } from '../scene/sceneSettings';
 import { SceneViewer } from '../viewer/SceneViewer';
@@ -24,6 +24,7 @@ export function ViewerCanvas({
 }: ViewerCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<SceneViewer | null>(null);
+  const [contextLost, setContextLost] = useState(false);
   const onSelectRef = useRef(onSelect);
   const onReadyRef = useRef(onReady);
   onSelectRef.current = onSelect;
@@ -37,6 +38,8 @@ export function ViewerCanvas({
 
     const viewer = new SceneViewer(container, {
       onSelect: (id) => onSelectRef.current(id),
+      onContextLost: () => setContextLost(true),
+      onContextRestored: () => setContextLost(false),
     });
     viewerRef.current = viewer;
     onReadyRef.current(viewer);
@@ -66,5 +69,23 @@ export function ViewerCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraPresetToken]);
 
-  return <div className="viewer" ref={containerRef} />;
+  return (
+    <div className="viewer" ref={containerRef}>
+      {contextLost && (
+        <div className="viewer__status viewer__status--overlay" role="alert">
+          <p className="viewer__status-text">
+            WebGL konteksti yo’qoldi. Brauzer uni tiklamoqda; eksport vaqtincha
+            ishlamaydi.
+          </p>
+          <button
+            type="button"
+            className="viewer__status-button"
+            onClick={() => window.location.reload()}
+          >
+            Sahifani yangilash
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }

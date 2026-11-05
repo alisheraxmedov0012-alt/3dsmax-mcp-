@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="uz">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>3D Studio AI — render probe (Phase 5.8)</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 16px;
+        background: #101418;
+        color: #d6dee7;
+        font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      #stage {
+        position: relative;
+        width: min(800px, 100%);
+        aspect-ratio: 16 / 9;
+        background: #1b1f24;
+        border: 1px solid #333b45;
+      }
+      #results {
+        margin-top: 16px;
+        padding: 12px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: #161b21;
+        border: 1px solid #2a323b;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>3D Studio AI — Phase 5.8 render probe</h1>
+    <p>
+      Brauzer imkoniyatlarini tekshiradi: FHD/UHD capture, 6 rakursli ZIP, shaffof
+      alpha, resurs lifecycle va WebGL context loss. SwiftShader natijasi real GPU
+      benchmark emas.
+    </p>
+    <div id="stage"></div>
+    <pre id="results" aria-live="polite">Ishga tushirilmoqda…</pre>
+    <script type="module" src="./probe.ts"></script>
+  </body>
+</html>

@@ -210,6 +210,33 @@ input[type='color'] {
   color: #c3ccd6;
 }
 
+/* Phase 5.8: context loss leaves the canvas blank, so the message must cover it. */
+.viewer__status--overlay {
+  position: absolute;
+  z-index: 3;
+  inset: auto 16px 16px 16px;
+  padding: 10px 14px;
+  border: 1px solid #6b4a2a;
+  border-radius: 8px;
+  background: rgba(32, 24, 16, 0.94);
+  color: #ffd9a8;
+  text-align: center;
+}
+
+.viewer__status-text {
+  margin: 0 0 8px;
+}
+
+.viewer__status-button {
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  color: #201810;
+  background: #ffd9a8;
+  border: 1px solid #ffd9a8;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
 .viewer__hint {
   margin: 0;
   max-width: 42ch;
@@ -1916,9 +1943,43 @@ input[type='color'] {
   background: #d5b6ff;
 }
 
+.render__button--secondary {
+  color: #d9c7ff;
+  background: #262c34;
+  border-color: #4a3a63;
+}
+
+.render__button--secondary:hover:not(:disabled) {
+  background: #332b40;
+}
+
 .render__button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+.render__progress {
+  position: relative;
+  overflow: hidden;
+  min-height: 28px;
+  border: 1px solid #3a424c;
+  border-radius: 8px;
+  background: #1a1f25;
+}
+
+.render__progress-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: #4a3a63;
+  transition: width 120ms linear;
+}
+
+.render__progress-text {
+  position: relative;
+  display: block;
+  padding: 5px 8px;
+  font-size: 0.76rem;
+  color: #d9c7ff;
 }
 
 .render__message {

@@ -1,4 +1,8 @@
-import { PNG_PRESETS, type PngPreset } from '../export/sceneImage';
+import {
+  PNG_PRESET_LABELS,
+  UI_PNG_PRESETS,
+  type PngPreset,
+} from '../export/sceneImage';
 import {
   QUALITY_PRESETS,
   QUALITY_PRESET_LABELS,
@@ -7,32 +11,43 @@ import {
 
 export type RenderStatus = 'idle' | 'working' | 'success' | 'error';
 
+export interface RenderProgress {
+  current: number;
+  total: number;
+  label: string;
+}
+
 interface RenderExportPanelProps {
   preset: PngPreset;
   quality: QualityPresetId;
+  transparent: boolean;
+  /** False once the browser probe proved that alpha cannot be preserved. */
+  transparentAvailable: boolean;
   status: RenderStatus;
   message: string;
+  progress: RenderProgress | null;
   disabled: boolean;
   onPresetChange: (preset: PngPreset) => void;
   onQualityChange: (quality: QualityPresetId) => void;
-  onExport: () => void;
+  onTransparentChange: (transparent: boolean) => void;
+  onExportCurrent: () => void;
+  onExportBatch: () => void;
 }
-
-const PRESET_LABELS: Record<PngPreset, string> = {
-  preview: `Tezkor (${PNG_PRESETS.preview.width}×${PNG_PRESETS.preview.height})`,
-  standard: `Standart (${PNG_PRESETS.standard.width}×${PNG_PRESETS.standard.height})`,
-  high: `Yuqori (${PNG_PRESETS.high.width}×${PNG_PRESETS.high.height})`,
-};
 
 export function RenderExportPanel({
   preset,
   quality,
+  transparent,
+  transparentAvailable,
   status,
   message,
+  progress,
   disabled,
   onPresetChange,
   onQualityChange,
-  onExport,
+  onTransparentChange,
+  onExportCurrent,
+  onExportBatch,
 }: RenderExportPanelProps) {
   const isWorking = status === 'working';
 
@@ -60,7 +75,7 @@ export function RenderExportPanel({
       <div className="field">
         <span className="field__label">Rezolyutsiya</span>
         <div className="preset-grid">
-          {(Object.keys(PRESET_LABELS) as PngPreset[]).map((key) => (
+          {UI_PNG_PRESETS.map((key) => (
             <button
               key={key}
               type="button"
@@ -68,20 +83,79 @@ export function RenderExportPanel({
               aria-pressed={key === preset}
               onClick={() => onPresetChange(key)}
             >
-              {PRESET_LABELS[key]}
+              {PNG_PRESET_LABELS[key]}
             </button>
           ))}
         </div>
       </div>
 
+      <div className="field">
+        <span className="field__label">Fon</span>
+        <div className="preset-grid">
+          <button
+            type="button"
+            className={!transparent ? 'preset preset--active' : 'preset'}
+            aria-pressed={!transparent}
+            onClick={() => onTransparentChange(false)}
+          >
+            Opaque
+          </button>
+          <button
+            type="button"
+            className={transparent ? 'preset preset--active' : 'preset'}
+            aria-pressed={transparent}
+            onClick={() => onTransparentChange(true)}
+            disabled={!transparentAvailable}
+            title={
+              transparentAvailable
+                ? 'Shaffof fonli PNG'
+                : "Brauzer shaffof fonni saqlamadi; bu variant o'chirildi."
+            }
+          >
+            Shaffof fon
+          </button>
+        </div>
+        <p className="visual__hint">
+          Shaffof fon faqat fonni tozalaydi; xona devori kontent sifatida qoladi.
+          6 rakursli ZIPda xona yashiriladi.
+        </p>
+      </div>
+
       <button
         type="button"
         className="render__button"
-        onClick={onExport}
+        onClick={onExportCurrent}
         disabled={disabled || isWorking}
       >
-        {isWorking ? 'Render qilinmoqda…' : 'PNG sifatida saqlash'}
+        Joriy rakursni PNG qilib saqlash
       </button>
+
+      <button
+        type="button"
+        className="render__button render__button--secondary"
+        onClick={onExportBatch}
+        disabled={disabled || isWorking}
+      >
+        6 rakursni ZIP qilib saqlash
+      </button>
+
+      {progress && (
+        <div
+          className="render__progress"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={progress.total}
+          aria-valuenow={progress.current}
+        >
+          <div
+            className="render__progress-bar"
+            style={{ width: `${(progress.current / progress.total) * 100}%` }}
+          />
+          <span className="render__progress-text">
+            {progress.current}/{progress.total} — {progress.label}
+          </span>
+        </div>
+      )}
 
       {message &&
         (status === 'error' ? (

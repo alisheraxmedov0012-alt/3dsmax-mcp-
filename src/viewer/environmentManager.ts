@@ -139,6 +139,25 @@ export class EnvironmentManager {
     this.target = null;
   }
 
+  /**
+   * Drop GPU-scoped resources after a context loss. Three re-uploads geometry
+   * and textures on demand, but a PMREM target has no CPU copy, so the next
+   * apply must regenerate it.
+   */
+  resetAfterContextLoss(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.scene.environment = null;
+    this.releaseTarget();
+    this.room?.dispose();
+    this.room = null;
+    this.pmrem?.dispose();
+    this.pmrem = null;
+    this.generationFailed = false;
+    this.lastError = null;
+  }
+
   /** Release the PMREM texture, RoomEnvironment scene and PMREM generator. */
   dispose(): void {
     if (this.disposed) {

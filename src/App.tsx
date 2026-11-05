@@ -17,7 +17,7 @@ import { AiFurniturePanel } from './components/AiFurniturePanel';
 import { ConfiguratorPanel } from './components/ConfiguratorPanel';
 import { ObjectPanel } from './components/ObjectPanel';
 import { ProjectsPanel, type ProjectsStatus } from './components/ProjectsPanel';
-import { RenderExportPanel, type RenderStatus } from './components/RenderExportPanel';
+import { RenderExportPanel, type RenderProgress, type RenderStatus } from './components/RenderExportPanel';
 import { PrintReadinessPanel } from './components/PrintReadinessPanel';
 import { RoomPanel } from './components/RoomPanel';
 import { SceneHierarchyPanel } from './components/SceneHierarchyPanel';
@@ -30,7 +30,9 @@ import { exportSceneToFormat } from './export/sceneFileExport';
 import { parseSceneJson } from './export/sceneJson';
 import { ExportError } from './export/exportTypes';
 import type { ExportFormatId } from './export/exportFormats';
-import { exportScenePng, resolvePngSize, type PngPreset } from './export/sceneImage';
+import { exportScenePng, renderPngFilename, resolvePngSize, type PngPreset } from './export/sceneImage';
+import { RenderBatchError, exportRenderBatch } from './export/renderBatch';
+import { describeCaptureError } from './viewer/captureErrors';
 import {
   createFurnitureParams,
   furnitureParamsToFieldValues,
@@ -85,6 +87,21 @@ import type {
 } from './render/renderPresets';
 import './App.css';
 
+/**
+ * A batch failure wraps the per-frame failure; surface the frame and the typed
+ * capture reason rather than a generic "export failed".
+ */
+function batchRenderErrorMessage(error: unknown): string {
+  if (error instanceof RenderBatchError) {
+    if (error.cause) {
+      const frame = error.view ? `${error.view.label}: ` : '';
+      return `${frame}${describeCaptureError(error.cause)}`;
+    }
+    return error.message;
+  }
+  return describeCaptureError(error);
+}
+
 export default function App() {
   const [scene, dispatch] = useReducer(
     sceneReducer,
@@ -107,6 +124,9 @@ export default function App() {
   const [exportTextureSize, setExportTextureSize] = useState<128 | 512>(128);
   const [exportMessage, setExportMessage] = useState('');
   const [pngPreset, setPngPreset] = useState<PngPreset>('standard');
+  const [pngTransparent, setPngTransparent] = useState(false);
+  const [transparentAvailable, setTransparentAvailable] = useState(true);
+  const [batchProgress, setBatchProgress] = useState<RenderProgress | null>(null);
   const [renderStatus, setRenderStatus] = useState<RenderStatus>('idle');
   const [renderMessage, setRenderMessage] = useState('');
   const [layoutPreset, setLayoutPreset] = useState<LayoutPresetId>('empty');
@@ -124,6 +144,10 @@ export default function App() {
 
   const repositoryRef = useRef<ProjectRepository | null>(null);
   const viewerRef = useRef<SceneViewer | null>(null);
+  /** Cached alpha-capability result for the current viewer instance. */
+  const transparentProbeRef = useRef<boolean | null>(null);
+  /** Synchronous guard: React state alone cannot stop a same-tick double click. */
+  const renderExportBusyRef = useRef(false);
 
   const getRepository = (): ProjectRepository => {
     if (!repositoryRef.current) {
@@ -727,13 +751,33 @@ export default function App() {
     if (!viewer) {
       return null;
     }
-    const size = resolvePngSize('standard');
+    const size = resolvePngSize('package');
     const shots = await viewer.captureProductPreviews(size.width, size.height);
     return shots.map((shot) => ({ name: shot.filename, bytes: shot.bytes }));
   };
 
+  /**
+   * The alpha probe renders a real frame, so it runs once per viewer instance
+   * and the result is cached. A failed probe switches the option off instead of
+   * silently producing opaque "transparent" files.
+   */
+  const ensureTransparentCapture = async (viewer: SceneViewer): Promise<boolean> => {
+    if (transparentProbeRef.current !== null) {
+      return transparentProbeRef.current;
+    }
+    const probe = await viewer.probeTransparentCapture();
+    transparentProbeRef.current = probe.supported;
+    setTransparentAvailable(probe.supported);
+    if (!probe.supported) {
+      setPngTransparent(false);
+      setRenderStatus('error');
+      setRenderMessage(probe.reason ?? "Brauzer shaffof fonni saqlamayapti.");
+    }
+    return probe.supported;
+  };
+
   const handleExportPng = async () => {
-    if (renderStatus === 'working') {
+    if (renderExportBusyRef.current) {
       return;
     }
 
@@ -751,22 +795,109 @@ export default function App() {
       return;
     }
 
+    renderExportBusyRef.current = true;
+    setBatchProgress(null);
     setRenderStatus('working');
     setRenderMessage('Render qilinmoqda…');
 
     try {
-      const result = await exportScenePng(pngPreset, {
-        capture: (size) => viewer.capturePng(size.width, size.height),
-        download: (blob, filename) => downloadBlob(blob, filename),
-      });
+      if (pngTransparent && !(await ensureTransparentCapture(viewer))) {
+        return;
+      }
+      const projectLabel = projectName.trim() !== '' ? projectName.trim() : '3d-studio-ai';
+      const result = await exportScenePng(
+        pngPreset,
+        {
+          capture: (size, request) =>
+            viewer.capturePng(
+              size.width,
+              size.height,
+              request?.transparent ? { transparent: true } : {},
+            ),
+          download: (blob, filename) => downloadBlob(blob, filename),
+        },
+        {
+          filename: renderPngFilename(projectLabel, pngPreset),
+          transparent: pngTransparent,
+        },
+      );
       setRenderStatus('success');
       setRenderMessage(
-        `PNG saqlandi (${result.size.width}×${result.size.height}, ${Math.round(result.bytes / 1024)} KB).`,
+        `PNG saqlandi (${result.size.width}×${result.size.height}, ` +
+          `${Math.round(result.bytes / 1024)} KB).`,
       );
     } catch (error) {
       setRenderStatus('error');
-      setRenderMessage("Render amalga oshmadi. Iltimos, qaytadan urinib ko'ring.");
+      setRenderMessage(describeCaptureError(error));
       console.error('PNG eksport xatosi:', error);
+    } finally {
+      renderExportBusyRef.current = false;
+    }
+  };
+
+  const handleExportBatchPng = async () => {
+    if (renderExportBusyRef.current) {
+      return;
+    }
+
+    const captureBlock = previewCaptureBlockReason(activePreview);
+    if (captureBlock) {
+      setRenderStatus('error');
+      setRenderMessage(captureBlock);
+      return;
+    }
+
+    const viewer = viewerRef.current;
+    if (!viewer) {
+      setRenderStatus('error');
+      setRenderMessage("3D ko'rinish hali tayyor emas. Birozdan so'ng urinib ko'ring.");
+      return;
+    }
+
+    renderExportBusyRef.current = true;
+    setBatchProgress(null);
+    setRenderStatus('working');
+    setRenderMessage('6 rakurs tayyorlanmoqda…');
+
+    try {
+      if (pngTransparent && !(await ensureTransparentCapture(viewer))) {
+        return;
+      }
+      const projectLabel = projectName.trim() !== '' ? projectName.trim() : '3d-studio-ai';
+      const result = await exportRenderBatch(
+        pngPreset,
+        {
+          capture: (view, size) =>
+            viewer.capturePng(size.width, size.height, {
+              cameraAngle: view.cameraAngle,
+              includeRoom: false,
+              hideSelection: true,
+              transparent: pngTransparent,
+            }),
+          download: (blob, filename) => downloadBlob(blob, filename),
+        },
+        {
+          projectName: projectLabel,
+          onProgress: (progress) =>
+            setBatchProgress({
+              current: progress.current,
+              total: progress.total,
+              label: progress.view.label,
+            }),
+        },
+      );
+      setRenderStatus('success');
+      setRenderMessage(
+        `ZIP saqlandi (${result.files.length} ta PNG, ` +
+          `${(result.bytes / 1024 / 1024).toFixed(1)} MB).`,
+      );
+    } catch (error) {
+      setRenderStatus('error');
+      setRenderMessage(batchRenderErrorMessage(error));
+      console.error('6 rakursli ZIP eksport xatosi:', error);
+    } finally {
+      setBatchProgress(null);
+      renderExportBusyRef.current = false;
     }
   };
 
@@ -962,12 +1093,17 @@ export default function App() {
           <RenderExportPanel
             preset={pngPreset}
             quality={settings.qualityPreset}
+            transparent={pngTransparent}
+            transparentAvailable={transparentAvailable}
             status={renderStatus}
             message={renderMessage}
+            progress={batchProgress}
             disabled={false}
             onPresetChange={setPngPreset}
             onQualityChange={handleQuality}
-            onExport={handleExportPng}
+            onTransparentChange={setPngTransparent}
+            onExportCurrent={handleExportPng}
+            onExportBatch={handleExportBatchPng}
           />
           <PrintReadinessPanel object={selectedObject} />
         </div>
@@ -985,6 +1121,8 @@ export default function App() {
           onSelect={handleSelect}
           onReady={(viewer) => {
             viewerRef.current = viewer;
+            transparentProbeRef.current = null;
+            setTransparentAvailable(true);
             if (viewer && cameraAngle) {
               viewer.applyCameraAngle(cameraAngle);
             }
