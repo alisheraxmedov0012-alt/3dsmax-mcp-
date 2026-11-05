@@ -181,6 +181,15 @@ class Settings(BaseSettings):
     storage_dir: str = "./var/storage"
     storage_max_bytes: int = 25 * 1024 * 1024
     storage_max_project_bytes: int = 200 * 1024 * 1024
+    # Phase 4.3A: per-user storage quota (all artifact kinds). Generic file
+    # uploads keep their historical behaviour; texture uploads enforce it.
+    storage_max_user_bytes: int = 200 * 1024 * 1024
+
+    # Phase 4.3A — texture import limits. These are hard server limits and are
+    # mirrored by the client in 4.3B.
+    texture_max_bytes: int = 8 * 1024 * 1024
+    texture_max_dimension: int = 4096
+    texture_max_pixels: int = 16_000_000
 
     # AI design provider (W1). "none" (default) reports the integration as
     # unconfigured; "local" is the offline, credential-free fallback;

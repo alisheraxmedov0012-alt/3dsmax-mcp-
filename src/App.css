@@ -1502,6 +1502,316 @@ input[type='color'] {
   margin: 0;
   font-size: 0.78rem;
   color: #aeb9c4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.material__chip {
+  padding: 2px 7px;
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: #cfe2ff;
+  background: rgba(79, 157, 255, 0.14);
+  border: 1px solid rgba(79, 157, 255, 0.35);
+  border-radius: 999px;
+}
+
+.material-library__count {
+  margin: 0;
+  font-size: 0.72rem;
+  color: #7f8b98;
+}
+
+.material-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.material-category {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #c8d2dc;
+  background: #232930;
+  border: 1px solid #333b44;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.material-category:hover {
+  background: #2e353d;
+}
+
+.material-category--active {
+  color: #ffffff;
+  border-color: #4f9dff;
+  background: rgba(79, 157, 255, 0.18);
+}
+
+.material-category__count {
+  font-size: 0.64rem;
+  font-weight: 500;
+  color: #8b98a5;
+}
+
+.material-category--active .material-category__count {
+  color: #cfe2ff;
+}
+
+.material-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 6px;
+  max-height: 340px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.material-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px;
+  text-align: left;
+  color: #e8edf2;
+  background: #262c33;
+  border: 1px solid #333b44;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.material-card:hover {
+  background: #2e353d;
+}
+
+.material-card--active {
+  border-color: #4f9dff;
+  outline: 2px solid rgba(79, 157, 255, 0.35);
+}
+
+.material-card__swatch {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.28);
+  background-image: linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.07) 25%,
+      transparent 25%,
+      transparent 75%,
+      rgba(255, 255, 255, 0.07) 75%
+    ),
+    linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.07) 25%,
+      transparent 25%,
+      transparent 75%,
+      rgba(255, 255, 255, 0.07) 75%
+    );
+  background-size: 8px 8px;
+  background-position:
+    0 0,
+    4px 4px;
+}
+
+.material-card__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.material-card__label {
+  font-size: 0.76rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.material-card__meta {
+  font-size: 0.64rem;
+  color: #8b98a5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 600px) {
+  .material-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-height: none;
+  }
+
+  .material-category {
+    padding: 6px 10px;
+  }
+}
+
+/* ---------------- Bitmap texture picker (Phase 4.3B) ---------------- */
+
+.texture-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding-top: 8px;
+  border-top: 1px solid #2a2f36;
+}
+
+.texture-picker__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.texture-picker__title {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+.texture-picker__remove {
+  padding: 4px 8px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #ffb4b4;
+  background: rgba(224, 85, 85, 0.12);
+  border: 1px solid rgba(224, 85, 85, 0.4);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.texture-picker__remove:hover {
+  background: rgba(224, 85, 85, 0.22);
+}
+
+.texture-picker__current {
+  margin: 0;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: #aeb9c4;
+}
+
+.texture-picker__meta {
+  margin-left: 6px;
+  font-size: 0.68rem;
+  color: #8b98a5;
+}
+
+.texture-picker__hint {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: #8b98a5;
+}
+
+.texture-picker__hint--error {
+  color: #ff8a8a;
+}
+
+.texture-picker__hint--success {
+  color: #8fe3a8;
+}
+
+.texture-picker__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.texture-picker__file {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.72rem;
+  color: #aeb9c4;
+}
+
+.texture-picker__upload {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  font-size: 0.76rem;
+}
+
+.texture-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 6px;
+  max-height: 230px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.texture-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 5px;
+  text-align: left;
+  color: #e8edf2;
+  background: #262c33;
+  border: 1px solid #333b44;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.texture-card:hover {
+  background: #2e353d;
+}
+
+.texture-card--active {
+  border-color: #4f9dff;
+  outline: 2px solid rgba(79, 157, 255, 0.35);
+}
+
+.texture-card__image,
+.texture-card__placeholder {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 5px;
+  background-color: #1b2026;
+  background-image: repeating-conic-gradient(
+    rgba(255, 255, 255, 0.06) 0% 25%,
+    transparent 0% 50%
+  );
+  background-size: 12px 12px;
+}
+
+.texture-card__label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.texture-card__meta {
+  font-size: 0.64rem;
+  color: #8b98a5;
+}
+
+@media (max-width: 600px) {
+  .texture-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-height: none;
+  }
+
+  .texture-picker__actions {
+    flex-wrap: wrap;
+  }
+
+  .texture-picker__file {
+    flex-basis: 100%;
+  }
 }
 
 .preset-grid {

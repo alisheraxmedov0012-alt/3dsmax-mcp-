@@ -1,6 +1,14 @@
 import * as THREE from 'three';
 import { buildRoom } from '../geometry/buildRoom';
 import { applyTextureResolution } from '../materials/buildMaterial';
+import { applyBaseColorTextureToGroup } from '../materials/applyBaseColorTexture';
+import type { TextureAssetRef } from '../materials/asset';
+import { resolvePresetSettings } from '../materials/presets';
+import {
+  textureRegistry,
+  type TextureAcquireOptions,
+  type TextureProvider,
+} from '../materials/textureRegistry';
 import { buildSceneObject } from '../scene/buildSceneObject';
 import type { SceneData, SceneObject } from '../scene/types';
 import { assertFiniteGeometry } from './geometryGuard';
@@ -34,6 +42,12 @@ export interface BuildExportOptions {
    * usual empty-scene guard rejects instead of writing an empty file.
    */
   onlyObjectId?: string;
+  /**
+   * Export-only texture resolver. Defaults to the authenticated viewport
+   * registry; tests inject a provider so GLB embedding is checked without a
+   * network or a real image decoder. Never persisted in scene data.
+   */
+  textureProvider?: TextureProvider;
 }
 
 /**
@@ -116,7 +130,11 @@ export function buildExportScene(data: SceneData, options: BuildExportOptions = 
       const built = buildSceneObject(object);
       scene.add(built.group);
       disposers.push(built.dispose);
-      if (options.textureSize === 512 && object.visible) {
+      if (
+        options.textureSize === 512 &&
+        object.visible &&
+        !object.material.maps?.baseColor
+      ) {
         disposers.push(...retargetExportTextures(built.group, object, 512));
       }
     });
@@ -353,22 +371,107 @@ async function exportRootToGlb(scene: THREE.Scene): Promise<ArrayBuffer> {
 }
 
 /**
+ * Load every baseColor bitmap referenced by the exported objects and attach it
+ * to the fresh export materials. Acquired references are appended to `acquired`
+ * immediately, so the caller can release them even if a later load fails.
+ */
+async function applyExportBitmapTextures(
+  scene: THREE.Scene,
+  objects: readonly SceneObject[],
+  provider: TextureProvider,
+  acquired: Array<{ ref: TextureAssetRef; options: TextureAcquireOptions }>,
+): Promise<void> {
+  const targets = objects.flatMap((object) => {
+    const ref = object.material.maps?.baseColor;
+    if (!ref || !object.visible) {
+      return [];
+    }
+    const group = scene.getObjectByName(`object:${object.id}`);
+    if (!group) {
+      return [];
+    }
+    return [
+      {
+        object,
+        group,
+        ref,
+        options: { repeat: resolvePresetSettings(object.material).textureScale },
+      },
+    ];
+  });
+
+  const loaded = await Promise.all(
+    targets.map(async (target) => {
+      try {
+        const texture = await provider.acquire(target.ref, target.options);
+        return {
+          object: target.object,
+          group: target.group,
+          ref: target.ref,
+          options: target.options,
+          texture,
+          error: null,
+        };
+      } catch (error) {
+        return {
+          object: target.object,
+          group: target.group,
+          ref: target.ref,
+          options: target.options,
+          texture: null,
+          error,
+        };
+      }
+    }),
+  );
+
+  for (const item of loaded) {
+    if (item.texture) {
+      acquired.push({ ref: item.ref, options: item.options });
+      applyBaseColorTextureToGroup(item.group, item.texture);
+    }
+  }
+  const failed = loaded.find((item) => item.texture === null);
+  if (failed) {
+    throw new ExportError(
+      'failed',
+      `"${failed.object.name}" teksturasi yuklanmadi; GLB eksporti bekor qilindi. ${
+        failed.error instanceof Error ? failed.error.message : ''
+      }`.trim(),
+    );
+  }
+}
+
+/**
  * Serialises the whole scene to binary glTF (.glb) bytes using Three.js'
  * official GLTFExporter. No backend or external API is involved. The temporary
  * export scene is disposed afterwards.
  *
  * A geometry safety check runs first: a NaN/Infinity coordinate is rejected with
  * `ExportError('invalid_geometry')` rather than written into a corrupt file.
+ *
+ * Referenced baseColor bitmaps are resolved *before* export and embedded by the
+ * exporter; if one cannot be resolved the export fails instead of silently
+ * shipping a textureless model.
  */
 export async function exportSceneToGlb(
   data: SceneData,
   options: BuildExportOptions = {},
 ): Promise<ArrayBuffer> {
   const { scene, dispose } = buildExportScene(data, options);
+  const objects = options.onlyObjectId
+    ? data.objects.filter((object) => object.id === options.onlyObjectId)
+    : data.objects;
+  const provider = options.textureProvider ?? textureRegistry;
+  const acquired: Array<{ ref: TextureAssetRef; options: TextureAcquireOptions }> = [];
 
   try {
+    await applyExportBitmapTextures(scene, objects, provider, acquired);
     return await exportRootToGlb(scene);
   } finally {
+    for (const item of acquired) {
+      provider.release(item.ref, item.options);
+    }
     dispose();
   }
 }

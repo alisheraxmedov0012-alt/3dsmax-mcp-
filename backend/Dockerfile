@@ -36,7 +36,7 @@ COPY backend/app ./app
 COPY backend/alembic ./alembic
 COPY backend/alembic.ini ./alembic.ini
 
-RUN chown -R appuser:appuser /app
+RUN mkdir -p /app/var/storage && chown -R appuser:appuser /app
 USER appuser
 
 EXPOSE 8000

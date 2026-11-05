@@ -4,6 +4,7 @@ import {
   type FurnitureType,
 } from '../geometry/furniture';
 import { getMaterialPreset, MATERIAL_PRESET_IDS } from '../materials/presets';
+import { validateMaterialAssetMaps, type TextureAssetRef } from '../materials/asset';
 import {
   isKnownSheetMaterial,
   validateSheetThickness,
@@ -104,6 +105,12 @@ export type SceneAction =
     }
   | { type: 'UPDATE_PARAMS'; id: string; params: FurnitureParams }
   | { type: 'UPDATE_MATERIAL'; id: string; material: Partial<ObjectMaterial> }
+  | {
+      type: 'SET_MATERIAL_MAP';
+      id: string;
+      role: 'baseColor';
+      ref: TextureAssetRef | null;
+    }
   | {
       type: 'SET_SHEET_MATERIAL';
       id: string;
@@ -513,6 +520,29 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
         material: mergeMaterial(object.material, action.material),
       }));
 
+    case 'SET_MATERIAL_MAP': {
+      return replaceObject(state, action.id, (object) => {
+        const maps = { ...object.material.maps };
+        if (action.ref === null) {
+          delete maps.baseColor;
+        } else {
+          const validated = validateMaterialAssetMaps({ baseColor: action.ref });
+          if (!validated.ok || !validated.maps.baseColor) {
+            return object;
+          }
+          maps.baseColor = validated.maps.baseColor;
+        }
+
+        const material: ObjectMaterial = { ...object.material };
+        if (Object.keys(maps).length > 0) {
+          material.maps = maps;
+        } else {
+          delete material.maps;
+        }
+        return { ...object, material };
+      });
+    }
+
     case 'SET_SHEET_MATERIAL': {
       const { assignment } = action;
       // The reducer is the last gate before state: an invalid thickness or an
@@ -591,6 +621,9 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
           opacity: preset.opacity,
           textureScale: preset.textureScale,
           normalStrength: preset.normalStrength,
+          // A preset changes the PBR response, not the user's uploaded bitmap.
+          // Removing a texture is the explicit map action (or a material reset).
+          ...(object.material.maps ? { maps: object.material.maps } : {}),
         },
         // A preset may suggest a base colour; apply it through the existing
         // table colour so there is still a single source of truth.

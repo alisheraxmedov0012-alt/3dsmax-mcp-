@@ -1,5 +1,8 @@
+import * as THREE from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  MAX_CACHED_TEXTURE_SETS,
+  cachedTextureCount,
   createProceduralTextures,
   heightToNormal,
   patternHeight,
@@ -104,5 +107,49 @@ describe('createProceduralTextures', () => {
     expect(textures?.map.repeat.y).toBe(2.5);
     expect(textures?.map.wrapS).toBe(1000); // THREE.RepeatWrapping
     textures?.dispose();
+  });
+
+  it('samples the base map in sRGB and the normal map as data', () => {
+    stubCanvas();
+    const textures = createProceduralTextures('wood', 1);
+    expect(textures).not.toBeNull();
+    expect(textures?.map.colorSpace).toBe(THREE.SRGBColorSpace);
+    expect(textures?.normalMap.colorSpace).toBe(THREE.NoColorSpace);
+    textures?.dispose();
+  });
+});
+
+describe('shared texture cache bounds', () => {
+  it('caps growth without evicting sets that are still in use', () => {
+    stubCanvas();
+    expect(cachedTextureCount()).toBe(0);
+
+    type Handle = NonNullable<ReturnType<typeof createProceduralTextures>>;
+    const handles: Handle[] = [];
+    for (let i = 0; i < MAX_CACHED_TEXTURE_SETS; i += 1) {
+      handles.push(createProceduralTextures('wood', 0.25 + i * 0.05) as Handle);
+    }
+    expect(cachedTextureCount()).toBe(MAX_CACHED_TEXTURE_SETS);
+
+    // A new, distinct set beyond the cap is still usable but is not cached.
+    const extra = createProceduralTextures('wood', 9) as Handle;
+    const disposed = vi.fn();
+    extra.map.addEventListener('dispose', disposed);
+    expect(cachedTextureCount()).toBe(MAX_CACHED_TEXTURE_SETS);
+
+    extra.dispose();
+    extra.dispose();
+    expect(disposed).toHaveBeenCalledTimes(1);
+    expect(cachedTextureCount()).toBe(MAX_CACHED_TEXTURE_SETS);
+
+    // Releasing a cached set frees a slot, so sharing resumes for new sets.
+    handles.pop()?.dispose();
+    expect(cachedTextureCount()).toBe(MAX_CACHED_TEXTURE_SETS - 1);
+    const shared = createProceduralTextures('wood', 9.5) as Handle;
+    expect(cachedTextureCount()).toBe(MAX_CACHED_TEXTURE_SETS);
+    handles.push(shared);
+
+    handles.forEach((handle) => handle.dispose());
+    expect(cachedTextureCount()).toBe(0);
   });
 });

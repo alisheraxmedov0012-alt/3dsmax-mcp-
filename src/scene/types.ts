@@ -6,6 +6,7 @@ import {
   type FurnitureType,
 } from '../geometry/furniture/types';
 import type { MaterialPresetId } from '../materials/types';
+import type { MaterialAssetMaps } from '../materials/asset';
 import type { SheetMaterialEntry } from '../manufacturing/sheetMaterial';
 import type { HardwareItem } from '../manufacturing/hardware';
 import { requireFurnitureDefinition } from '../geometry/universal/registry';
@@ -234,6 +235,13 @@ export interface ObjectMaterial {
   opacity?: number;
   textureScale?: number;
   normalStrength?: number;
+  /**
+   * Phase 4.3: serializable bitmap texture references (no binary data). Only
+   * `baseColor` is produced by the UI today; the map type is shared with
+   * MaterialAsset v1 so stored values go through the same validation. Optional
+   * so every pre-4.3 scene loads unchanged.
+   */
+  maps?: MaterialAssetMaps;
 }
 
 export const MATERIAL_DEFAULTS: ObjectMaterial = { metalness: 0.05, roughness: 0.6 };

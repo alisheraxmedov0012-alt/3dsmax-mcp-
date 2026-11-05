@@ -9,7 +9,15 @@
 import * as THREE from 'three';
 import { buildPbrMaterial } from '../../materials/buildMaterial';
 import type { MaterialSettingsInput } from '../../materials/types';
-import { applyPhysicalBoxUvs } from '../../materials/uv';
+import {
+  applyPhysicalBoxUvs,
+  applyUvMapping,
+  setUvDiagnostics,
+  validateUvGeometry,
+  type UvOrientation,
+  type UvPlane,
+  type UvRequestedMode,
+} from '../../materials/uv';
 import {
   createGeometry,
   GeometryKernelError,
@@ -30,10 +38,17 @@ export type PartMaterialOptions = MaterialSettingsInput;
 
 /**
  * Options for the new kernel path. `physical-box` keeps the legacy 50 cm tiling
- * used by `box()`; every other recipe keeps its native UVs.
+ * used by `box()`; `auto` selects the physical mapping suitable for the recipe;
+ * other recipes keep their native UVs unless a physical mode is requested.
  */
 export interface AddGeometryOptions extends CreateGeometryOptions {
-  readonly uv?: 'geometry' | 'physical-box';
+  readonly uv?: UvRequestedMode;
+  readonly uvOrientation?: UvOrientation;
+  readonly uvTileCm?: number;
+  readonly uvPlane?: UvPlane;
+  readonly uvSeamOffset?: number;
+  readonly uvFlipU?: boolean;
+  readonly uvFlipV?: boolean;
 }
 
 /**
@@ -102,6 +117,7 @@ export class PartBuilder {
     ] as const;
     const geometry = new THREE.BoxGeometry(width, height, depth);
     applyPhysicalBoxUvs(geometry, [width, height, depth]);
+    setUvDiagnostics(geometry, validateUvGeometry(geometry));
     return this.addMesh(partId, geometry, position, rotation);
   }
 
@@ -119,7 +135,16 @@ export class PartBuilder {
     rotation?: [number, number, number],
     options: AddGeometryOptions = {},
   ): THREE.Mesh {
-    const { uv: requestedUv, ...geometryOptions } = options;
+    const {
+      uv: requestedUv,
+      uvOrientation,
+      uvTileCm,
+      uvPlane,
+      uvSeamOffset,
+      uvFlipU,
+      uvFlipV,
+      ...geometryOptions
+    } = options;
     const uv =
       requestedUv ??
       (isUnsegmentedBox(recipe) ? 'physical-box' : 'geometry');
@@ -138,6 +163,24 @@ export class PartBuilder {
         );
       }
     }
+    if (uv === 'box' && recipe.kind !== 'box' && recipe.kind !== 'roundedBox') {
+      throw new GeometryKernelError(
+        'unsupported_recipe',
+        'box UV faqat box yoki roundedBox recipe uchun qo‘llanadi.',
+      );
+    }
+    if (
+      uv === 'cylindrical' &&
+      recipe.kind !== 'cylinder' &&
+      recipe.kind !== 'capsule' &&
+      recipe.kind !== 'lathe' &&
+      recipe.kind !== 'tube'
+    ) {
+      throw new GeometryKernelError(
+        'unsupported_recipe',
+        'cylindrical UV faqat radial recipe uchun qo‘llanadi.',
+      );
+    }
 
     const geometry = createGeometry(recipe, geometryOptions);
     if (uv === 'physical-box' && recipe.kind === 'box') {
@@ -153,7 +196,28 @@ export class PartBuilder {
           'physical-box UV qo‘llanmadi; geometry disposal qilindi.',
         );
       }
+    } else if (uv !== 'geometry' && uv !== 'preserve') {
+      const result = applyUvMapping(geometry, recipe, {
+        mode: uv,
+        ...(uvOrientation === undefined ? {} : { orientation: uvOrientation }),
+        ...(uvTileCm === undefined ? {} : { tileCm: uvTileCm }),
+        ...(uvPlane === undefined ? {} : { plane: uvPlane }),
+        ...(uvSeamOffset === undefined ? {} : { seamOffset: uvSeamOffset }),
+        ...(uvFlipU === undefined ? {} : { flipU: uvFlipU }),
+        ...(uvFlipV === undefined ? {} : { flipV: uvFlipV }),
+      });
+      const expectedPhysical =
+        uv !== 'auto' && result.mode !== 'preserve';
+      if (expectedPhysical && !result.applied) {
+        geometry.dispose();
+        throw new GeometryKernelError(
+          'invalid_geometry',
+          `UV mapping (${uv}) qo‘llanmadi; geometry disposal qilindi.`,
+        );
+      }
     }
+
+    setUvDiagnostics(geometry, validateUvGeometry(geometry));
     return this.addMesh(partId, geometry, position, rotation);
   }
 

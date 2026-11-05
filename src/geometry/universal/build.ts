@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import './definitions';
 import type { MaterialSettingsInput } from '../../materials/types';
+import { uvOrientationForPart } from '../../materials/uv';
 import { PartBuilder } from '../furniture/parts';
 import { furnitureDefinitions } from './registry';
 import { FurniturePlanError, type FurniturePlan } from './types';
@@ -71,6 +72,10 @@ export function buildPlan(
         part.rotation[1] * DEG_TO_RAD,
         part.rotation[2] * DEG_TO_RAD,
       ],
+      {
+        uv: 'auto',
+        uvOrientation: uvOrientationForPart(part.type),
+      },
     );
   }
 

@@ -97,7 +97,7 @@ def list_files(
     rows = (
         db.execute(
             select(StoredFile)
-            .where(StoredFile.user_id == user.id)
+            .where(StoredFile.user_id == user.id, StoredFile.kind == "file")
             .order_by(StoredFile.created_at.desc())
         )
         .scalars()

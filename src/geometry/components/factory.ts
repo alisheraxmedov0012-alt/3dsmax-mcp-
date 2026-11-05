@@ -1,6 +1,7 @@
 import type * as THREE from 'three';
 import { validateRecipe, type GeometryRecipe } from '../kernel';
 import type { PartBuilder } from '../furniture/parts';
+import { uvOrientationForPart } from '../../materials/uv';
 import { buildDoor, buildDrawer, buildHandle } from './furniture';
 import { buildGrommet, buildBolt, buildScrew, buildFoot } from './hardware';
 import { buildFrame, buildLeg, buildPanel, buildShelf, buildSupport } from './structural';
@@ -124,6 +125,10 @@ export function addComponent(builder: PartBuilder, component: ComponentPart): TH
       component.rotation[1] * DEG_TO_RAD,
       component.rotation[2] * DEG_TO_RAD,
     ],
+    {
+      uv: 'auto',
+      uvOrientation: uvOrientationForPart(component.type),
+    },
   );
 }
 

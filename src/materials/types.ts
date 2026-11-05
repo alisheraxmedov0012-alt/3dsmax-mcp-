@@ -45,6 +45,55 @@ export const MATERIAL_TYPE_LABELS: Record<MaterialType, string> = {
   plastic: 'Plastmassa',
 };
 
+/** Procedural surface pattern a material type renders with. */
+export type TextureKind = 'none' | 'wood' | 'brushed' | 'fabric' | 'grain';
+
+/** Which procedural pattern belongs to a material type. */
+export function textureKindFor(type: MaterialType): TextureKind {
+  switch (type) {
+    case 'wood':
+      return 'wood';
+    case 'metal':
+      return 'brushed';
+    case 'fabric':
+      return 'fabric';
+    case 'leather':
+      return 'grain';
+    default:
+      return 'none';
+  }
+}
+
+/** Centimetres covered by one UV unit before `textureScale` is applied. */
+export const DEFAULT_UV_TILE_CM = 50;
+
+/**
+ * Library categories. One per material family, plus the painted legacy family;
+ * the catalogue keeps them explicit so the UI never has to infer a category
+ * from a preset id.
+ */
+export const MATERIAL_CATEGORIES = [
+  'painted',
+  'wood',
+  'metal',
+  'fabric',
+  'leather',
+  'glass',
+  'plastic',
+] as const;
+
+export type MaterialCategory = (typeof MATERIAL_CATEGORIES)[number];
+
+export const MATERIAL_CATEGORY_LABELS: Record<MaterialCategory, string> = {
+  painted: "Bo'yalgan",
+  wood: "Yog'och",
+  metal: 'Metall',
+  fabric: 'Mato',
+  leather: 'Charm',
+  glass: 'Shisha',
+  plastic: 'Plastmassa',
+};
+
 /** Identifier of a material preset (see `materials/presets.ts`). */
 export type MaterialPresetId = string;
 

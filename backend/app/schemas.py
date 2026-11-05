@@ -246,7 +246,29 @@ class StorageStatusResponse(BaseModel):
     backend: str
     available: bool
     persistent: bool
+    # Phase 4.3A: a real write/read/delete probe succeeded. Never inferred from
+    # the presence of a directory.
+    verified: bool = False
     message: str
+
+
+class TextureAssetSourceResponse(BaseModel):
+    kind: Literal["procedural", "bitmap"]
+    generator: str | None = None
+
+
+class TextureAssetResponse(BaseModel):
+    """Metadata for an uploaded texture (MaterialAsset v1 `TextureAsset`)."""
+
+    id: str
+    version: int
+    filename: str
+    mime_type: str
+    width: int
+    height: int
+    byte_size: int
+    content_hash: str
+    source: TextureAssetSourceResponse
 
 
 # ---------------------------------------------------------------------------

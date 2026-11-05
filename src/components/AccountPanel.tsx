@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   api,
   describeError,
+  isAuthError,
   type ApiUser,
   type BillingEvent,
   type Invoice,
@@ -9,7 +10,11 @@ import {
   type Subscription,
 } from '../api/client';
 import { createLocalProjectRepository } from '../projects/localProjectRepository';
-import { setCsrfToken as setSharedCsrfToken } from '../api/csrfStore';
+import {
+  getCsrfToken,
+  setCsrfToken as setSharedCsrfToken,
+  subscribeCsrf,
+} from '../api/csrfStore';
 
 type Status = 'idle' | 'working' | 'ok' | 'error';
 
@@ -37,7 +42,7 @@ function formatMoney(cents: number | null, currency: string | null): string {
 
 export function AccountPanel() {
   const [user, setUser] = useState<ApiUser | null>(null);
-  const [csrfToken, setCsrfToken] = useState<string | null>(null);
+  const [csrfToken, setCsrfToken] = useState<string | null>(getCsrfToken);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState<Status>('idle');
@@ -70,6 +75,10 @@ export function AccountPanel() {
   };
 
   useEffect(() => {
+    const syncToken = () => setCsrfToken(getCsrfToken());
+    syncToken();
+    const unsubscribe = subscribeCsrf(syncToken);
+
     // Detect an existing session without assuming one exists.
     api
       .me()
@@ -77,10 +86,16 @@ export function AccountPanel() {
         setUser(current);
         return loadAccountData();
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        // An expired/revoked session must not leave a stale CSRF token behind.
+        if (isAuthError(error)) {
+          setSharedCsrfToken(null);
+        }
         // Not signed in (or backend unavailable) — load public plan info only.
         api.plans().then(setPlans).catch(() => undefined);
       });
+
+    return unsubscribe;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

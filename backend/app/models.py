@@ -12,9 +12,11 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -207,6 +209,20 @@ class StoredFile(Base, TimestampMixin):
     """Metadata for a stored artifact. Bytes live behind the storage adapter."""
 
     __tablename__ = "stored_files"
+    __table_args__ = (
+        Index("ix_stored_files_user_kind", "user_id", "kind"),
+        # Phase 4.3A: identical normalized texture bytes are one asset per user.
+        # Partial so the many historical/generic rows (content_hash IS NULL) do
+        # not collide with each other.
+        Index(
+            "uq_stored_files_user_hash",
+            "user_id",
+            "content_hash",
+            unique=True,
+            sqlite_where=text("content_hash IS NOT NULL"),
+            postgresql_where=text("content_hash IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -219,6 +235,13 @@ class StoredFile(Base, TimestampMixin):
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     # Adapter-side key (never a user-supplied path).
     storage_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    # Phase 4.3A: "file" for generic artifacts, "texture" for validated bitmaps.
+    kind: Mapped[str] = mapped_column(
+        String(20), default="file", server_default="file", nullable=False
+    )
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(String(80), nullable=True)
 
 
 class UsageCounter(Base, TimestampMixin):

@@ -152,6 +152,31 @@ def generate_storage_key(user_id: str, fmt: str) -> str:
     return f"{user_id}/{uuid.uuid4().hex}.{fmt}"
 
 
+def _probe_local_storage(directory: str) -> tuple[bool, str]:
+    """Verify the local storage directory is actually writable and readable.
+
+    A directory existing is not proof: a container volume can be mounted
+    read-only, or owned by a different uid. The probe writes, reads back and
+    deletes a uniquely named file, so ``persistent`` is only reported when the
+    adapter can genuinely store artifacts.
+    """
+    root = Path(directory).resolve()
+    probe = root / f".write-probe-{uuid.uuid4().hex}"
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        probe.write_bytes(b"ok")
+        if probe.read_bytes() != b"ok":
+            raise OSError("probe read-back mismatch")
+    except OSError:
+        return False, "Lokal storage katalogi yozilmaydi yoki o'qilmaydi."
+    finally:
+        try:
+            probe.unlink(missing_ok=True)
+        except OSError:
+            pass
+    return True, "Lokal fayl saqlash faol va yozish tekshirildi."
+
+
 _MEMORY_SINGLETON = MemoryStorageAdapter()
 
 
@@ -177,7 +202,11 @@ def get_storage_adapter() -> StorageAdapter:
 
 
 def storage_status() -> dict:
-    """Status the API/UI shows, without pretending an unimplemented backend works."""
+    """Status the API/UI shows, without pretending an unimplemented backend works.
+
+    ``verified`` means a real write/read/delete probe succeeded. It is never
+    inferred from a path string or a directory that merely exists.
+    """
     settings = get_settings()
     backend = (settings.storage_backend or "memory").lower()
     if backend == "s3":
@@ -185,21 +214,40 @@ def storage_status() -> dict:
             "backend": backend,
             "available": False,
             "persistent": False,
+            "verified": False,
             "message": "S3 storage adapteri hali sozlanmagan (production uchun zarur).",
         }
     if backend == "local":
+        verified, message = _probe_local_storage(settings.storage_dir)
         return {
             "backend": backend,
-            "available": True,
-            "persistent": True,
-            "message": "Lokal fayl saqlash faol.",
+            "available": verified,
+            "persistent": verified,
+            "verified": verified,
+            "message": message,
         }
     return {
         "backend": "memory",
         "available": True,
         "persistent": False,
-        "message": "Vaqtinchalik (xotiradagi) saqlash — production uchun mos emas.",
+        "verified": False,
+        "message": "Vaqtinchalik (xotiradagi) saqlash — production va teksturalar uchun mos emas.",
     }
+
+
+def ensure_persistent_storage() -> None:
+    """Reject texture uploads unless durable, verified storage is configured.
+
+    Silently falling back to memory would give the user a working upload that
+    disappears on restart, which is worse than an explicit refusal.
+    """
+    info = storage_status()
+    if not info.get("available") or not info.get("persistent") or not info.get("verified"):
+        raise ApiError(
+            "storage_not_persistent",
+            "Tekstura yuklash uchun doimiy va yozish tekshirilgan storage kerak.",
+            status_code=503,
+        )
 
 
 __all__ = [
@@ -207,6 +255,7 @@ __all__ = [
     "LocalStorageAdapter",
     "MemoryStorageAdapter",
     "StorageAdapter",
+    "ensure_persistent_storage",
     "generate_storage_key",
     "get_storage_adapter",
     "resolve_format",

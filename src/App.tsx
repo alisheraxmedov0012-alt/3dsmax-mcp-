@@ -76,6 +76,7 @@ import {
 } from './scene/types';
 import type { SceneViewer } from './viewer/SceneViewer';
 import type { MaterialPresetId } from './materials/types';
+import type { TextureAssetRef } from './materials/asset';
 import type {
   LightingPresetChoice,
   QualityPresetId,
@@ -368,6 +369,17 @@ export default function App() {
   const handleMaterial = (patch: Partial<ObjectMaterial>) => {
     if (selectedObject) {
       dispatch({ type: 'UPDATE_MATERIAL', id: selectedObject.id, material: patch });
+    }
+  };
+
+  const handleMaterialMap = (role: 'baseColor', ref: TextureAssetRef | null) => {
+    if (selectedObject) {
+      dispatch({
+        type: 'SET_MATERIAL_MAP',
+        id: selectedObject.id,
+        role,
+        ref,
+      });
     }
   };
 
@@ -801,6 +813,7 @@ export default function App() {
             object={selectedObject}
             onMaterial={handleMaterial}
             onApplyPreset={handleApplyMaterialPreset}
+            onMaterialMap={handleMaterialMap}
             onReset={handleResetMaterial}
           />
         </div>

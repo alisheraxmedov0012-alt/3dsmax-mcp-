@@ -44,3 +44,7 @@ venv/
 backups/
 /var/backups/
 
+# Local artifact storage (Phase 4.3A) — uploaded files are never tracked.
+backend/var/
+var/storage/
+

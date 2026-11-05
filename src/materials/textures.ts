@@ -8,27 +8,26 @@
  * caller falls back to a plain PBR material.
  */
 import * as THREE from 'three';
-import type { MaterialType } from './types';
+import { textureKindFor, type TextureKind } from './types';
 
-export type TextureKind = 'none' | 'wood' | 'brushed' | 'fabric' | 'grain';
+export { textureKindFor };
+export type { TextureKind };
 
 export const DEFAULT_TEXTURE_SIZE = 128;
 
-/** Which procedural pattern belongs to a material type. */
-export function textureKindFor(type: MaterialType): TextureKind {
-  switch (type) {
-    case 'wood':
-      return 'wood';
-    case 'metal':
-      return 'brushed';
-    case 'fabric':
-      return 'fabric';
-    case 'leather':
-      return 'grain';
-    default:
-      return 'none';
-  }
-}
+/**
+ * Upper bound on distinct texture sets kept in the shared cache.
+ *
+ * Entries are ref-counted and removed as soon as their last user disposes them,
+ * so a live cache normally stays tiny. The cap only matters when many distinct
+ * `textureScale` values are alive at once (a slider produces arbitrarily many).
+ * Once the cap is reached, new sets are still generated but are not shared: they
+ * are disposed by their owner instead of growing the cache without limit. This
+ * deliberately does not evict in-use entries, and preview/export resolution is
+ * unchanged. At 512 px a set is about 2 MiB, so the cap bounds cached bitmaps to
+ * roughly 64 MiB (preview sets are about 128 KiB each).
+ */
+export const MAX_CACHED_TEXTURE_SETS = 32;
 
 function hash(x: number, y: number): number {
   const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
@@ -236,6 +235,11 @@ function buildTextures(
 
   const map = new THREE.CanvasTexture(base.canvas as unknown as HTMLCanvasElement);
   const normalMap = new THREE.CanvasTexture(normal.canvas as unknown as HTMLCanvasElement);
+  // Base colour is sampled in sRGB; a normal map is data and must stay linear.
+  // Assigning the wrong space here makes the preview disagree with the GLB,
+  // where glTF requires baseColorTexture to be sRGB.
+  map.colorSpace = THREE.SRGBColorSpace;
+  normalMap.colorSpace = THREE.NoColorSpace;
   for (const texture of [map, normalMap]) {
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
@@ -285,6 +289,23 @@ export function createProceduralTextures(
   if (!built) {
     return null;
   }
+
+  if (textureCache.size >= MAX_CACHED_TEXTURE_SETS) {
+    let released = false;
+    return {
+      map: built.map,
+      normalMap: built.normalMap,
+      dispose: () => {
+        if (released) {
+          return;
+        }
+        released = true;
+        built.map.dispose();
+        built.normalMap.dispose();
+      },
+    };
+  }
+
   textureCache.set(key, { ...built, refs: 1 });
 
   let released = false;

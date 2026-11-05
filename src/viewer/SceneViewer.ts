@@ -6,8 +6,15 @@ import {
   buildSceneObject,
   sceneObjectBuildKey,
 } from '../scene/buildSceneObject';
-import { ROOM_OBJECT_ID, type SceneData } from '../scene/types';
+import { ROOM_OBJECT_ID, type SceneData, type SceneObject } from '../scene/types';
 import type { CameraPreset, SceneSettings } from '../scene/sceneSettings';
+import { applyBaseColorTextureToGroup } from '../materials/applyBaseColorTexture';
+import { resolvePresetSettings } from '../materials/presets';
+import { textureRegistry, TextureLoadError } from '../materials/textureRegistry';
+import {
+  clearTextureResolutionStatus,
+  setTextureResolutionStatus,
+} from '../materials/textureStatus';
 import { computePresetFraming, computeRoomFraming } from './cameraFraming';
 import { computeObjectFraming, isValidBounds, type BoundsBox } from '../render/framing';
 import { PRODUCT_PREVIEW_VIEWS, type ProductPreviewId } from './productPreviewViews';
@@ -42,6 +49,9 @@ interface ObjectEntry {
   group: THREE.Group;
   dispose: () => void;
   paramsKey: string;
+  textureKey?: string;
+  textureToken?: number;
+  releaseTexture?: () => void;
 }
 
 const CLICK_MOVE_THRESHOLD_PX = 6;
@@ -178,9 +188,9 @@ export class SceneViewer {
 
     for (const [id, entry] of this.objects) {
       if (!nextIds.has(id)) {
-        this.scene.remove(entry.group);
-        entry.dispose();
+        this.disposeObjectEntry(entry);
         this.objects.delete(id);
+        clearTextureResolutionStatus(id);
       }
     }
 
@@ -191,13 +201,24 @@ export class SceneViewer {
       if (!existing) {
         const built = buildSceneObject(object);
         this.scene.add(built.group);
-        this.objects.set(object.id, { group: built.group, dispose: built.dispose, paramsKey });
+        const entry: ObjectEntry = {
+          group: built.group,
+          dispose: built.dispose,
+          paramsKey,
+        };
+        this.objects.set(object.id, entry);
+        this.applyObjectBaseColorTexture(object, entry);
       } else if (existing.paramsKey !== paramsKey) {
-        this.scene.remove(existing.group);
-        existing.dispose();
+        this.disposeObjectEntry(existing);
         const built = buildSceneObject(object);
         this.scene.add(built.group);
-        this.objects.set(object.id, { group: built.group, dispose: built.dispose, paramsKey });
+        const entry: ObjectEntry = {
+          group: built.group,
+          dispose: built.dispose,
+          paramsKey,
+        };
+        this.objects.set(object.id, entry);
+        this.applyObjectBaseColorTexture(object, entry);
       } else {
         applyObjectTransform(existing.group, object);
       }
@@ -210,6 +231,63 @@ export class SceneViewer {
 
     this.updateSelectionHelper();
     this.controls.update();
+  }
+
+  private disposeObjectEntry(entry: ObjectEntry): void {
+    entry.releaseTexture?.();
+    entry.releaseTexture = undefined;
+    entry.textureKey = undefined;
+    this.scene.remove(entry.group);
+    entry.dispose();
+  }
+
+  /**
+   * Resolve the object's baseColor bitmap after its geometry is built and apply
+   * it to every material in the group. Loading is async and token-guarded, so a
+   * rapid rebuild cannot let an older request overwrite the newer material.
+   */
+  private applyObjectBaseColorTexture(object: SceneObject, entry: ObjectEntry): void {
+    const ref = object.material.maps?.baseColor;
+    if (!ref) {
+      clearTextureResolutionStatus(object.id);
+      return;
+    }
+
+    const repeat = resolvePresetSettings(object.material).textureScale;
+    const key = `${ref.id}@${ref.version}|${repeat}`;
+    if (entry.textureKey === key) {
+      return;
+    }
+
+    const token = (entry.textureToken ?? 0) + 1;
+    entry.textureToken = token;
+    setTextureResolutionStatus(object.id, { state: 'loading' });
+
+    void textureRegistry
+      .acquire(ref, { repeat })
+      .then((texture) => {
+        if (this.objects.get(object.id) !== entry || entry.textureToken !== token) {
+          textureRegistry.release(ref, { repeat });
+          return;
+        }
+        entry.releaseTexture?.();
+        entry.textureKey = key;
+        entry.releaseTexture = () => textureRegistry.release(ref, { repeat });
+        applyBaseColorTextureToGroup(entry.group, texture);
+        setTextureResolutionStatus(object.id, { state: 'ready' });
+      })
+      .catch((error: unknown) => {
+        if (this.objects.get(object.id) !== entry || entry.textureToken !== token) {
+          return;
+        }
+        // The built procedural/colour material stays visible; the panel shows
+        // this message instead of silently pretending the texture loaded.
+        const message =
+          error instanceof TextureLoadError
+            ? error.message
+            : "Teksturani yuklab bo'lmadi, mavjud material ko'rsatilmoqda.";
+        setTextureResolutionStatus(object.id, { state: 'error', message });
+      });
   }
 
   /** Applies background, lighting, render quality, tone mapping and shadows. */
@@ -590,9 +668,9 @@ export class SceneViewer {
       this.room = null;
     }
 
-    for (const entry of this.objects.values()) {
-      this.scene.remove(entry.group);
-      entry.dispose();
+    for (const [id, entry] of this.objects) {
+      this.disposeObjectEntry(entry);
+      clearTextureResolutionStatus(id);
     }
     this.objects.clear();
 

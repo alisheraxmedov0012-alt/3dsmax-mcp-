@@ -47,8 +47,13 @@ services:
       APP_REDIS_URL: redis://redis:6379/0
       APP_PAYMENT_PROVIDER: fake
       APP_PAYMENT_WEBHOOK_SECRET: local-sandbox-webhook-secret
+      # Phase 4.3A: textures require durable, verified storage.
+      APP_STORAGE_BACKEND: local
+      APP_STORAGE_DIR: /app/var/storage
     ports:
       - "8000:8000"
+    volumes:
+      - storage_data:/app/var/storage
     depends_on:
       db:
         condition: service_healthy
@@ -70,3 +75,4 @@ services:
 
 volumes:
   db_data:
+  storage_data:

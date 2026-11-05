@@ -51,10 +51,18 @@ def test_migrations_upgrade_and_downgrade(tmp_path):
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
+        stored_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(stored_files)")
+        }
+        stored_indexes = {
+            row[1] for row in connection.execute("PRAGMA index_list(stored_files)")
+        }
     finally:
         connection.close()
 
     assert EXPECTED_TABLES.issubset(tables)
+    assert {"kind", "width", "height", "content_hash"}.issubset(stored_columns)
+    assert {"uq_stored_files_user_hash", "ix_stored_files_user_kind"}.issubset(stored_indexes)
 
     downgrade = _run_alembic(["downgrade", "base"], db_url)
     assert downgrade.returncode == 0, downgrade.stderr

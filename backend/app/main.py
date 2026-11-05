@@ -22,6 +22,7 @@ from .routers import (
     jobs,
     plans,
     projects,
+    textures,
     usage,
 )
 from .services import jobs as jobs_service
@@ -82,6 +83,7 @@ app.include_router(billing.router)
 app.include_router(projects.router)
 app.include_router(jobs.router)
 app.include_router(files.router)
+app.include_router(textures.router)
 app.include_router(usage.router)
 app.include_router(ai.router)
 app.include_router(admin.router)

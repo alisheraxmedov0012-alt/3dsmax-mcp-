@@ -1,8 +1,17 @@
-import { useState } from 'react';
-import { MATERIAL_PRESETS, getMaterialPreset, resolvePresetSettings } from '../materials/presets';
+import { useMemo, useState } from 'react';
+import { TexturePicker } from './TexturePicker';
 import {
-  MATERIAL_TYPE_LABELS,
+  filterMaterialCatalog,
+  getMaterialCatalogEntry,
+  listMaterialCatalog,
+  listMaterialCategories,
+} from '../materials/library';
+import { resolvePresetSettings } from '../materials/presets';
+import type { TextureAssetRef } from '../materials/asset';
+import {
+  MATERIAL_CATEGORY_LABELS,
   PBR_LIMITS,
+  type MaterialCategory,
   type NumericRange,
 } from '../materials/types';
 import type { ObjectMaterial, SceneObject } from '../scene/types';
@@ -11,6 +20,7 @@ interface MaterialPanelProps {
   object: SceneObject | null;
   onMaterial: (patch: Partial<ObjectMaterial>) => void;
   onApplyPreset: (presetId: string) => void;
+  onMaterialMap: (role: 'baseColor', ref: TextureAssetRef | null) => void;
   onReset: () => void;
 }
 
@@ -44,50 +54,148 @@ function MaterialSlider({ id, label, range, value, onChange }: MaterialSliderPro
   );
 }
 
-export function MaterialPanel({ object, onMaterial, onApplyPreset, onReset }: MaterialPanelProps) {
-  const [presetId, setPresetId] = useState(MATERIAL_PRESETS[0].id);
+type CategoryFilter = MaterialCategory | 'all';
+
+const CATALOG_SIZE = listMaterialCatalog().length;
+
+const CATEGORY_OPTIONS: ReadonlyArray<{
+  id: CategoryFilter;
+  label: string;
+  count: number;
+}> = [
+  { id: 'all', label: 'Barchasi', count: CATALOG_SIZE },
+  ...listMaterialCategories().map((category) => ({
+    id: category.id as CategoryFilter,
+    label: category.label,
+    count: category.count,
+  })),
+];
+
+export function MaterialPanel({
+  object,
+  onMaterial,
+  onApplyPreset,
+  onMaterialMap,
+  onReset,
+}: MaterialPanelProps) {
+  const [category, setCategory] = useState<CategoryFilter>('all');
+  const [query, setQuery] = useState('');
+
+  const entries = useMemo(
+    () =>
+      filterMaterialCatalog({
+        ...(category === 'all' ? {} : { category }),
+        query,
+      }),
+    [category, query],
+  );
+
+  // Always derived from the selected object: the panel never keeps its own idea
+  // of the active material, so switching objects cannot leave a stale highlight.
+  const resolved = resolvePresetSettings(object?.material);
+  const activeEntry = getMaterialCatalogEntry(resolved.materialId);
 
   if (!object) {
     return (
-      <section className="material">
-        <h2 className="material__title">Material</h2>
-        <p className="material__empty">Materialni sozlash uchun stolni tanlang.</p>
+      <section className="material" data-testid="material-panel">
+        <h2 className="material__title">Material kutubxonasi</h2>
+        <p className="material__empty" data-testid="material-empty">
+          Materialni sozlash uchun mebelni tanlang.
+        </p>
       </section>
     );
   }
 
-  // Resolve the stored (possibly partial) material into concrete displayed
-  // values, so the controls always reflect what the renderer actually uses.
-  const resolved = resolvePresetSettings(object.material);
-  const activePreset = getMaterialPreset(resolved.materialId);
-
   return (
-    <section className="material">
-      <h2 className="material__title">Material</h2>
+    <section className="material" data-testid="material-panel">
+      <h2 className="material__title">Material kutubxonasi</h2>
+
+      <p className="material__active" data-testid="material-current">
+        Joriy material: <strong>{activeEntry?.label ?? 'Standart'}</strong>
+        {activeEntry ? (
+          <span className="material__chip">{MATERIAL_CATEGORY_LABELS[activeEntry.category]}</span>
+        ) : null}
+      </p>
 
       <div className="field">
-        <label className="field__label" htmlFor="material-preset">
-          Material turi
+        <label className="field__label" htmlFor="material-search">
+          Qidirish
         </label>
-        <select
-          id="material-preset"
+        <input
+          id="material-search"
           className="field__input"
-          value={presetId}
-          onChange={(event) => setPresetId(event.target.value)}
-        >
-          {MATERIAL_PRESETS.map((preset) => (
-            <option key={preset.id} value={preset.id}>
-              {preset.name}
-            </option>
-          ))}
-        </select>
-        <button type="button" className="visual-reset" onClick={() => onApplyPreset(presetId)}>
-          Presetni qo&apos;llash
-        </button>
-        <p className="material__active">
-          Joriy tur: <strong>{MATERIAL_TYPE_LABELS[activePreset.type]}</strong>
-        </p>
+          type="search"
+          value={query}
+          placeholder="Nom bo'yicha, masalan: yong'oq"
+          onChange={(event) => setQuery(event.target.value)}
+        />
       </div>
+
+      <div className="material-categories" role="group" aria-label="Material kategoriyalari">
+        {CATEGORY_OPTIONS.map((option) => {
+          const active = category === option.id;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              className={`material-category${active ? ' material-category--active' : ''}`}
+              aria-pressed={active}
+              onClick={() => setCategory(option.id)}
+            >
+              {option.label}
+              <span className="material-category__count">{option.count}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="material-library__count" data-testid="material-result-count">
+        {entries.length} material
+      </p>
+
+      {entries.length === 0 ? (
+        <p className="material__empty" data-testid="material-no-results">
+          Hech narsa topilmadi. Qidiruvni o&apos;zgartiring yoki boshqa kategoriyani tanlang.
+        </p>
+      ) : (
+        <div className="material-grid" data-testid="material-grid">
+          {entries.map((entry) => {
+            const active = activeEntry?.id === entry.id;
+            return (
+              <button
+                key={entry.id}
+                type="button"
+                className={`material-card${active ? ' material-card--active' : ''}`}
+                aria-pressed={active}
+                data-material-id={entry.id}
+                data-testid={`material-card-${entry.id}`}
+                title={`${entry.label} — ${MATERIAL_CATEGORY_LABELS[entry.category]}`}
+                onClick={() => onApplyPreset(entry.id)}
+              >
+                <span
+                  className="material-card__swatch"
+                  style={{ backgroundColor: entry.previewColor }}
+                  aria-hidden="true"
+                />
+                <span className="material-card__text">
+                  <span className="material-card__label">{entry.label}</span>
+                  <span className="material-card__meta">
+                    {MATERIAL_CATEGORY_LABELS[entry.category]} ·{' '}
+                    {entry.detail === 'procedural' ? 'protsedural' : 'teksturasiz'}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <TexturePicker
+        objectId={object.id}
+        currentRef={object.material.maps?.baseColor ?? null}
+        onApply={(ref) => onMaterialMap('baseColor', ref)}
+        onRemove={() => onMaterialMap('baseColor', null)}
+      />
 
       <MaterialSlider
         id="material-metalness"
@@ -130,8 +238,8 @@ export function MaterialPanel({ object, onMaterial, onApplyPreset, onReset }: Ma
       </button>
 
       <p className="visual__hint">
-        Asosiy rang (albedo) — «Stol parametrlari» bo&apos;limidagi rang boshqaruvi orqali.
-        Tekstura va normal karta lokal (procedural) generatsiya qilinadi; tashqi
+        Asosiy rang (albedo) — «Mebel parametrlari» bo&apos;limidagi rang boshqaruvi orqali.
+        Tekstura va normal karta lokal (protsedural) generatsiya qilinadi; tashqi bitmap
         assetlar ishlatilmaydi.
       </p>
     </section>

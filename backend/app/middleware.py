@@ -46,12 +46,22 @@ SECURITY_HEADERS = {
 _MULTIPART_OVERHEAD = 64 * 1024
 
 
-def _effective_body_limit(request: Request) -> int:
+def _multipart_limit(request_path: str) -> int:
+    """Multipart body cap: textures have their own smaller limit."""
     settings = get_settings()
+    per_file = (
+        settings.texture_max_bytes
+        if request_path.startswith("/api/textures")
+        else settings.storage_max_bytes
+    )
+    return per_file + _MULTIPART_OVERHEAD
+
+
+def _effective_body_limit(request: Request) -> int:
     content_type = (request.headers.get("content-type") or "").lower()
     if content_type.startswith("multipart/form-data"):
-        return settings.storage_max_bytes + _MULTIPART_OVERHEAD
-    return settings.max_request_bytes
+        return _multipart_limit(request.url.path)
+    return get_settings().max_request_bytes
 
 
 def _declared_length(request: Request) -> int | None:
@@ -70,11 +80,10 @@ def _header(scope: dict, name: bytes) -> str:
 
 def _body_limit_for_scope(scope: dict) -> int:
     """Same limits as the declared-length check, resolved from a raw ASGI scope."""
-    settings = get_settings()
     content_type = _header(scope, b"content-type").lower()
     if content_type.startswith("multipart/form-data"):
-        return settings.storage_max_bytes + _MULTIPART_OVERHEAD
-    return settings.max_request_bytes
+        return _multipart_limit(str(scope.get("path", "")))
+    return get_settings().max_request_bytes
 
 
 class _BodyTooLarge(BaseException):

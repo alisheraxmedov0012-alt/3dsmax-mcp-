@@ -17,6 +17,7 @@ import { getFurnitureDefinition } from '../geometry/universal/registry';
 import { checkSpecBuildable } from './configurator/buildability';
 import { validateSceneSettings } from './sceneSettings';
 import { MATERIAL_PRESET_IDS } from '../materials/presets';
+import { validateMaterialAssetMaps } from '../materials/asset';
 import { PBR_LIMITS } from '../materials/types';
 import {
   isKnownSheetMaterial,
@@ -182,6 +183,16 @@ function normalizeMaterial(value: unknown): ObjectMaterial {
   if (textureScale !== undefined) material.textureScale = textureScale;
   const normalStrength = optionalNumber(record.normalStrength, PBR_LIMITS.normalStrength);
   if (normalStrength !== undefined) material.normalStrength = normalStrength;
+
+  // Phase 4.3: only the baseColor bitmap reference is stored today. The shared
+  // validator enforces the same role/colorSpace rules as MaterialAsset v1 and
+  // drops malformed/unknown refs instead of failing the whole scene.
+  if (isRecord(record.maps) && record.maps.baseColor !== undefined) {
+    const validated = validateMaterialAssetMaps({ baseColor: record.maps.baseColor });
+    if (validated.ok && validated.maps.baseColor) {
+      material.maps = { baseColor: validated.maps.baseColor };
+    }
+  }
 
   return material;
 }

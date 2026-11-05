@@ -12,6 +12,10 @@ python-multipart==0.0.32
 email-validator==2.3.0
 psycopg[binary]==3.3.6
 
+# Server-side image validation/normalization for texture uploads (Phase 4.3A).
+# Decodes PNG/JPEG/WebP, enforces pixel limits and strips metadata.
+Pillow==13.0.0
+
 # Shared rate-limit store (optional at runtime; required for multi-worker limits).
 redis==6.4.0
 
