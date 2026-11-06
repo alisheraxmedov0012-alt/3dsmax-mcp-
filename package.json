@@ -9,7 +9,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "lint": "oxlint src",
+    "lint": "oxlint src --deny-warnings",
     "test": "vitest run",
     "test:glb": "node tools/glb-harness/roundtrip.mjs",
     "test:import": "node tools/glb-harness/import.mjs"

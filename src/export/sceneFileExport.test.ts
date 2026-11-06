@@ -260,11 +260,14 @@ describe('A1 — hidden objects, OBJ units and empty exports', () => {
         ...tableScene('hidden', false).objects,
       ],
     };
-    for (const format of ['glb', 'obj', 'stl'] as const) {
+    const checkHiddenOmitted = async (format: 'glb' | 'obj' | 'stl') => {
       const a = await exportSceneToFormat(format, visibleOnly, META, { includeRoom: false });
       const b = await exportSceneToFormat(format, withHidden, META, { includeRoom: false });
       expect(b.blob.size, format).toBe(a.blob.size);
-    }
+    };
+    await checkHiddenOmitted('glb');
+    await checkHiddenOmitted('obj');
+    await checkHiddenOmitted('stl');
   });
 
   it('rejects an empty export but keeps a room-only export valid', async () => {
@@ -274,13 +277,16 @@ describe('A1 — hidden objects, OBJ units and empty exports', () => {
       objects: [],
       settings: createDefaultSettings(),
     };
-    for (const format of ['glb', 'obj', 'stl'] as const) {
+    const checkEmptyExport = async (format: 'glb' | 'obj' | 'stl') => {
       await expect(
         exportSceneToFormat(format, empty, META, { includeRoom: false }),
       ).rejects.toMatchObject({ code: 'empty_scene' });
       const roomOnly = await exportSceneToFormat(format, empty, META, { includeRoom: true });
       expect(roomOnly.blob.size, format).toBeGreaterThan(0);
-    }
+    };
+    await checkEmptyExport('glb');
+    await checkEmptyExport('obj');
+    await checkEmptyExport('stl');
   });
 
   it('rejects an export whose only object is hidden and the room is excluded', async () => {

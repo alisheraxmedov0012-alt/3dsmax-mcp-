@@ -328,10 +328,9 @@ export async function buildAssetPackage(input: AssetPackageInput): Promise<Asset
       },
       uv: describeUvLayout(),
     },
-    previews: previewFiles.map((preview) => ({
-      ...record(preview.name, preview.bytes),
-      size: preview.size,
-    })),
+    previews: previewFiles.map((preview) =>
+      Object.assign(record(preview.name, preview.bytes), { size: preview.size }),
+    ),
     listing,
   };
 

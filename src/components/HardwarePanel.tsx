@@ -43,6 +43,19 @@ const EMPTY_DRAFT: Draft = {
   stepIds: [],
 };
 
+/** Hardware rows have no id; identical rows are told apart by occurrence. */
+function hardwareItemKey(item: HardwareItem): string {
+  return JSON.stringify([
+    item.kind,
+    item.name,
+    item.size,
+    item.quantity,
+    item.unit,
+    item.note ?? null,
+    item.stepIds ?? [],
+  ]);
+}
+
 interface HardwarePanelProps {
   hardware?: readonly HardwareItem[];
   steps: readonly AssemblyStep[];
@@ -61,6 +74,7 @@ export function HardwarePanel({ hardware = NO_HARDWARE, steps, onChange }: Hardw
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [error, setError] = useState('');
   const items = [...hardware];
+  const itemKeyCounts = new Map<string, number>();
 
   const updateDraft = (patch: Partial<Draft>) => {
     setDraft((current) => ({ ...current, ...patch }));
@@ -175,8 +189,11 @@ export function HardwarePanel({ hardware = NO_HARDWARE, steps, onChange }: Hardw
               (id) => !steps.some((step) => step.id === id),
             );
             const legacySteps = unknownSteps.filter((id) => /^step-\d+$/.test(id));
+            const baseKey = hardwareItemKey(item);
+            const occurrence = itemKeyCounts.get(baseKey) ?? 0;
+            itemKeyCounts.set(baseKey, occurrence + 1);
             return (
-              <li key={`${item.kind}-${item.name}-${index}`} data-testid={`hardware-item-${index}`}>
+              <li key={`${baseKey}#${occurrence}`} data-testid={`hardware-item-${index}`}>
                 {item.name} · {KIND_LABELS[item.kind]}
                 {item.size ? ` · ${item.size}` : ''} ·{' '}
                 {item.quantity === null ? "miqdor ko'rsatilmagan" : `${item.quantity} ${item.unit}`}

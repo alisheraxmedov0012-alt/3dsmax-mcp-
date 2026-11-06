@@ -58,7 +58,9 @@ describe('C6-R3 — stable assembly step identity', () => {
   it('keeps a link valid when steps are reordered or a new step is inserted', () => {
     const plan = tablePlan();
     const hardware = hardwareFor(['step-leg']);
-    const reversed = [...plan.steps].reverse();
+    const reversed = plan.steps.map(
+      (_step, index) => plan.steps[plan.steps.length - 1 - index],
+    );
     expect(validateHardwareSteps(hardware, reversed)).toEqual([]);
 
     const inserted: AssemblyStep = {
