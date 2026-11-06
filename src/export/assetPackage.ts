@@ -442,19 +442,37 @@ export function verifyAssetPackage(asset: AssetPackage): AssetVerification {
   }
 
   if (metadata) {
-    for (const file of metadata.files) {
-      const actual = files[file.name];
-      if (!actual) {
-        problems.push(`"${file.name}" metadata ro'yxatida bor, arxivda yo'q.`);
-        continue;
+    // Version-specific by design: a v2 archive must not be accepted by the v1
+    // verifier just because its entry names happen to look familiar.
+    if (
+      metadata.format !== ASSET_PACKAGE_FORMAT ||
+      metadata.formatVersion !== ASSET_PACKAGE_VERSION
+    ) {
+      problems.push('metadata.json formati yoki versiyasi v1 emas.');
+    } else {
+      if (!Array.isArray(metadata.files)) {
+        problems.push('metadata.json files ro‘yxati yo‘q.');
+      } else {
+        for (const file of metadata.files) {
+          const actual = files[file.name];
+          if (!actual) {
+            problems.push(`"${file.name}" metadata ro'yxatida bor, arxivda yo'q.`);
+            continue;
+          }
+          if (digestOf(actual) !== file.sha256) {
+            problems.push(`"${file.name}" SHA-256 mos emas.`);
+          }
+        }
       }
-      if (digestOf(actual) !== file.sha256) {
-        problems.push(`"${file.name}" SHA-256 mos emas.`);
+      const glb = files['model.glb'];
+      const modelSha = metadata.asset?.model?.sha256;
+      if (glb) {
+        if (typeof modelSha !== 'string') {
+          problems.push('metadata.json model SHA-256 yo‘q.');
+        } else if (digestOf(glb) !== modelSha) {
+          problems.push('model.glb SHA-256 metadata bilan mos emas.');
+        }
       }
-    }
-    const glb = files['model.glb'];
-    if (glb && digestOf(glb) !== metadata.asset.model.sha256) {
-      problems.push('model.glb SHA-256 metadata bilan mos emas.');
     }
   }
 

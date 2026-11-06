@@ -470,6 +470,46 @@ async function applyExportBitmapTextures(
 }
 
 /**
+ * Build a fresh export scene and attach the bitmap textures referenced by the
+ * exported objects. The returned `dispose` releases both the textures acquired
+ * from the provider and the scene's geometries/materials.
+ *
+ * Used by GLB and by the OBJ/MTL sidecar writer so both formats see the same
+ * textured materials, on separate scene instances.
+ */
+export async function buildTexturedExportScene(
+  data: SceneData,
+  options: BuildExportOptions = {},
+): Promise<ExportScene> {
+  const built = buildExportScene(data, options);
+  const objects = options.onlyObjectId
+    ? data.objects.filter((object) => object.id === options.onlyObjectId)
+    : data.objects;
+  const provider = options.textureProvider ?? textureRegistry;
+  const acquired: Array<{ ref: TextureAssetRef; options: TextureAcquireOptions }> = [];
+
+  try {
+    await applyExportBitmapTextures(built.scene, objects, provider, acquired);
+  } catch (error) {
+    for (const item of acquired) {
+      provider.release(item.ref, item.options);
+    }
+    built.dispose();
+    throw error;
+  }
+
+  return {
+    scene: built.scene,
+    dispose: () => {
+      for (const item of acquired) {
+        provider.release(item.ref, item.options);
+      }
+      built.dispose();
+    },
+  };
+}
+
+/**
  * Serialises the whole scene to binary glTF (.glb) bytes using Three.js'
  * official GLTFExporter. No backend or external API is involved. The temporary
  * export scene is disposed afterwards.
@@ -485,20 +525,10 @@ export async function exportSceneToGlb(
   data: SceneData,
   options: BuildExportOptions = {},
 ): Promise<ArrayBuffer> {
-  const { scene, dispose } = buildExportScene(data, options);
-  const objects = options.onlyObjectId
-    ? data.objects.filter((object) => object.id === options.onlyObjectId)
-    : data.objects;
-  const provider = options.textureProvider ?? textureRegistry;
-  const acquired: Array<{ ref: TextureAssetRef; options: TextureAcquireOptions }> = [];
-
+  const { scene, dispose } = await buildTexturedExportScene(data, options);
   try {
-    await applyExportBitmapTextures(scene, objects, provider, acquired);
     return await exportRootToGlb(scene);
   } finally {
-    for (const item of acquired) {
-      provider.release(item.ref, item.options);
-    }
     dispose();
   }
 }

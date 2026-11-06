@@ -61,7 +61,7 @@ function stripObjMaterialReferences(obj: string): string {
  * scene stores centimetres, so wrap the export in a 10x root and bake it into
  * world matrices before the exporter reads them.
  */
-function addMillimetreScaleRoot(scene: THREE.Scene): void {
+export function addMillimetreScaleRoot(scene: THREE.Scene): void {
   const root = new THREE.Group();
   root.name = 'stl-mm-root';
   root.scale.setScalar(10);

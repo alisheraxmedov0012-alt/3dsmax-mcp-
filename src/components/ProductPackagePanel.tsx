@@ -19,6 +19,7 @@
 import { useMemo, useState } from 'react';
 import { downloadBlob } from '../export/downloadFile';
 import { buildAssetPackage } from '../export/assetPackage';
+import { AssetPackageV2Panel } from './AssetPackageV2Panel';
 import type { SceneData, SceneObject } from '../scene/types';
 import type { SheetMaterialEntry } from '../manufacturing/sheetMaterial';
 import {
@@ -443,6 +444,16 @@ export function ProductPackagePanel({
           </p>
         )}
       </section>
+
+      <AssetPackageV2Panel
+        key={`${object.id}:${projectName}`}
+        scene={scene}
+        object={object}
+        projectName={projectName}
+        onCaptureProductPreviews={onCaptureProductPreviews}
+        captureBlockedReason={captureBlockedReason}
+      />
+
       {error && (
         <p className="field__error" role="alert" data-testid="product-error">
           {error}
