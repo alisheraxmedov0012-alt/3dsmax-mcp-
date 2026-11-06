@@ -151,6 +151,8 @@ Tartib qat'iy; har bir bosqich oldingisiga tayanishi shart.
 
 - **6-bosqich — mahsulot va reklama vizualizatsiyasi**
   Sahnaga qo'yish (staging), yorug'lik/material sozlamalari, sifatli render/eksport.
+  (6.2.1 — GLB model import: sessiyalik, xavfsiz tekshiruv bilan; to'r `SceneData`da
+  saqlanmaydi.)
 
 - **7-bosqich — hisoblar, obuna va to'lovlar**
   Tariflar, limitlar, to'lov provayderi integratsiyasi, hisob-faktura.

@@ -744,14 +744,14 @@ export default function App() {
    * that nothing can ever delete. The store, not the scene, owns the model, so a
    * later `DELETE_OBJECT` releases it through the viewer.
    */
-  const handleImportModel = (parsed: ParsedImport): void => {
+  const handleImportModel = (model: ParsedImport): void => {
     const id = createSceneObjectId();
-    if (!validateSceneObject(createImportedSceneObject(id, parsed.meta))) {
-      parsed.dispose();
+    if (!validateSceneObject(createImportedSceneObject(id, model.meta))) {
+      model.dispose();
       throw new Error("Import ma'lumotlari tekshiruvdan o'tmadi.");
     }
-    importedModelStore.register(id, { root: parsed.root, dispose: parsed.dispose });
-    dispatch({ type: 'ADD_IMPORTED_OBJECT', id, imported: parsed.meta });
+    importedModelStore.register(id, { root: model.root, dispose: model.dispose });
+    dispatch({ type: 'ADD_IMPORTED_OBJECT', id, imported: model.meta });
   };
 
   /**

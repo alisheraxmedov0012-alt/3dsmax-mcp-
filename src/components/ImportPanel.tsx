@@ -48,15 +48,17 @@ function describeFailure(error: unknown): string {
 function readFileBytes(file: File): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.addEventListener('load', () => {
       const result = reader.result;
       if (result instanceof ArrayBuffer) {
         resolve(result);
         return;
       }
       reject(new ImportError('failed', "Faylni o'qib bo'lmadi."));
-    };
-    reader.onerror = () => reject(new ImportError('failed', "Faylni o'qib bo'lmadi."));
+    });
+    reader.addEventListener('error', () =>
+      reject(new ImportError('failed', "Faylni o'qib bo'lmadi.")),
+    );
     reader.readAsArrayBuffer(file);
   });
 }
