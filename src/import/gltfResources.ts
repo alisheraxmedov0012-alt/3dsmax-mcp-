@@ -17,12 +17,8 @@
 import type { GltfJson } from '../export/glbSummary';
 import type { ExternalReference } from './gltfGuard';
 import { importFailure } from './importErrors';
-import { readImageSize } from './imageHeader';
-import {
-  MAX_TEXTURE_DIMENSION,
-  MAX_TEXTURE_IMAGE_BYTES,
-  MAX_TOTAL_TEXTURE_PIXELS,
-} from './importLimits';
+import { imagePixelsWithinLimits } from './imageHeader';
+import { MAX_TOTAL_TEXTURE_PIXELS } from './importLimits';
 import type { ResourceMap } from './resourceMap';
 
 export type DroppedImageReason = 'missing' | 'ambiguous' | 'invalid' | 'too_large';
@@ -44,18 +40,6 @@ export interface ResolvedGltfResources {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/** True when the bytes are a PNG/JPEG inside the per-image limits. */
-function imageIsUsable(bytes: Uint8Array): boolean {
-  if (bytes.byteLength === 0 || bytes.byteLength > MAX_TEXTURE_IMAGE_BYTES) {
-    return false;
-  }
-  const size = readImageSize(bytes);
-  if (!size) {
-    return false;
-  }
-  return size.width <= MAX_TEXTURE_DIMENSION && size.height <= MAX_TEXTURE_DIMENSION;
 }
 
 /**
@@ -135,18 +119,8 @@ export function resolveGltfResources(
       continue;
     }
 
-    if (!imageIsUsable(found.bytes)) {
-      droppedImages.push({
-        index: reference.index,
-        uri: reference.uri,
-        reason: 'too_large',
-        candidates: [],
-      });
-      continue;
-    }
-    const size = readImageSize(found.bytes);
-    const pixels = size ? size.width * size.height : 0;
-    if (totalPixels + pixels > MAX_TOTAL_TEXTURE_PIXELS) {
+    const pixels = imagePixelsWithinLimits(found.bytes);
+    if (pixels === null || totalPixels + pixels > MAX_TOTAL_TEXTURE_PIXELS) {
       droppedImages.push({
         index: reference.index,
         uri: reference.uri,

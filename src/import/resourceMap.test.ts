@@ -41,12 +41,22 @@ describe('normalizeImportPath', () => {
       'textures\\wood.png',
       '',
       'a//b.png',
-      './a.png',
       'file./png',
       'trailing /',
     ]) {
       expect(normalizeImportPath(bad).ok).toBe(false);
     }
+  });
+
+  it('collapses "." segments, which name nothing', () => {
+    expect(normalizeImportPath('./textures/wood.png')).toEqual({
+      ok: true,
+      path: 'textures/wood.png',
+    });
+    expect(normalizeImportPath('textures/./wood.png')).toEqual({
+      ok: true,
+      path: 'textures/wood.png',
+    });
   });
 
   it('rejects control characters and over-long paths', () => {

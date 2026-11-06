@@ -10,6 +10,11 @@
  * Anything else returns `null` and the caller rejects it.
  */
 
+import {
+  MAX_TEXTURE_DIMENSION,
+  MAX_TEXTURE_IMAGE_BYTES,
+} from './importLimits';
+
 export interface ImageSize {
   width: number;
   height: number;
@@ -97,4 +102,31 @@ export function readImageSize(bytes: Uint8Array): ImageSize | null {
     return readJpegSize(bytes);
   }
   return null;
+}
+
+/**
+ * True when the bytes are a PNG/JPEG that fits the import limits.
+ *
+ * Shared by the glTF and the OBJ/MTL paths so an embedded map and a selected map
+ * are judged by exactly the same rule — and always from the header, before any
+ * decoder allocates a pixel buffer.
+ */
+export function imageWithinImportLimits(bytes: Uint8Array): boolean {
+  if (bytes.byteLength === 0 || bytes.byteLength > MAX_TEXTURE_IMAGE_BYTES) {
+    return false;
+  }
+  const size = readImageSize(bytes);
+  if (!size) {
+    return false;
+  }
+  return size.width <= MAX_TEXTURE_DIMENSION && size.height <= MAX_TEXTURE_DIMENSION;
+}
+
+/** Pixel count of an image inside the limits, or `null` when it is unusable. */
+export function imagePixelsWithinLimits(bytes: Uint8Array): number | null {
+  if (!imageWithinImportLimits(bytes)) {
+    return null;
+  }
+  const size = readImageSize(bytes);
+  return size ? size.width * size.height : null;
 }

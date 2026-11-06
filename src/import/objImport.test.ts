@@ -240,6 +240,25 @@ describe('prepareImport — OBJ degradation', () => {
     }
   });
 
+  it('refuses an oversized texture before decoding it', async () => {
+    const decode = vi.fn(decodeTexture);
+    const huge = testPngBytes(9000, 9000);
+    const { parsed, report } = await prepareImport(
+      [text('chair.obj', quadObj()), text('chair.mtl', chairMtl()), bytes('wood.png', huge)],
+      { decodeTexture: decode },
+    );
+
+    try {
+      // The header is checked first, so the decoder is never called for it.
+      expect(decode).not.toHaveBeenCalled();
+      expect(report.warnings.join(' ')).toContain('qabul qilinmadi');
+      const material = firstMesh(parsed.root).material as THREE.MeshStandardMaterial;
+      expect(material.map).toBeNull();
+    } finally {
+      parsed.dispose();
+    }
+  });
+
   it('does not follow a texture path that leaves the selection', async () => {
     const mtl = ['newmtl Wood', 'Kd 0.5 0.5 0.5', 'map_Kd ../../secret.png', ''].join('\n');
     const { parsed, report } = await prepareImport(

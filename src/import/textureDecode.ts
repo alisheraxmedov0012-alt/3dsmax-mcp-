@@ -11,6 +11,8 @@
  */
 import * as THREE from 'three';
 import { importFailure } from './importErrors';
+import { imagePixelsWithinLimits } from './imageHeader';
+import { MAX_TOTAL_TEXTURE_PIXELS } from './importLimits';
 
 export type TextureDecoder = (
   bytes: Uint8Array,
@@ -40,6 +42,11 @@ export interface TextureResolution {
   readonly warnings: readonly string[];
 }
 
+/** Shared across the base-colour and normal-map passes of one model. */
+export interface TextureBudget {
+  pixels: number;
+}
+
 /**
  * Resolves and decodes the textures a material set references.
  *
@@ -52,6 +59,7 @@ export async function resolveTextures(
   bytesOf: (path: string) => Uint8Array | undefined,
   decode: TextureDecoder,
   srgb: boolean,
+  budget: TextureBudget,
 ): Promise<TextureResolution> {
   const textures = new Map<string, THREE.Texture>();
   const warnings: string[] = [];
@@ -65,6 +73,20 @@ export async function resolveTextures(
       warnings.push(`"${path}" teksturasi topilmadi — material rangsiz qoldirildi.`);
       continue;
     }
+    // The same rule the glTF path applies: the header decides, before any decode,
+    // so an oversized or corrupt map never reaches the decoder.
+    const pixels = imagePixelsWithinLimits(bytes);
+    if (pixels === null) {
+      warnings.push(
+        `"${path}" teksturasi qabul qilinmadi (PNG/JPEG emas yoki juda katta) — qo‘llanmadi.`,
+      );
+      continue;
+    }
+    if (budget.pixels + pixels > MAX_TOTAL_TEXTURE_PIXELS) {
+      warnings.push(`"${path}" teksturasi umumiy piksel chegarasidan oshdi — qo‘llanmadi.`);
+      continue;
+    }
+    budget.pixels += pixels;
     try {
       // Sequential on purpose: decoding every map at once multiplies the peak
       // memory of an import, which is exactly what the texture budgets guard.

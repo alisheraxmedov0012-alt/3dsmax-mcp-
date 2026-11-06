@@ -158,6 +158,9 @@ export async function loadObjScene(
 
   const createdTextures: THREE.Texture[] = [];
   const materials = new Map<string, THREE.MeshStandardMaterial>();
+  // One budget for both passes, so a model cannot double the pixel allowance by
+  // splitting its maps between colour and normal.
+  const textureBudget = { pixels: 0 };
 
   try {
     const base = await resolveTextures(
@@ -165,6 +168,7 @@ export async function loadObjScene(
       (path) => resources.bytesOf(path),
       decode,
       true,
+      textureBudget,
     );
     warnings.push(...base.warnings);
     createdTextures.push(...base.textures.values());
@@ -174,6 +178,7 @@ export async function loadObjScene(
       (path) => resources.bytesOf(path),
       decode,
       false,
+      textureBudget,
     );
     warnings.push(...normal.warnings);
     createdTextures.push(...normal.textures.values());

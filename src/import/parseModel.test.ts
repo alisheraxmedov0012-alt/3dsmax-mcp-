@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import * as THREE from 'three';
-import { parseModelFile } from './parseModel';
+import { parseModelFile, prepareImport } from './parseModel';
 import { ImportError } from './importErrors';
 import { buildGlb, triangleBin, triangleGlb, triangleJsonWith } from './__fixtures__/glbFixtures';
 import { sha256Hex } from '../util/sha256';
@@ -141,6 +141,41 @@ describe('parseModelFile — rejection', () => {
       (error: unknown) => (error instanceof ImportError ? error.code : 'other'),
     );
     expect(['aborted', 'resolved']).toContain(outcome);
+  });
+});
+
+describe('prepareImport — selection rules', () => {
+  it('decides the format from the content, not the extension', async () => {
+    // A GLB renamed to .obj is still a GLB; the loader follows the bytes.
+    const { parsed, report } = await prepareImport([
+      { name: 'renamed.obj', bytes: triangleGlb() },
+    ]);
+    try {
+      expect(report.format).toBe('glb');
+      expect(parsed.meta.triangles).toBe(1);
+    } finally {
+      parsed.dispose();
+    }
+  });
+
+  it('refuses a selection with more than one model file', async () => {
+    expect(
+      await rejectionCode(
+        prepareImport([
+          { name: 'a.glb', bytes: triangleGlb() },
+          { name: 'b.glb', bytes: triangleGlb() },
+        ]),
+      ),
+    ).toBe('unsupported_format');
+  });
+
+  it('refuses a selection without any model file', async () => {
+    const png = new TextEncoder().encode('not a model');
+    expect(
+      await rejectionCode(
+        prepareImport([{ name: 'a.png', bytes: png.buffer as ArrayBuffer }]),
+      ),
+    ).toBe('unsupported_format');
   });
 });
 

@@ -80,9 +80,12 @@ export function normalizeImportPath(value: string): PathResult {
   if (raw.startsWith('/') || /^[A-Za-z]:/.test(raw)) {
     return { ok: false, problem: `Absolyut yo‘l taqiqlangan: "${raw}".` };
   }
-  const segments = raw.split('/');
+  // A leading or interior "." is a no-op by definition, and real OBJ/MTL files use
+  // "./wood.png" freely. Collapsing it is exact; "..", which is not a no-op, stays
+  // rejected rather than resolved.
+  const segments = raw.split('/').filter((segment) => segment !== '.');
   for (const segment of segments) {
-    if (segment === '' || segment === '.' || segment === '..') {
+    if (segment === '' || segment === '..') {
       return { ok: false, problem: `Yo‘l traversal yoki bo‘sh segment: "${raw}".` };
     }
     if (/[. ]$/u.test(segment)) {
