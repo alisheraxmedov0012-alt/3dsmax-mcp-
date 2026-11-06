@@ -59,10 +59,19 @@ export function PrintReadinessPanel({ object }: { object: SceneObject | null }) 
     [volumeX, volumeY, volumeZ, minWall, minFeature],
   );
 
-  const report = useMemo(
-    () => (object ? analyzeObjectPrintReadiness(object, profileResult.profile) : null),
-    [object, profileResult],
-  );
+  const report = useMemo(() => {
+    if (!object) {
+      return null;
+    }
+    try {
+      return analyzeObjectPrintReadiness(object, profileResult.profile);
+    } catch (error) {
+      // An imported model whose geometry is no longer registered cannot be
+      // measured; the panel shows its empty state instead of failing the render.
+      console.error('Print tayyorligini hisoblash xatosi:', error);
+      return null;
+    }
+  }, [object, profileResult]);
 
   return (
     <section className="export" data-testid="print-readiness">

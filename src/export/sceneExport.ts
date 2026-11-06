@@ -17,7 +17,8 @@ import {
   type TextureProvider,
 } from '../materials/textureRegistry';
 import { buildSceneObject } from '../scene/buildSceneObject';
-import type { SceneData, SceneObject } from '../scene/types';
+import { isImportedSceneObject, type SceneData, type SceneObject } from '../scene/types';
+import { importedModelStore } from '../import/importedModelStore';
 import { assertFiniteGeometry } from './geometryGuard';
 import { ExportError } from './exportTypes';
 
@@ -134,12 +135,18 @@ export function buildExportScene(data: SceneData, options: BuildExportOptions = 
       : data.objects;
 
     exportObjects.forEach((object) => {
-      const built = buildSceneObject(object);
+      // Imported geometry comes from the runtime store, which owns its resources;
+      // the build returns a clone and a no-op disposer.
+      const built = buildSceneObject(object, { imported: importedModelStore });
       scene.add(built.group);
       disposers.push(built.dispose);
       if (
         options.textureSize === 512 &&
         object.visible &&
+        // Phase 6.2: an imported model's maps are authored in its source file, and
+        // the clone shares those material instances with the viewer. Retargeting
+        // them to an export-only size would mutate the model the user is looking at.
+        !isImportedSceneObject(object) &&
         !object.material.maps?.baseColor
       ) {
         disposers.push(...retargetExportTextures(built.group, object, 512));

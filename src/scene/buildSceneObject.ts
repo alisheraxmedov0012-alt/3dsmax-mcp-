@@ -9,7 +9,13 @@ import {
   type FurniturePlan,
   type FurnitureSlot,
 } from '../geometry/universal/types';
-import { IMPORTED_OBJECT_TYPE, type ObjectMaterial, type SceneObject } from './types';
+import {
+  IMPORTED_OBJECT_TYPE,
+  isImportedSceneObject,
+  type ImportedSceneObject,
+  type ObjectMaterial,
+  type SceneObject,
+} from './types';
 
 const DEG_TO_RAD = Math.PI / 180;
 
@@ -19,6 +25,23 @@ export class SceneObjectBuildError extends Error {
     super(message);
     this.name = 'SceneObjectBuildError';
   }
+}
+
+/**
+ * Phase 6.2 — supplies the runtime geometry for imported objects.
+ *
+ * Declared in the scene layer on purpose: the scene model knows *that* imported
+ * geometry can be resolved, not *how* it is stored. `src/import/importedModelStore`
+ * satisfies this interface structurally, so `scene/` never imports `import/`.
+ */
+export interface ImportedGeometrySource {
+  /** A hierarchy the caller may add to its own scene; `null` when not registered. */
+  acquire(objectId: string): THREE.Object3D | null;
+}
+
+export interface BuildSceneObjectOptions {
+  /** Required to build imported objects; ignored for parametric ones. */
+  imported?: ImportedGeometrySource;
 }
 
 export interface BuiltSceneObject {
@@ -58,6 +81,9 @@ export function sceneObjectBuildKey(object: SceneObject): string {
     object.spec ?? null,
     object.params,
     object.material,
+    // Phase 6.2: a different source file is different geometry. Nothing else about
+    // an imported object affects the build.
+    object.imported?.sourceHash ?? null,
   ]);
 }
 
@@ -67,6 +93,11 @@ export function sceneObjectBuildKey(object: SceneObject): string {
  * slider drag must never allocate or dispose a BufferGeometry.
  */
 export function sceneObjectGeometryKey(object: SceneObject): string {
+  if (object.imported) {
+    // Imported geometry cannot be edited in place, so the model hash alone decides
+    // whether the objects in the scene still match the registered model.
+    return JSON.stringify(['imported', object.imported.sourceHash]);
+  }
   const params = { ...object.params } as Record<string, unknown>;
   // `color` drives the material, not the vertex positions.
   delete params.color;
@@ -150,12 +181,52 @@ function buildUniversalSceneObject(object: SceneObject): BuiltSceneObject {
  * furniture type. Partial universal fields and unbuildable specs throw, so a bad
  * scene is surfaced rather than silently rendered as something else.
  */
-export function buildSceneObject(object: SceneObject): BuiltSceneObject {
-  // Imported objects are checked first: their geometry never comes from a spec or
-  // from furniture parameters, so a stray `definitionId` must not win.
-  if (object.type === IMPORTED_OBJECT_TYPE) {
+/**
+ * Builds the Three.js representation of an imported object.
+ *
+ * The model is wrapped in a group so the scene transform, the object name and
+ * `userData.sceneObjectId` are applied at one level, exactly like every other
+ * object, while the imported hierarchy and its node names stay untouched.
+ *
+ * The returned `dispose` is intentionally empty: geometry, materials and textures
+ * are owned by the runtime store, and only that store may release them. Disposing
+ * here would break every other view of the same model.
+ */
+function buildImportedSceneObject(
+  object: ImportedSceneObject,
+  source: ImportedGeometrySource | undefined,
+): BuiltSceneObject {
+  const model = source?.acquire(object.id) ?? null;
+  if (!model) {
     throw new SceneObjectBuildError(
       `"${object.id}": import qilingan model geometriyasi topilmadi.`,
+    );
+  }
+
+  const group = new THREE.Group();
+  group.add(model);
+  group.name = `object:${object.id}`;
+  group.userData.sceneObjectId = object.id;
+  group.userData.importedFormat = object.imported.format;
+
+  applyObjectTransform(group, object);
+
+  return { group, dispose: () => undefined };
+}
+
+export function buildSceneObject(
+  object: SceneObject,
+  options: BuildSceneObjectOptions = {},
+): BuiltSceneObject {
+  // Imported objects are checked first: their geometry never comes from a spec or
+  // from furniture parameters, so a stray `definitionId` must not win.
+  if (isImportedSceneObject(object)) {
+    return buildImportedSceneObject(object, options.imported);
+  }
+  if (object.type === IMPORTED_OBJECT_TYPE) {
+    // Validation drops such a record; reaching here means a caller bypassed it.
+    throw new SceneObjectBuildError(
+      `"${object.id}": import qilingan model ma'lumotlari to'liq emas.`,
     );
   }
 

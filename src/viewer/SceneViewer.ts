@@ -7,7 +7,8 @@ import {
   buildSceneObject,
   sceneObjectGeometryKey,
 } from '../scene/buildSceneObject';
-import { ROOM_OBJECT_ID, type SceneData, type SceneObject } from '../scene/types';
+import { ROOM_OBJECT_ID, isImportedSceneObject, type SceneData, type SceneObject } from '../scene/types';
+import { importedModelStore } from '../import/importedModelStore';
 import type { CameraPreset, SceneSettings } from '../scene/sceneSettings';
 import { applyTextureMapToGroup } from '../materials/applyTextureMaps';
 import { resolvePresetSettings } from '../materials/presets';
@@ -332,6 +333,9 @@ export class SceneViewer {
         this.disposeObjectEntry(entry);
         this.objects.delete(id);
         clearTextureResolutionStatus(id);
+        // Phase 6.2: the scene object is gone, so its imported geometry has no
+        // owner left. `release` is a no-op for parametric ids.
+        importedModelStore.release(id);
       }
     }
 
@@ -365,7 +369,8 @@ export class SceneViewer {
   }
 
   private createObjectEntry(object: SceneObject, geometryKey: string): ObjectEntry {
-    const built = buildSceneObject(object);
+    // The store hands out a clone; GPUs resources stay owned by the store.
+    const built = buildSceneObject(object, { imported: importedModelStore });
     this.scene.add(built.group);
     const loader = new ObjectTextureMapLoader({
       apply: (role, texture, options) =>
@@ -394,6 +399,12 @@ export class SceneViewer {
    * slider drag; the map loader only swaps textures whose references changed.
    */
   private refreshObjectMaterials(object: SceneObject, entry: ObjectEntry): void {
+    // Phase 6.2: an imported model carries the materials authored in its source
+    // file. Projecting the scene's PBR model onto them would overwrite that
+    // appearance, and its textures do not come from the scene texture registry.
+    if (isImportedSceneObject(object)) {
+      return;
+    }
     updateObjectMaterials(entry.group, object);
     const settings = resolvePresetSettings(object.material);
     entry.mapLoader.sync(object.material.maps, settings.textureScale, {

@@ -6,6 +6,7 @@
  * size and checks describe the file a user would actually export.
  */
 import { buildSceneObject } from '../scene/buildSceneObject';
+import { importedModelStore } from '../import/importedModelStore';
 import type { SceneObject } from '../scene/types';
 import type { PrinterProfile } from './printerProfile';
 import { validatePrintReadiness } from './printValidation';
@@ -43,7 +44,7 @@ export function analyzeObjectPrintReadiness(
   object: SceneObject,
   profile: PrinterProfile | null = null,
 ): PrintReadinessReport {
-  const built = buildSceneObject(object);
+  const built = buildSceneObject(object, { imported: importedModelStore });
   try {
     return validatePrintReadiness(built.group, {
       profile,
