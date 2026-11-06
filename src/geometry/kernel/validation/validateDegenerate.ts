@@ -8,6 +8,7 @@ export interface DegenerateValidation {
   readonly hasDegenerateTriangles: boolean;
   readonly degenerateTriangles: number;
   readonly duplicateTriangles: number;
+  readonly nonFiniteVertices: number;
 }
 
 function triangleIndices(
@@ -60,6 +61,7 @@ export function validateDegenerate(geometry: THREE.BufferGeometry): DegenerateVa
       hasDegenerateTriangles: false,
       degenerateTriangles: 0,
       duplicateTriangles: 0,
+      nonFiniteVertices: 0,
     };
   }
 
@@ -146,5 +148,6 @@ export function validateDegenerate(geometry: THREE.BufferGeometry): DegenerateVa
     hasDegenerateTriangles: degenerateTriangles > 0,
     degenerateTriangles,
     duplicateTriangles,
+    nonFiniteVertices: nonFinite,
   };
 }

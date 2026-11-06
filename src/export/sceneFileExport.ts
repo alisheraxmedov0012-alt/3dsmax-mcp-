@@ -28,6 +28,10 @@ import { serializeSceneToJson } from './sceneJson';
 import { buildExportFilename } from './exportNaming';
 import { ExportError, type ExportArtifact, type ExportMetadata } from './exportTypes';
 import { buildThreeMf } from './threemf';
+import { measureTexturePayloadBytes } from './quality/artifactMetrics';
+import { collectQualityMetrics } from './quality/metrics';
+import { evaluateQualityPreflight } from './quality/preflight';
+import type { QualityPreflightResult } from './quality/types';
 
 /**
  * Load an OBJ/STL exporter on demand.
@@ -113,6 +117,21 @@ export async function exportSceneToFormat(
 ): Promise<ExportArtifact> {
   const spec = EXPORT_FORMATS[format];
   const filename = buildExportFilename(metadata, spec.extension);
+  let qualityResult: QualityPreflightResult | undefined;
+
+  const runPreflightOn = (scene: THREE.Scene): void => {
+    options.onPreflightScene?.(scene);
+    if (!options.qualityProfile) return;
+    const result = evaluateQualityPreflight(
+      collectQualityMetrics(scene),
+      options.qualityProfile,
+      { format },
+    );
+    qualityResult = result;
+    if (result.status === 'BLOCK') {
+      throw new ExportError('quality_blocked', result.message, result);
+    }
+  };
 
   // Print formats are a different deliverable from an interior scene: the room
   // is never part of the printed piece. Omitted `includeRoom` therefore means
@@ -128,25 +147,33 @@ export async function exportSceneToFormat(
             : (options.includeRoom ?? false),
         }
       : options;
+  const gltfOptions: BuildExportOptions = options.qualityProfile
+    ? { ...options, onPreflightScene: runPreflightOn }
+    : options;
 
+  let artifact: ExportArtifact;
   switch (format) {
     case 'glb': {
-      const buffer = await exportSceneToGlb(data, options);
-      return { blob: toBlob(buffer, spec.mimeType), filename, mimeType: spec.mimeType };
+      const buffer = await exportSceneToGlb(data, gltfOptions);
+      artifact = { blob: toBlob(buffer, spec.mimeType), filename, mimeType: spec.mimeType };
+      break;
     }
     case 'gltf': {
-      const document = await exportSceneToGltf(data, options);
-      return { blob: toBlob(document, spec.mimeType), filename, mimeType: spec.mimeType };
+      const document = await exportSceneToGltf(data, gltfOptions);
+      artifact = { blob: toBlob(document, spec.mimeType), filename, mimeType: spec.mimeType };
+      break;
     }
     case 'json': {
       // JSON carries the parameters, not the mesh; it is built directly from the
       // scene data model (no geometry to guard).
       const json = serializeSceneToJson(data, metadata);
-      return { blob: toBlob(json, spec.mimeType), filename, mimeType: spec.mimeType };
+      artifact = { blob: toBlob(json, spec.mimeType), filename, mimeType: spec.mimeType };
+      break;
     }
     case 'obj': {
       const { scene, dispose } = buildExportScene(data, effectiveOptions);
       try {
+        runPreflightOn(scene);
         assertFiniteGeometry(scene);
         assertExportableScene(scene);
         addMillimetreScaleRoot(scene);
@@ -155,14 +182,16 @@ export async function exportSceneToFormat(
           'OBJ',
         );
         const obj = stripObjMaterialReferences(new OBJExporter().parse(scene));
-        return { blob: toBlob(obj, spec.mimeType), filename, mimeType: spec.mimeType };
+        artifact = { blob: toBlob(obj, spec.mimeType), filename, mimeType: spec.mimeType };
       } finally {
         dispose();
       }
+      break;
     }
     case 'stl': {
       const { scene, dispose } = buildExportScene(data, effectiveOptions);
       try {
+        runPreflightOn(scene);
         assertFiniteGeometry(scene);
         assertExportableScene(scene);
         addMillimetreScaleRoot(scene);
@@ -172,23 +201,26 @@ export async function exportSceneToFormat(
           'STL',
         );
         const stl = new STLExporter().parse(scene, { binary: true });
-        return { blob: toBlob(stl, spec.mimeType), filename, mimeType: spec.mimeType };
+        artifact = { blob: toBlob(stl, spec.mimeType), filename, mimeType: spec.mimeType };
       } finally {
         dispose();
       }
+      break;
     }
     case '3mf': {
       const { scene, dispose } = buildExportScene(data, effectiveOptions);
       try {
+        runPreflightOn(scene);
         assertFiniteGeometry(scene);
         assertExportableScene(scene);
         // buildThreeMf converts centimetres to millimetres itself; adding the STL
         // scale root here would apply the factor twice.
         const bytes = buildThreeMf(scene, { title: metadata.name });
-        return { blob: toBlob(bytes, spec.mimeType), filename, mimeType: spec.mimeType };
+        artifact = { blob: toBlob(bytes, spec.mimeType), filename, mimeType: spec.mimeType };
       } finally {
         dispose();
       }
+      break;
     }
     default:
       throw new ExportError(
@@ -196,4 +228,23 @@ export async function exportSceneToFormat(
         `'${String(format)}' formati fayl eksportida qo'llab-quvvatlanmaydi.`,
       );
   }
+
+  if (options.qualityProfile && qualityResult) {
+    const actualTexturePayloadBytes = await measureTexturePayloadBytes(format, artifact.blob);
+    const finalResult = evaluateQualityPreflight(
+      qualityResult.metrics,
+      options.qualityProfile,
+      {
+        format,
+        actualFileBytes: artifact.blob.size,
+        ...(actualTexturePayloadBytes === undefined ? {} : { actualTexturePayloadBytes }),
+      },
+    );
+    if (finalResult.status === 'BLOCK') {
+      throw new ExportError('quality_blocked', finalResult.message, finalResult);
+    }
+    return { ...artifact, quality: finalResult };
+  }
+
+  return artifact;
 }

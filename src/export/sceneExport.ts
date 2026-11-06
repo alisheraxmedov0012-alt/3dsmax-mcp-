@@ -22,6 +22,7 @@ import { importedModelStore } from '../import/importedModelStore';
 import { assertFiniteGeometry } from './geometryGuard';
 import { ExportError } from './exportTypes';
 import { ensureTangentsForNormalMappedMeshes } from './tangents';
+import type { QualityProfile } from './quality/types';
 
 export const SCENE_EXPORT_FILENAME = '3d-studio-ai-scene.glb';
 
@@ -57,6 +58,13 @@ export interface BuildExportOptions {
    * network or a real image decoder. Never persisted in scene data.
    */
   textureProvider?: TextureProvider;
+  /** Optional quality profile; the file-format dispatch uses it for preflight. */
+  qualityProfile?: QualityProfile;
+  /**
+   * Called once on the fully built export scene, before the exporter runs.
+   * Throwing here aborts the export without writing a file.
+   */
+  onPreflightScene?: (scene: THREE.Scene) => void;
 }
 
 /**
@@ -553,6 +561,7 @@ export async function exportSceneToGlb(
 ): Promise<ArrayBuffer> {
   const { scene, dispose } = await buildTexturedExportScene(data, options);
   try {
+    options.onPreflightScene?.(scene);
     return await exportRootToGlb(scene);
   } finally {
     dispose();
@@ -597,6 +606,7 @@ export async function exportSceneToGltf(
 ): Promise<string> {
   const { scene, dispose } = await buildTexturedExportScene(data, options);
   try {
+    options.onPreflightScene?.(scene);
     return await exportRootToGltf(scene);
   } finally {
     dispose();

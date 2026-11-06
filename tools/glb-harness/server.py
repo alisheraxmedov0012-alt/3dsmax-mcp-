@@ -21,6 +21,7 @@ ROUTES = {
     "/artefakt/with-room": "model-with-room.glb",
     "/artefakt/furniture-only": "model-furniture-only.glb",
     "/artefakt/visual": "visual-stats.json",
+    "/artefakt/quality": "quality-stats.json",
     "/artefakt/model-with-room.glb": "model-with-room.glb",
 }
 

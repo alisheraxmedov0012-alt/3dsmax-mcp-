@@ -2,6 +2,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { ExportControls, type ExportControlsProps } from './ExportControls';
+import { QUALITY_PROFILES, createCustomProfile } from '../export/quality/profiles';
+import type { QualityPreflightResult } from '../export/quality/types';
 
 afterEach(cleanup);
 
@@ -132,5 +134,94 @@ describe('Phase 4.7 — export feedback and repeat-click guard', () => {
       />,
     );
     expect(screen.getByRole('status').textContent).toContain('model.glb');
+  });
+});
+
+describe('quality profile UI', () => {
+  function preflight(status: 'PASS' | 'WARNING' | 'BLOCK'): QualityPreflightResult {
+    return {
+      profile: { id: 'standard', label: 'Standart', budgetSeverity: 'WARNING' },
+      limits: QUALITY_PROFILES.standard.limits,
+      format: 'glb',
+      checks: [
+        {
+          id: 'geometry.triangles',
+          label: 'Uchburchaklar soni',
+          category: 'geometry',
+          status,
+          actual: 10,
+          limit: 1,
+          message: 'Uchburchaklar limitdan oshdi.',
+          remediation: 'Detallarni soddalashtiring.',
+        },
+      ],
+      status,
+      summary: { pass: 0, warning: status === 'WARNING' ? 1 : 0, block: status === 'BLOCK' ? 1 : 0, total: 1 },
+      metrics: {} as QualityPreflightResult['metrics'],
+      message: status === 'BLOCK' ? 'Eksport bloklandi.' : 'Eksport mumkin.',
+      estimated: true,
+    };
+  }
+
+  it('selects a profile and runs preflight', () => {
+    const onQualityProfileChange = vi.fn();
+    const onRunQualityPreflight = vi.fn();
+    render(
+      <ExportControls
+        {...makeProps({
+          qualityProfileId: 'standard',
+          qualityProfile: QUALITY_PROFILES.standard,
+          qualityPreflight: preflight('WARNING'),
+          qualityPreflightStatus: 'idle',
+          onQualityProfileChange,
+          onRunQualityPreflight,
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('quality-profile').textContent).toContain('Standart');
+    expect(screen.getByTestId('quality-summary').textContent).toContain('WARNING');
+    expect(screen.getByTestId('quality-summary').textContent).toContain('Uchburchaklar');
+    fireEvent.click(screen.getByRole('button', { name: 'Yuqori sifat' }));
+    expect(onQualityProfileChange).toHaveBeenCalledWith('high');
+    fireEvent.click(screen.getByTestId('quality-preflight-button'));
+    expect(onRunQualityPreflight).toHaveBeenCalledTimes(1);
+  });
+
+  it('exposes editable limits for the custom profile', () => {
+    const onCustomLimitsChange = vi.fn();
+    render(
+      <ExportControls
+        {...makeProps({
+          qualityProfileId: 'custom',
+          qualityProfile: createCustomProfile(),
+          customLimits: {},
+          onQualityProfileChange: vi.fn(),
+          onCustomLimitsChange,
+        })}
+      />,
+    );
+    expect(screen.getByTestId('quality-custom-limits')).toBeTruthy();
+    const triangleInput = screen.getByLabelText('Uchburchaklar') as HTMLInputElement;
+    fireEvent.change(triangleInput, { target: { value: '42' } });
+    expect(onCustomLimitsChange).toHaveBeenCalledWith({
+      geometry: { maxTriangles: 42 },
+    });
+  });
+
+  it('shows the blocking reason when preflight blocks', () => {
+    render(
+      <ExportControls
+        {...makeProps({
+          qualityProfileId: 'high',
+          qualityProfile: QUALITY_PROFILES.high,
+          qualityPreflight: preflight('BLOCK'),
+          qualityMessage: 'Eksport bloklandi.',
+          onQualityProfileChange: vi.fn(),
+        })}
+      />,
+    );
+    expect(screen.getByTestId('quality-summary').textContent).toContain('BLOCK');
+    expect(screen.getByText('Eksport bloklandi.')).toBeTruthy();
   });
 });

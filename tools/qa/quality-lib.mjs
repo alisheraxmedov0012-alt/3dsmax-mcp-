@@ -181,6 +181,38 @@ export function classifyBlender({ raw, unavailableReason, error, logWarnings } =
   };
 }
 
+/**
+ * Map the application's budget result onto the harness status model.
+ * A budget BLOCK is a real failure; a budget WARNING is a passing run with
+ * recorded warnings.
+ */
+export function classifyQualityBudget({ raw, unavailableReason, error } = {}) {
+  if (error) {
+    return { status: STATUS.FAIL, reason: error };
+  }
+  if (!raw) {
+    return {
+      status: STATUS.NOT_VERIFIED,
+      reason: unavailableReason ?? 'Quality budget result is unavailable.',
+    };
+  }
+  if (!['PASS', 'WARNING', 'BLOCK'].includes(raw.status)) {
+    return { status: STATUS.FAIL, reason: `Unexpected budget status: ${String(raw.status)}.` };
+  }
+
+  return {
+    status: raw.status === 'BLOCK' ? STATUS.FAIL : STATUS.PASS,
+    budgetStatus: raw.status,
+    profile: raw.profile ?? null,
+    limits: raw.limits ?? null,
+    checks: Array.isArray(raw.checks) ? raw.checks : [],
+    summary: raw.summary ?? null,
+    metrics: raw.metrics ?? null,
+    message: raw.message ?? '',
+    estimated: Boolean(raw.estimated),
+  };
+}
+
 /** Overall status and process exit code. Blender is optional; the other three are mandatory. */
 export function overallOf(components) {
   const names = Object.keys(components ?? {});
@@ -262,6 +294,10 @@ function componentDetail(name, component) {
       return component.metrics
         ? `${component.metrics.meshes} meshes, ${component.metrics.triangles} triangles, ${component.metrics.materials} materials`
         : 'Import passed.';
+    case 'qualityBudget':
+      return component.summary
+        ? `${component.budgetStatus}; ${component.summary.pass} pass, ${component.summary.warning} warning, ${component.summary.block} block`
+        : component.budgetStatus ?? 'Measured.';
     default:
       return 'Passed.';
   }
@@ -277,6 +313,8 @@ function componentLabel(name) {
       return 'Khronos validator';
     case 'blender':
       return 'Blender import';
+    case 'qualityBudget':
+      return 'Quality budget';
     default:
       return name;
   }
@@ -373,6 +411,52 @@ export function renderMarkdown(report) {
       for (const message of messages) {
         lines.push(
           `| ${mdCell(severityLabel(message.severity))} | ${mdCell(message.code)} | ${mdCell(message.pointer ?? '')} | ${mdCell(message.message ?? '')} |`,
+        );
+      }
+    }
+  }
+
+  const budget = report.components?.qualityBudget;
+  lines.push('', '## Quality budget', '');
+  if (!budget) {
+    lines.push('No data.');
+  } else if (budget.status === STATUS.NOT_VERIFIED) {
+    lines.push(`**${STATUS.NOT_VERIFIED}** — ${budget.reason ?? 'Budget result unavailable.'}`);
+  } else {
+    const profileLabel = budget.profile?.label ?? budget.profile?.id ?? 'unknown';
+    const budgetSeverity = budget.profile?.budgetSeverity ?? 'unknown';
+    lines.push(
+      `**${budget.budgetStatus}** — profile \`${profileLabel}\` (budget severity \`${budgetSeverity}\`).`,
+    );
+    if (budget.summary) {
+      lines.push(
+        '',
+        `- PASS: ${budget.summary.pass}`,
+        `- WARNING: ${budget.summary.warning}`,
+        `- BLOCK: ${budget.summary.block}`,
+      );
+    }
+    if (budget.estimated) {
+      lines.push('- File-size check used an estimate before export.');
+    }
+    if (budget.message) {
+      lines.push('', budget.message);
+    }
+
+    const checks = budget.checks ?? [];
+    lines.push(
+      '',
+      '### Budget checks',
+      '',
+      '| Check | Status | Actual | Limit | Message |',
+      '| --- | --- | --- | --- | --- |',
+    );
+    if (checks.length === 0) {
+      lines.push('| None | PASS | — | — | — |');
+    } else {
+      for (const entry of checks) {
+        lines.push(
+          `| ${mdCell(entry.label)} | ${mdCell(entry.status)} | ${mdCell(entry.actual)} | ${mdCell(entry.limit)} | ${mdCell(entry.message)} |`,
         );
       }
     }

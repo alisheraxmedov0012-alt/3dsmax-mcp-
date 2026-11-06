@@ -43,6 +43,15 @@
         if (!response.ok) throw new Error(`POST ${path} -> ${response.status}`);
       }
 
+      async function postJson(path, value) {
+        const response = await fetch(path, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(value),
+        });
+        if (!response.ok) throw new Error(`POST ${path} -> ${response.status}`);
+      }
+
       async function main() {
         try {
           note('webgl=' + JSON.stringify(webglInfo()));
@@ -55,6 +64,13 @@
           note('2d-canvas=' + (ctx ? 'real' : 'null') + ' probePngBytes=' + probe.toDataURL('image/png').length);
 
           const { exportSceneToGlb } = await import('@repo/src/export/sceneExport.ts');
+          const { evaluateQualityPreflight, preflightExportScene } = await import(
+            '@repo/src/export/quality/preflight.ts'
+          );
+          const { measureTexturePayloadBytes } = await import(
+            '@repo/src/export/quality/artifactMetrics.ts'
+          );
+          const { QUALITY_PROFILES } = await import('@repo/src/export/quality/profiles.ts');
           const { FURNITURE_TYPES, createFurnitureParams } = await import('@repo/src/geometry/furniture/types.ts');
           const { ROOM_DEFAULTS, SCENE_SCHEMA_VERSION, createFurnitureSceneObject } = await import(
             '@repo/src/scene/types.ts'
@@ -105,12 +121,40 @@
           };
           note(`objects=${objects.length} presets=${presets.join(',')}`);
 
+          const preflight = preflightExportScene(sceneData, {
+            profile: QUALITY_PROFILES.standard,
+            format: 'glb',
+            includeRoom: true,
+          });
+
           const started = performance.now();
           const withRoom = await exportSceneToGlb(sceneData, { includeRoom: true });
           note(`exportWithRoom bytes=${withRoom.byteLength} ms=${Math.round(performance.now() - started)}`);
 
           const furnitureOnly = await exportSceneToGlb(sceneData, { includeRoom: false });
           note(`exportFurnitureOnly bytes=${furnitureOnly.byteLength}`);
+
+          // The preflight estimate is replaced with the produced file's exact
+          // size and embedded image payload before it is posted to the harness.
+          const actualTexturePayloadBytes = await measureTexturePayloadBytes(
+            'glb',
+            new Blob([withRoom], { type: 'model/gltf-binary' }),
+          );
+          const quality = evaluateQualityPreflight(
+            preflight.metrics,
+            QUALITY_PROFILES.standard,
+            {
+              format: 'glb',
+              actualFileBytes: withRoom.byteLength,
+              ...(actualTexturePayloadBytes === undefined
+                ? {}
+                : { actualTexturePayloadBytes }),
+            },
+          );
+          await postJson('/artefakt/quality', quality);
+          note(
+            `quality=${quality.status} checks=${quality.checks.length} warnings=${quality.summary.warning} blocks=${quality.summary.block} bytes=${withRoom.byteLength}`,
+          );
 
           await postBinary('/artefakt/with-room', withRoom);
           await postBinary('/artefakt/furniture-only', furnitureOnly);

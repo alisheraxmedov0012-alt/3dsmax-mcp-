@@ -33,6 +33,18 @@ import type { ParsedImport } from './import/parseModel';
 import { importedModelStore } from './import/importedModelStore';
 import { ExportError } from './export/exportTypes';
 import type { ExportFormatId } from './export/exportFormats';
+import { preflightExportScene } from './export/quality/preflight';
+import {
+  DEFAULT_QUALITY_PROFILE_ID,
+  createCustomProfile,
+  resolveQualityProfile,
+} from './export/quality/profiles';
+import type {
+  BudgetSeverity,
+  QualityLimitsOverride,
+  QualityPreflightResult,
+  QualityProfileId,
+} from './export/quality/types';
 import { exportScenePng, renderPngFilename, resolvePngSize, type PngPreset } from './export/sceneImage';
 import { RenderBatchError, exportRenderBatch } from './export/renderBatch';
 import { describeCaptureError } from './viewer/captureErrors';
@@ -130,6 +142,17 @@ export default function App() {
   const [printSelectedOnly, setPrintSelectedOnly] = useState(true);
   const [exportTextureSize, setExportTextureSize] = useState<128 | 512>(128);
   const [exportMessage, setExportMessage] = useState('');
+  const [qualityProfileId, setQualityProfileId] = useState<QualityProfileId>(
+    DEFAULT_QUALITY_PROFILE_ID,
+  );
+  const [customQualityLimits, setCustomQualityLimits] = useState<QualityLimitsOverride>({});
+  const [customQualitySeverity, setCustomQualitySeverity] =
+    useState<BudgetSeverity>('WARNING');
+  const [qualityPreflight, setQualityPreflight] = useState<QualityPreflightResult | null>(null);
+  const [qualityPreflightStatus, setQualityPreflightStatus] = useState<'idle' | 'running'>(
+    'idle',
+  );
+  const [qualityMessage, setQualityMessage] = useState('');
   const [pngPreset, setPngPreset] = useState<PngPreset>('standard');
   const [pngTransparent, setPngTransparent] = useState(false);
   const [transparentAvailable, setTransparentAvailable] = useState(true);
@@ -185,6 +208,19 @@ export default function App() {
   );
   const paramsValid = parsed ? parsed.valid : true;
   const settings = scene.data.settings;
+  const qualityProfile = useMemo(
+    () =>
+      qualityProfileId === 'custom'
+        ? createCustomProfile(customQualityLimits, customQualitySeverity)
+        : resolveQualityProfile(qualityProfileId),
+    [qualityProfileId, customQualityLimits, customQualitySeverity],
+  );
+
+  useEffect(() => {
+    setQualityPreflight(null);
+    setQualityMessage('');
+    setQualityPreflightStatus('idle');
+  }, [scene.data, exportFormat, includeRoom, exportTextureSize, qualityProfile]);
   const importBlockedReason =
     exportStatus === 'exporting'
       ? "Eksport tugaguncha import qilib bo'lmaydi."
@@ -648,6 +684,43 @@ export default function App() {
     }
   };
 
+  const resolvePrintTargetId = (): string | undefined => {
+    const isPrintFormat = exportFormat === 'stl' || exportFormat === '3mf';
+    if (!isPrintFormat || !printSelectedOnly || !selectedObject) {
+      return undefined;
+    }
+    // Resolve against current objects so a stale selection cannot empty the export.
+    return scene.data.objects.find((object) => object.id === selectedObject.id)?.id;
+  };
+
+  const handleRunQualityPreflight = async () => {
+    if (qualityPreflightStatus === 'running' || exportStatus === 'exporting') {
+      return;
+    }
+    setQualityPreflightStatus('running');
+    setQualityMessage('');
+    try {
+      const isPrintFormat = exportFormat === 'stl' || exportFormat === '3mf';
+      const printTargetId = resolvePrintTargetId();
+      const result = preflightExportScene(scene.data, {
+        profile: qualityProfile,
+        format: exportFormat,
+        includeRoom: isPrintFormat ? false : includeRoom,
+        ...(exportFormat === 'glb' ? { textureSize: exportTextureSize } : {}),
+        ...(isPrintFormat ? { onlyObjectId: printTargetId } : {}),
+      });
+      setQualityPreflight(result);
+      setQualityMessage(result.status === 'BLOCK' ? result.message : '');
+    } catch (error) {
+      setQualityPreflight(null);
+      setQualityMessage(
+        error instanceof Error ? error.message : 'Sifat tekshiruvi bajarilmadi.',
+      );
+    } finally {
+      setQualityPreflightStatus('idle');
+    }
+  };
+
   const handleExportFile = async () => {
     if (exportStatus === 'exporting') {
       return;
@@ -665,21 +738,23 @@ export default function App() {
     try {
       const isPrintFormat = exportFormat === 'stl' || exportFormat === '3mf';
       // STL/3MF are print deliverables: the room is never part of them, and the
-      // selected product can narrow the export to one object. The id is resolved
-      // against the current scene objects so a stale selection cannot empty the
-      // export.
-      const printTargetId =
-        isPrintFormat && printSelectedOnly && selectedObject
-          ? (scene.data.objects.find((object) => object.id === selectedObject.id)?.id ??
-            undefined)
-          : undefined;
+      // selected product can narrow the export to one object.
+      const printTargetId = resolvePrintTargetId();
       const artifact = await exportSceneToFormat(exportFormat, scene.data, metadata, {
         includeRoom: isPrintFormat ? false : includeRoom,
         textureSize: exportFormat === 'glb' ? exportTextureSize : undefined,
+        qualityProfile,
         ...(isPrintFormat ? { onlyObjectId: printTargetId } : {}),
       });
       downloadBlob(artifact.blob, artifact.filename);
       setExportStatus('success');
+      if (artifact.quality) {
+        setQualityPreflight(artifact.quality);
+        setQualityMessage(artifact.quality.status === 'WARNING' ? artifact.quality.message : '');
+      } else {
+        setQualityPreflight(null);
+        setQualityMessage('');
+      }
       // The JSON document is a saved scene, so it carries parametric objects only.
       const importedNote =
         exportFormat === 'json' && sceneForPersistence(scene.data).droppedImported > 0
@@ -687,6 +762,10 @@ export default function App() {
           : '';
       setExportMessage(`Sahna "${artifact.filename}" sifatida yuklab olindi.${importedNote}`);
     } catch (error) {
+      if (error instanceof ExportError && error.quality) {
+        setQualityPreflight(error.quality);
+        setQualityMessage(error.message);
+      }
       setExportStatus('error');
       setExportMessage(
         error instanceof ExportError ? error.message : "Eksport amalga oshmadi.",
@@ -1146,6 +1225,17 @@ export default function App() {
             onIncludeRoomChange={setIncludeRoom}
             onExport={handleExportFile}
             onImportFile={handleImportJson}
+            qualityProfileId={qualityProfileId}
+            qualityProfile={qualityProfile}
+            qualityPreflight={qualityPreflight}
+            qualityPreflightStatus={qualityPreflightStatus}
+            qualityMessage={qualityMessage}
+            customLimits={customQualityLimits}
+            customBudgetSeverity={customQualitySeverity}
+            onQualityProfileChange={setQualityProfileId}
+            onCustomLimitsChange={setCustomQualityLimits}
+            onCustomBudgetSeverityChange={setCustomQualitySeverity}
+            onRunQualityPreflight={handleRunQualityPreflight}
           />
           <RenderExportPanel
             preset={pngPreset}

@@ -9,6 +9,7 @@ import {
 } from '../scene/types';
 import { createDefaultSettings } from '../scene/sceneSettings';
 import { FURNITURE_TYPES } from '../geometry/furniture/types';
+import { createCustomProfile, resolveQualityProfile } from './quality/profiles';
 
 const META = { name: 'Yotoqxona', furnitureType: 'wardrobe', units: 'cm' as const };
 
@@ -293,5 +294,39 @@ describe('A1 — hidden objects, OBJ units and empty exports', () => {
     await expect(
       exportSceneToFormat('obj', tableScene('hidden', false), META, { includeRoom: false }),
     ).rejects.toMatchObject({ code: 'empty_scene' });
+  });
+});
+
+describe('quality preflight integration', () => {
+  it('keeps a valid GLB export functional under the standard profile', async () => {
+    const artifact = await exportSceneToFormat('glb', makeScene(), META, {
+      qualityProfile: resolveQualityProfile('standard'),
+    });
+    expect(artifact.blob.size).toBeGreaterThan(0);
+    expect(artifact.quality).toBeDefined();
+    expect(artifact.quality?.status).toBe('PASS');
+    expect(artifact.quality?.estimated).toBe(false);
+  });
+
+  it('allows a WARNING result and keeps its details on the artifact', async () => {
+    const profile = createCustomProfile({ geometry: { maxTriangles: 1 } }, 'WARNING');
+    const artifact = await exportSceneToFormat('obj', makeScene(), META, {
+      qualityProfile: profile,
+    });
+    expect(artifact.blob.size).toBeGreaterThan(0);
+    expect(artifact.quality?.status).toBe('WARNING');
+    expect(artifact.quality?.checks.some((entry) => entry.id === 'geometry.triangles')).toBe(
+      true,
+    );
+  });
+
+  it('blocks export and returns the structured preflight result', async () => {
+    const profile = createCustomProfile({ geometry: { maxTriangles: 1 } }, 'BLOCK');
+    await expect(
+      exportSceneToFormat('obj', makeScene(), META, { qualityProfile: profile }),
+    ).rejects.toMatchObject({
+      code: 'quality_blocked',
+      quality: { status: 'BLOCK' },
+    });
   });
 });

@@ -19,6 +19,7 @@ import {
   classifyBlender,
   classifyExport,
   classifyKhronos,
+  classifyQualityBudget,
   classifyRepoValidator,
   extractBlenderJson,
   parseRepoValidatorOutput,
@@ -240,8 +241,7 @@ function runBlender(root, glbPath, noBlender) {
 function limitationsFor(components) {
   const limitations = [
     'Khronos warnings are recorded, not suppressed.',
-    'Tangents are not generated in this task; MESH_PRIMITIVE_GENERATED_TANGENT_SPACE is expected.',
-    'Triangle, file-size, texture and UV budgets are not enforced yet.',
+    'Tangent generation is part of the export pipeline; the report records the resulting validator state.',
   ];
   if (components.blender?.status === STATUS.NOT_VERIFIED) {
     limitations.push(`Blender import is NOT VERIFIED: ${components.blender.reason}`);
@@ -249,7 +249,27 @@ function limitationsFor(components) {
   if (components.khronos?.status === STATUS.NOT_VERIFIED) {
     limitations.push(`Khronos validation is NOT VERIFIED: ${components.khronos.reason}`);
   }
+  if (components.qualityBudget?.status === STATUS.NOT_VERIFIED) {
+    limitations.push(`Quality budget is NOT VERIFIED: ${components.qualityBudget.reason}`);
+  }
   return limitations;
+}
+
+async function readQualityBudget(outDir) {
+  const file = path.join(outDir, 'quality-stats.json');
+  try {
+    const raw = JSON.parse(await fs.readFile(file, 'utf8'));
+    return { raw };
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return { unavailableReason: 'quality-stats.json was not produced by the export page.' };
+    }
+    return {
+      error: `quality-stats.json could not be read: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    };
+  }
 }
 
 async function writeReports(outDir, report) {
@@ -269,6 +289,7 @@ async function main() {
 
   const outDir = path.resolve(repoRoot, args.out);
   await fs.mkdir(outDir, { recursive: true });
+  await fs.rm(path.join(outDir, 'quality-stats.json'), { force: true });
   const baseline = readBaseline(repoRoot);
   const python = process.env.QA_PYTHON || findExecutable(['python3', 'python']);
 
@@ -325,7 +346,14 @@ async function main() {
     blender = classifyBlender({ unavailableReason: skipped });
   }
 
-  const components = { export: exportComponent, repoValidator, khronos, blender };
+  const qualityBudget = classifyQualityBudget(await readQualityBudget(outDir));
+  const components = {
+    export: exportComponent,
+    repoValidator,
+    khronos,
+    qualityBudget,
+    blender,
+  };
   const input = glbPath
     ? { path: glbPath, bytes: bytes?.length ?? null, sha256 }
     : null;

@@ -6,6 +6,7 @@ import {
   classifyBlender,
   classifyExport,
   classifyKhronos,
+  classifyQualityBudget,
   classifyRepoValidator,
   countByCode,
   extractBlenderJson,
@@ -259,5 +260,74 @@ describe('validator output helpers', () => {
     expect(parseRepoValidatorOutput(stdout, '/tmp/model.glb')).toEqual(report);
     expect(parseRepoValidatorOutput('not json', '/tmp/model.glb')).toBeNull();
     expect(parseRepoValidatorOutput('{}', '/tmp/model.glb')).toBeNull();
+  });
+});
+
+describe('quality budget harness integration', () => {
+  const budget = {
+    status: 'WARNING',
+    profile: { id: 'standard', label: 'Standart', budgetSeverity: 'WARNING' },
+    limits: {},
+    checks: [
+      {
+        id: 'geometry.triangles',
+        label: 'Uchburchaklar soni',
+        category: 'geometry',
+        status: 'WARNING',
+        actual: 10,
+        limit: 1,
+        message: 'Uchburchaklar limitdan oshdi.',
+        remediation: 'Detallarni soddalashtiring.',
+      },
+    ],
+    summary: { pass: 20, warning: 1, block: 0, total: 21 },
+    metrics: { triangles: 10 },
+    message: 'Eksport mumkin, lekin 1 ta sifat ogohlantirishi bor.',
+    estimated: true,
+  };
+
+  it('maps budget PASS/WARNING to passing and BLOCK to failing', () => {
+    const warning = classifyQualityBudget({ raw: budget });
+    expect(warning.status).toBe(STATUS.PASS);
+    expect(warning.budgetStatus).toBe('WARNING');
+    expect(warning.summary.warning).toBe(1);
+
+    const blocking = classifyQualityBudget({ raw: { ...budget, status: 'BLOCK' } });
+    expect(blocking.status).toBe(STATUS.FAIL);
+    expect(blocking.budgetStatus).toBe('BLOCK');
+  });
+
+  it('reports a missing budget result as NOT VERIFIED without failing other checks', () => {
+    const report = makeReport({
+      qualityBudget: classifyQualityBudget({ unavailableReason: 'no quality-stats.json' }),
+    });
+    expect(report.components.qualityBudget.status).toBe(STATUS.NOT_VERIFIED);
+    expect(report.overall.status).toBe(STATUS.PASS);
+    expect(report.overall.notVerified).toContain('qualityBudget');
+  });
+
+  it('fails the report when the budget blocks', () => {
+    const report = makeReport({
+      qualityBudget: classifyQualityBudget({ raw: { ...budget, status: 'BLOCK' } }),
+    });
+    expect(report.components.qualityBudget.status).toBe(STATUS.FAIL);
+    expect(report.overall.status).toBe(STATUS.FAIL);
+    expect(report.overall.exitCode).toBe(EXIT_CODES.FAIL);
+  });
+
+  it('renders profile, limits result and checks in Markdown', () => {
+    const report = makeReport({ qualityBudget: classifyQualityBudget({ raw: budget }) });
+    const markdown = renderMarkdown(report);
+    expect(markdown).toContain('## Quality budget');
+    expect(markdown).toContain('profile `Standart`');
+    expect(markdown).toContain('| Uchburchaklar soni | WARNING | 10 | 1 |');
+    expect(markdown).toContain('File-size check used an estimate');
+  });
+
+  it('includes the budget result in the JSON report', () => {
+    const report = makeReport({ qualityBudget: classifyQualityBudget({ raw: budget }) });
+    const parsed = JSON.parse(JSON.stringify(report));
+    expect(parsed.components.qualityBudget.budgetStatus).toBe('WARNING');
+    expect(parsed.components.qualityBudget.checks[0].id).toBe('geometry.triangles');
   });
 });

@@ -134,6 +134,91 @@ export function sanitizeTangentAttribute(geometry: THREE.BufferGeometry): number
   return sanitized;
 }
 
+export interface TangentValidation {
+  hasTangents: boolean;
+  count: number;
+  nonFinite: number;
+  zeroLength: number;
+  nonUnit: number;
+  invalidW: number;
+  invalidLayout: number;
+  valid: boolean;
+  errors: string[];
+}
+
+/** Read-only tangent diagnostics, used by export preflight without mutating geometry. */
+export function validateTangentAttribute(
+  geometry: THREE.BufferGeometry,
+  tolerance = 1e-3,
+): TangentValidation {
+  const tangent = geometry.getAttribute('tangent') as THREE.BufferAttribute | undefined;
+  if (!tangent) {
+    return {
+      hasTangents: false,
+      count: 0,
+      nonFinite: 0,
+      zeroLength: 0,
+      nonUnit: 0,
+      invalidW: 0,
+      invalidLayout: 0,
+      valid: false,
+      errors: [],
+    };
+  }
+
+  const errors: string[] = [];
+  let nonFinite = 0;
+  let zeroLength = 0;
+  let nonUnit = 0;
+  let invalidW = 0;
+  const invalidLayout = tangent.itemSize === 4 ? 0 : 1;
+  if (invalidLayout > 0) {
+    errors.push(`tangent itemSize ${tangent.itemSize}, expected 4.`);
+  }
+
+  for (let index = 0; index < tangent.count; index += 1) {
+    const x = tangent.getX(index);
+    const y = tangent.getY(index);
+    const z = tangent.getZ(index);
+    const w = tangent.getW(index);
+    if (![x, y, z, w].every(Number.isFinite)) {
+      nonFinite += 1;
+      continue;
+    }
+    const length = Math.hypot(x, y, z);
+    if (length < TANGENT_EPSILON) {
+      zeroLength += 1;
+    } else if (Math.abs(length - 1) > tolerance) {
+      nonUnit += 1;
+    }
+    if (w !== 1 && w !== -1) {
+      invalidW += 1;
+    }
+  }
+
+  if (nonFinite > 0) errors.push(`${nonFinite} tangent(s) contain NaN or Infinity.`);
+  if (zeroLength > 0) errors.push(`${zeroLength} tangent(s) have zero length.`);
+  if (nonUnit > 0) errors.push(`${nonUnit} tangent(s) are not unit length.`);
+  if (invalidW > 0) errors.push(`${invalidW} tangent(s) have W other than +1/-1.`);
+
+  return {
+    hasTangents: true,
+    count: tangent.count,
+    nonFinite,
+    zeroLength,
+    nonUnit,
+    invalidW,
+    invalidLayout,
+    valid:
+      invalidLayout === 0 &&
+      nonFinite === 0 &&
+      zeroLength === 0 &&
+      nonUnit === 0 &&
+      invalidW === 0,
+    errors,
+  };
+}
+
 /** Add a valid four-component TANGENT attribute to one geometry when possible. */
 export function addTangentsToGeometry(geometry: THREE.BufferGeometry): TangentResult {
   const position = geometry.getAttribute('position');

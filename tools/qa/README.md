@@ -9,7 +9,9 @@ The harness does not generate geometry itself. It drives the existing
 
 1. `backend/scripts/glb_validate.py` — the repository's stdlib-only validator.
 2. `gltf-validator` — the official Khronos validator, pinned in `package.json`.
-3. Blender in background mode — only when a Blender executable is available.
+3. The application's export quality budget, measured on the same scene and
+   re-checked against the produced GLB's exact size and image payload.
+4. Blender in background mode — only when a Blender executable is available.
 
 Results are written as machine-readable JSON and a human-readable Markdown
 report. Blender is never assumed: if it is absent, that section is
@@ -44,6 +46,7 @@ Environment:
 qa-output/
   model-with-room.glb       # generated GLB (ignored by git)
   model-furniture-only.glb  # second artifact from the same export
+  quality-stats.json        # application budget result for the generated scene
   quality-report.json
   quality-report.md
 ```
@@ -61,12 +64,13 @@ report summarizes the same data.
 | `NOT VERIFIED` | A mandatory validator could not run. This is not a green result. | 2 |
 
 Mandatory components are the GLB export/input, the repository validator and the
-Khronos validator. Blender is optional; its absence does not fail the run, but it
-is reported explicitly and listed in the limitations.
+Khronos validator. A quality-budget `BLOCK` fails the run; a budget `WARNING`
+passes and records its checks. Blender is optional; its absence does not fail the
+run, but it is reported explicitly and listed in the limitations.
 
 Khronos warnings alone do not fail the run. The current baseline has 0 errors and
-32 `MESH_PRIMITIVE_GENERATED_TANGENT_SPACE` warnings; they are reported without
-being suppressed. Tangent generation is a separate task.
+0 warnings; the remaining 32 `UNUSED_OBJECT` entries are info-level. Budget
+results and validator messages are both recorded without being suppressed.
 
 ## Requirements
 
