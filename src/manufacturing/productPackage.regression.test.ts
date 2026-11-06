@@ -24,6 +24,7 @@ import {
   createFurnitureSceneObject,
   type SceneData,
   type SceneObject,
+  type FurnitureSceneObject,
 } from '../scene/types';
 import { createDefaultSettings } from '../scene/sceneSettings';
 import { createFurnitureParams, type FurnitureType } from '../geometry/furniture/types';
@@ -70,7 +71,7 @@ function materialsFor(type: FurnitureType): SheetMaterialEntry[] {
   }));
 }
 
-function objectFor(type: FurnitureType, withMaterials = true): SceneObject {
+function objectFor(type: FurnitureType, withMaterials = true): FurnitureSceneObject {
   return createFurnitureSceneObject(type, `${type}-1`, {
     sheetMaterials: withMaterials ? materialsFor(type) : [],
   });
@@ -85,7 +86,7 @@ function sceneWith(object: SceneObject): SceneData {
   };
 }
 
-async function c1Package(object: SceneObject) {
+async function c1Package(object: FurnitureSceneObject) {
   const outcome = await buildManufacturingPackage({
     scene: sceneWith(object),
     object,

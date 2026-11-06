@@ -45,7 +45,7 @@ import { validateManufacturing, type ValidationReport } from './validation';
 import type { ReadinessCheck } from './productReadiness';
 import { exportSceneToGlb } from '../export/sceneExport';
 import { nameDigest, slugifyName } from '../export/exportNaming';
-import type { SceneData, SceneObject } from '../scene/types';
+import type { FurnitureSceneObject, SceneData } from '../scene/types';
 import { FURNITURE_TYPE_LABELS, type FurnitureType } from '../geometry/furniture/types';
 
 /**
@@ -112,7 +112,8 @@ export const DEFAULT_SAMPLE_THICKNESS_MM = 18;
 
 export interface ProductPackageInput {
   scene: SceneData;
-  object: SceneObject;
+  /** Only a parametric piece has the BOM, drawings and parameters a bundle describes. */
+  object: FurnitureSceneObject;
   projectName: string;
   /**
    * A C7 layout the user already computed. Used as-is, so the bundle contains the

@@ -38,12 +38,14 @@ import {
 import {
   MATERIAL_DEFAULTS,
   MATERIAL_LIMITS,
+  IMPORTED_OBJECT_TYPE,
   MAX_ASSEMBLIES_PER_SCENE,
   MAX_SPEC_HISTORY,
   OBJECT_NAME_MAX_LENGTH,
   OBJECT_LIMITS,
   ROOM_OBJECT_ID,
   SCENE_SCHEMA_VERSION,
+  createImportedSceneObject,
   createTableSceneObject,
   createFurnitureSceneObject,
   type ObjectMaterial,
@@ -58,6 +60,7 @@ import {
   createUniversalSceneObject,
   type SceneState,
   type Vec3,
+  type ImportedModelMeta,
 } from './types';
 
 export type SceneAction =
@@ -68,6 +71,19 @@ export type SceneAction =
   | { type: 'ADD_ROOM_OPENING'; opening: RoomOpening }
   | { type: 'REMOVE_ROOM_OPENING'; id: string }
   | { type: 'ADD_TABLE'; id: string }
+  | {
+      /**
+       * Phase 6.2 — adds a model imported from a file.
+       *
+       * Carries metadata only: the geometry itself is registered in the runtime
+       * store before this action is dispatched, and the store, not the scene, owns
+       * its disposal. The metadata is re-validated here so a caller cannot inject
+       * a record that a reload would drop.
+       */
+      type: 'ADD_IMPORTED_OBJECT';
+      id: string;
+      imported: ImportedModelMeta;
+    }
   | {
       type: 'ADD_FURNITURE';
       furnitureType: FurnitureType;
@@ -361,6 +377,25 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
       };
     }
 
+    case 'ADD_IMPORTED_OBJECT': {
+      const created = createImportedSceneObject(action.id, action.imported);
+      // Re-validate exactly like a stored record: the scene must never accept
+      // metadata that its own loader would drop on the next read.
+      const validated = validateSceneObject(created);
+      if (!validated || validated.type !== IMPORTED_OBJECT_TYPE) {
+        return state;
+      }
+      return {
+        data: {
+          ...state.data,
+          schemaVersion: SCENE_SCHEMA_VERSION,
+          objects: [...state.data.objects, validated],
+          settings: state.data.settings,
+        },
+        selectedId: validated.id,
+      };
+    }
+
     case 'ADD_FURNITURE': {
       const object = createFurnitureSceneObject(action.furnitureType, action.id);
       // Optional explicit parameters (e.g. from the W7 image reference flow) are
@@ -551,6 +586,12 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
         // drive their geometry, so accepting the write here would show a change
         // the viewer never applies.
         if (object.definitionId !== undefined) {
+          return object;
+        }
+        // An imported model has no furniture parameters: its `params` field is a
+        // placeholder the editor never reads, so a write here would be stored but
+        // never rendered.
+        if (object.type === IMPORTED_OBJECT_TYPE) {
           return object;
         }
         // Re-validate against the object's own type so a wrong-type or invalid

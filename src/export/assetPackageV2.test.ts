@@ -5,7 +5,12 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { unzipSync, zipSync } from 'fflate';
 import { createDefaultSettings } from '../scene/sceneSettings';
-import { createTableSceneObject, SCENE_SCHEMA_VERSION, type SceneData } from '../scene/types';
+import {
+  createTableSceneObject,
+  SCENE_SCHEMA_VERSION,
+  type SceneData,
+  type FurnitureSceneObject,
+} from '../scene/types';
 import { sha256Hex } from '../util/sha256';
 import {
   ASSET_PACKAGE_FORMAT,
@@ -64,11 +69,16 @@ afterAll(() => {
   vi.unstubAllGlobals();
 });
 
+/** The fixture scene holds one parametric table; `buildAssetPackage` needs it typed as such. */
+function makeObject(): FurnitureSceneObject {
+  return createTableSceneObject('table-1');
+}
+
 function makeScene(): SceneData {
   return {
     schemaVersion: SCENE_SCHEMA_VERSION,
     room: { widthCm: 400, lengthCm: 500, heightCm: 280 },
-    objects: [createTableSceneObject('table-1')],
+    objects: [makeObject()],
     settings: createDefaultSettings(),
   };
 }
@@ -547,10 +557,11 @@ describe('verifyAssetPackageV2 integrity', () => {
 
 describe('v1 / v2 compatibility', () => {
   async function buildV1(): Promise<AssetPackage> {
-    const scene = makeScene();
+    const object = makeObject();
+    const scene = { ...makeScene(), objects: [object] };
     const outcome = await buildAssetPackage({
       scene,
-      object: scene.objects[0],
+      object,
       projectName: 'Eman stol',
       overallMm: { widthMm: 1200, heightMm: 750, depthMm: 600 },
       generatedAt: new Date('2026-01-02T03:04:05Z'),

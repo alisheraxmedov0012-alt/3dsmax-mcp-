@@ -30,8 +30,59 @@ import { createDefaultSettings, type SceneSettings } from './sceneSettings';
  * validated and tested without a WebGL context.
  */
 
-/** Scene object types are the W2 furniture vocabulary. */
-export type SceneObjectType = FurnitureType;
+export const IMPORTED_OBJECT_TYPE = 'imported';
+
+/**
+ * Scene object types are the W2 furniture vocabulary plus the Phase 6.2
+ * `imported` kind.
+ *
+ * An imported model is a full scene object (id, name, transform, visibility) but
+ * its geometry comes from a file authored elsewhere. That geometry is **not**
+ * stored in `SceneData`: it lives in the runtime store
+ * (`src/import/importedModelStore.ts`) because the scene is persisted inside a
+ * 2 MiB server payload and a `localStorage` quota, and is hashed on every edit.
+ * `SceneData` therefore carries only `ImportedModelMeta`.
+ *
+ * `type` is the discriminator, so TypeScript forces every parametric-only call
+ * site (`buildFurniture`, parameter editors, BOM/cut-list) to decide explicitly
+ * what it does with an imported object instead of silently treating it as
+ * furniture.
+ */
+export type SceneObjectType = FurnitureType | typeof IMPORTED_OBJECT_TYPE;
+
+/** Explicit object-kind marker; omitted for parametric objects so legacy JSON is unchanged. */
+export const SCENE_OBJECT_KINDS = ['parametric', 'imported'] as const;
+
+export type SceneObjectKind = (typeof SCENE_OBJECT_KINDS)[number];
+
+export const IMPORTED_DEFAULT_NAME = 'Import qilingan model';
+
+/** Upper bound accepted for a stored bounding box, per axis, in centimetres. */
+export const IMPORTED_BOUNDS_LIMIT_CM = 100_000;
+
+/**
+ * Phase 6.2 — what a saved scene remembers about an imported model.
+ *
+ * Descriptive only. The mesh itself is runtime state; a reload cannot restore it,
+ * which is why the UI says so before the import is confirmed.
+ */
+export interface ImportedModelBounds {
+  readonly min: Vec3;
+  readonly max: Vec3;
+}
+
+export interface ImportedModelMeta {
+  readonly format: 'glb';
+  readonly fileName: string;
+  readonly sourceBytes: number;
+  readonly meshes: number;
+  readonly triangles: number;
+  readonly materials: number;
+  readonly textures: number;
+  /** SHA-256 of the source bytes, so a rebuild only happens for different geometry. */
+  readonly sourceHash: string;
+  readonly boundsCm: ImportedModelBounds;
+}
 
 export interface Vec3 {
   x: number;
@@ -221,6 +272,48 @@ export interface SceneObject {
   definitionId?: string;
   /** Stage 3.0: validated, canonical spec for `definitionId`. */
   spec?: SceneSpec;
+  /**
+   * Phase 6.2: explicit kind marker. Always `'imported'` for imported objects and
+   * omitted entirely for parametric ones, so legacy scene JSON round-trips
+   * unchanged. `type` remains the discriminator the compiler narrows on.
+   */
+  kind?: SceneObjectKind;
+  /**
+   * Phase 6.2: descriptive metadata for an imported model. Set together with
+   * `type: 'imported'` or not at all. It never carries geometry — see
+   * {@link ImportedModelMeta}.
+   */
+  imported?: ImportedModelMeta;
+}
+
+/** A scene object whose geometry is built from furniture parameters or a spec. */
+export interface FurnitureSceneObject extends SceneObject {
+  type: FurnitureType;
+  imported?: undefined;
+}
+
+/** A scene object whose geometry comes from an imported model file. */
+export interface ImportedSceneObject extends SceneObject {
+  type: typeof IMPORTED_OBJECT_TYPE;
+  kind: 'imported';
+  imported: ImportedModelMeta;
+}
+
+/**
+ * Phase 6.2 — narrows to an imported object.
+ *
+ * `type` is the single source of truth (it is what the compiler checks at
+ * `buildFurniture(object.type, …)` and every furniture-only lookup), so a stored
+ * `kind` that disagrees with it cannot create an object that type-checks
+ * incorrectly. Validation rejects and normalises such records.
+ */
+export function isImportedSceneObject(object: SceneObject): object is ImportedSceneObject {
+  return object.type === IMPORTED_OBJECT_TYPE && object.imported !== undefined;
+}
+
+/** Phase 6.2 — narrows to a parametric object, for every furniture-only path. */
+export function isFurnitureSceneObject(object: SceneObject): object is FurnitureSceneObject {
+  return object.type !== IMPORTED_OBJECT_TYPE;
 }
 
 export interface ObjectMaterial {
@@ -342,8 +435,8 @@ export function createRoomConfig(partial?: Partial<RoomConfig>): RoomConfig {
 
 export function createTableSceneObject(
   id: string,
-  overrides: Partial<Omit<SceneObject, 'id' | 'type'>> = {},
-): SceneObject {
+  overrides: Partial<Omit<SceneObject, 'id' | 'type' | 'kind' | 'imported'>> = {},
+): FurnitureSceneObject {
   return {
     id,
     type: 'table',
@@ -362,8 +455,8 @@ export function createTableSceneObject(
 export function createFurnitureSceneObject(
   type: FurnitureType,
   id: string,
-  overrides: Partial<Omit<SceneObject, 'id' | 'type'>> = {},
-): SceneObject {
+  overrides: Partial<Omit<SceneObject, 'id' | 'type' | 'kind' | 'imported'>> = {},
+): FurnitureSceneObject {
   return {
     id,
     type,
@@ -394,7 +487,7 @@ export function createUniversalSceneObject(
   definitionId: string,
   id: string,
   spec: unknown = undefined,
-  overrides: Partial<Omit<SceneObject, 'id' | 'type'>> = {},
+  overrides: Partial<Omit<SceneObject, 'id' | 'type' | 'kind' | 'imported'>> = {},
 ): SceneObject {
   const definition = requireFurnitureDefinition(definitionId);
   const parsed = definition.parseSpec(spec === undefined ? definition.defaults : spec);
@@ -414,6 +507,38 @@ export function createUniversalSceneObject(
     ...overrides,
   });
   return { ...object, definitionId: definition.id, spec: canonical };
+}
+
+/**
+ * Phase 6.2 — creates an imported-model scene object.
+ *
+ * `params` is filled with the table defaults purely because the field is required
+ * on `SceneObject`: it is a legacy projection that no imported object ever reads
+ * (every parametric path is gated by {@link isFurnitureSceneObject}). Passing a
+ * real furniture type here would be dishonest — the geometry is not that piece.
+ *
+ * The metadata is expected to be already validated by the import pipeline; the
+ * reducer re-validates it through `validateSceneObject` before it is stored.
+ */
+export function createImportedSceneObject(
+  id: string,
+  imported: ImportedModelMeta,
+  overrides: Partial<Omit<SceneObject, 'id' | 'type' | 'kind' | 'imported'>> = {},
+): ImportedSceneObject {
+  return {
+    id,
+    type: IMPORTED_OBJECT_TYPE,
+    kind: 'imported',
+    name: imported.fileName.slice(0, OBJECT_NAME_MAX_LENGTH) || IMPORTED_DEFAULT_NAME,
+    position: { x: 0, y: 0, z: 0 },
+    rotation: { x: 0, y: 0, z: 0 },
+    scale: { x: 1, y: 1, z: 1 },
+    visible: true,
+    params: { ...TABLE_DEFAULTS },
+    material: { ...MATERIAL_DEFAULTS },
+    imported,
+    ...overrides,
+  };
 }
 
 /** Default scene: a room with a single table standing at its centre. */

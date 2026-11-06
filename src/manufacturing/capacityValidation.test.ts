@@ -37,6 +37,7 @@ import {
   SCENE_SCHEMA_VERSION,
   createFurnitureSceneObject,
   type SceneData,
+  type FurnitureSceneObject,
 } from '../scene/types';
 import { createDefaultSettings } from '../scene/sceneSettings';
 import type { SheetMaterialEntry } from './sheetMaterial';
@@ -111,7 +112,10 @@ function fieldValues(type: FurnitureType, params: FurnitureParams): Record<strin
   return values;
 }
 
-function sceneFor(type: FurnitureType, params: FurnitureParams): { object: SceneData['objects'][number]; scene: SceneData } {
+function sceneFor(
+  type: FurnitureType,
+  params: FurnitureParams,
+): { object: FurnitureSceneObject; scene: SceneData } {
   const object = {
     ...createFurnitureSceneObject(type, `${type}-1`),
     params,

@@ -10,6 +10,7 @@ import type { FurnitureErrors } from '../geometry/furniture/params';
 import { buildFurniture } from '../geometry/furniture/buildFurniture';
 import { envelopeMm, measurePartBoxes } from '../manufacturing/partBoxes';
 import type { SceneObject } from '../scene/types';
+import { isFurnitureSceneObject, isImportedSceneObject } from '../scene/types';
 
 interface FurniturePanelProps {
   object: SceneObject | null;
@@ -48,7 +49,7 @@ function sliderValue(raw: string | undefined, min: number, max: number): number 
 }
 
 export function FurniturePanel({
-  object,
+  object: selected,
   values,
   errors,
   onChange,
@@ -57,6 +58,13 @@ export function FurniturePanel({
   children,
   mobileSections = false,
 }: FurniturePanelProps) {
+  /**
+   * Phase 6.2: this form edits furniture parameters. An imported model has none,
+   * so it narrows to null here and the section explains why instead of showing
+   * sliders that would write values nothing renders.
+   */
+  const object = selected && isFurnitureSceneObject(selected) ? selected : null;
+  const importedSelected = selected !== null && isImportedSceneObject(selected);
   const [addType, setAddType] = useState<FurnitureType>('table');
   const [activeSection, setActiveSection] = useState<PanelSectionId>('objects');
   const panelRef = useRef<HTMLElement>(null);
@@ -247,6 +255,11 @@ export function FurniturePanel({
               Boshlang&apos;ich holatga qaytarish
             </button>
           </section>
+        ) : importedSelected ? (
+          <p className="panel__hint" data-testid="furniture-imported-note">
+            Bu import qilingan model: uning shakli fayldan keladi va mebel parametrlari bilan
+            boshqarilmaydi. Joylashuv, burilish va masshtab «Obyekt» bo‘limida o‘zgartiriladi.
+          </p>
         ) : (
           <p className="panel__hint">
             Parametrlarni tahrirlash uchun mebelni tanlang (ro&apos;yxatdan yoki 3D ko&apos;rinishdan).

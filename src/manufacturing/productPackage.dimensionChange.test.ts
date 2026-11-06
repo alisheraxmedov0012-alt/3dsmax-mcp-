@@ -12,6 +12,7 @@ import {
   createFurnitureSceneObject,
   type SceneData,
   type SceneObject,
+  type FurnitureSceneObject,
 } from '../scene/types';
 import { createDefaultSettings } from '../scene/sceneSettings';
 import { createFurnitureParams } from '../geometry/furniture/types';
@@ -46,7 +47,7 @@ const SETTINGS = {
   allowRotation: true,
 } as const;
 
-function objectWithWidth(widthCm: number): SceneObject {
+function objectWithWidth(widthCm: number): FurnitureSceneObject {
   const object = createFurnitureSceneObject('table', 'table-1', {
     params: { ...createFurnitureParams('table'), widthCm },
   });

@@ -7,7 +7,12 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { unzipSync, zipSync } from 'fflate';
 import { createDefaultSettings } from '../scene/sceneSettings';
-import { createTableSceneObject, SCENE_SCHEMA_VERSION, type SceneData } from '../scene/types';
+import {
+  createTableSceneObject,
+  SCENE_SCHEMA_VERSION,
+  type SceneData,
+  type FurnitureSceneObject,
+} from '../scene/types';
 import { exportSceneToGlb } from './sceneExport';
 import { summarizeGlb } from './glbSummary';
 import { isPng, pngSize } from './pngSize';
@@ -50,11 +55,16 @@ afterAll(() => {
   vi.unstubAllGlobals();
 });
 
+/** The fixture scene holds one parametric table; `buildAssetPackage` needs it typed as such. */
+function makeObject(): FurnitureSceneObject {
+  return createTableSceneObject('table-1');
+}
+
 function makeScene(): SceneData {
   return {
     schemaVersion: SCENE_SCHEMA_VERSION,
     room: { widthCm: 400, lengthCm: 500, heightCm: 280 },
-    objects: [createTableSceneObject('table-1')],
+    objects: [makeObject()],
     settings: createDefaultSettings(),
   };
 }
@@ -179,7 +189,7 @@ describe('buildAssetPackage', () => {
   async function build(overrides: Partial<Parameters<typeof buildAssetPackage>[0]> = {}) {
     return buildAssetPackage({
       scene: makeScene(),
-      object: makeScene().objects[0],
+      object: makeObject(),
       projectName: 'Eman stol',
       overallMm: OVERALL_MM,
       generatedAt: new Date('2026-01-02T03:04:05Z'),

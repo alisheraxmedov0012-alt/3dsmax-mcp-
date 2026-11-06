@@ -11,6 +11,8 @@ import {
   createFurnitureSceneObject,
   type SceneData,
   type SceneObject,
+  type FurnitureSceneObject,
+  isFurnitureSceneObject,
 } from '../scene/types';
 import { createDefaultSettings } from '../scene/sceneSettings';
 import { createFurnitureParams, type FurnitureType } from '../geometry/furniture/types';
@@ -34,7 +36,7 @@ function materialsFor(type: FurnitureType): SheetMaterialEntry[] {
   }));
 }
 
-function objectFor(type: FurnitureType = 'table', withMaterials = true): SceneObject {
+function objectFor(type: FurnitureType = 'table', withMaterials = true): FurnitureSceneObject {
   return createFurnitureSceneObject(type, `${type}-1`, {
     sheetMaterials: withMaterials ? materialsFor(type) : [],
   });
@@ -49,7 +51,7 @@ function sceneWith(object: SceneObject): SceneData {
   };
 }
 
-function planFor(object: SceneObject) {
+function planFor(object: FurnitureSceneObject) {
   const bom = buildBom(object.type, object.params, object.sheetMaterials);
   if (!bom.ok) throw new Error(bom.reason);
   const outcome = buildCuttingPlan({
@@ -69,7 +71,10 @@ function renderPanel(options: {
 } = {}) {
   const object = options.object === undefined ? objectFor() : options.object;
   const scene = object ? sceneWith(object) : { ...sceneWith(objectFor()), objects: [] };
-  const cuttingPlan = options.cuttingPlan === undefined && object ? planFor(object) : options.cuttingPlan ?? null;
+  const cuttingPlan =
+    options.cuttingPlan === undefined && object && isFurnitureSceneObject(object)
+      ? planFor(object)
+      : options.cuttingPlan ?? null;
   render(
     <ProductPackagePanel
       object={object}
@@ -210,7 +215,7 @@ describe('C8 panel — downloads and description', () => {
     const changed = {
       ...object,
       params: { ...object.params, widthCm: 180 },
-    } as SceneObject;
+    } as FurnitureSceneObject;
     rerender(
       <ProductPackagePanel
         object={changed}

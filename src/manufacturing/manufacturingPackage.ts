@@ -21,7 +21,7 @@ import {
   type FurnitureParams,
   type FurnitureType,
 } from '../geometry/furniture/types';
-import type { SceneData, SceneObject } from '../scene/types';
+import type { FurnitureSceneObject, SceneData } from '../scene/types';
 import { sceneForObject } from '../scene/sceneSelection';
 import { buildBom, PANEL_MAX_THICKNESS_CM, type BomResult } from './bom';
 import { buildCutList, type CutListResult } from './cutList';
@@ -54,8 +54,8 @@ export const PACKAGE_META_VERSION = 1;
 export interface BuildPackageInput {
   /** Full scene; the export is narrowed to `object`. */
   scene: SceneData;
-  /** The piece the documents describe. */
-  object: SceneObject;
+  /** The piece the documents describe. Imported meshes have no part list. */
+  object: FurnitureSceneObject;
   /** Project name, used for the archive filename and the drawing title. */
   projectName: string;
   /** Overrides the export timestamp (tests use this for determinism). */

@@ -19,6 +19,7 @@ import {
   createFurnitureSceneObject,
   type SceneData,
   type SceneObject,
+  type FurnitureSceneObject,
 } from '../scene/types';
 
 /**
@@ -52,7 +53,7 @@ afterAll(() => {
 
 const FIXED_DATE = new Date('2026-03-04T05:06:07.000Z');
 
-function objectOf(type: FurnitureType = 'table', id = `${type}-1`): SceneObject {
+function objectOf(type: FurnitureType = 'table', id = `${type}-1`): FurnitureSceneObject {
   return createFurnitureSceneObject(type, id);
 }
 
@@ -66,7 +67,7 @@ function sceneWith(...objects: SceneObject[]): SceneData {
 }
 
 async function build(
-  object: SceneObject = objectOf(),
+  object: FurnitureSceneObject = objectOf(),
   projectName = 'Stol loyihasi',
   extraObjects: SceneObject[] = [],
 ): Promise<Extract<PackageOutcome, { ok: true }>> {
@@ -294,7 +295,7 @@ describe('buildManufacturingPackage — failure is total', () => {
   });
 
   it('fails on invalid parameters instead of shipping a broken pack', async () => {
-    const object: SceneObject = {
+    const object: FurnitureSceneObject = {
       ...objectOf(),
       params: { ...objectOf().params, widthCm: Number.NaN },
     };
@@ -309,7 +310,7 @@ describe('buildManufacturingPackage — failure is total', () => {
   });
 
   it('returns no bytes at all when the build fails', async () => {
-    const object: SceneObject = {
+    const object: FurnitureSceneObject = {
       ...objectOf(),
       params: { ...objectOf().params, heightCm: 10_000 },
     };

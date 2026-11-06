@@ -24,6 +24,7 @@ import {
   createFurnitureSceneObject,
   type SceneData,
   type SceneObject,
+  type FurnitureSceneObject,
 } from '../scene/types';
 import { createDefaultSettings } from '../scene/sceneSettings';
 import { createFurnitureParams, type FurnitureType } from '../geometry/furniture/types';
@@ -71,7 +72,7 @@ const MATERIALS: SheetMaterialEntry[] = [
   { partId: 'wardrobe-door', materialId: 'mdf', thicknessMm: 12, thicknessSource: 'user' },
 ];
 
-function objectFor(type: FurnitureType, materials?: SheetMaterialEntry[]): SceneObject {
+function objectFor(type: FurnitureType, materials?: SheetMaterialEntry[]): FurnitureSceneObject {
   return createFurnitureSceneObject(type, `${type}-1`, { sheetMaterials: materials });
 }
 

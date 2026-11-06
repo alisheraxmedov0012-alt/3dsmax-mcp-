@@ -23,6 +23,7 @@ import {
   createFurnitureSceneObject,
   type SceneData,
   type SceneObject,
+  type FurnitureSceneObject,
 } from '../scene/types';
 import { createDefaultSettings } from '../scene/sceneSettings';
 import { createFurnitureParams, type FurnitureType } from '../geometry/furniture/types';
@@ -57,7 +58,7 @@ afterAll(() => {
 
 const FIXED = new Date('2026-04-05T06:07:08.000Z');
 
-function objectFor(type: FurnitureType, materials?: SheetMaterialEntry[]): SceneObject {
+function objectFor(type: FurnitureType, materials?: SheetMaterialEntry[]): FurnitureSceneObject {
   return createFurnitureSceneObject(type, `${type}-1`, { sheetMaterials: materials });
 }
 

@@ -29,6 +29,8 @@ import { buildHardwareBom, type HardwareItem } from '../manufacturing/hardware';
 import {
   MATERIAL_DEFAULTS,
   MATERIAL_LIMITS,
+  IMPORTED_BOUNDS_LIMIT_CM,
+  IMPORTED_OBJECT_TYPE,
   MAX_ASSEMBLIES_PER_SCENE,
   MAX_DEFINITION_ID_LENGTH,
   MAX_SHEET_MATERIALS_PER_OBJECT,
@@ -54,6 +56,8 @@ import {
   type SceneObject,
   type SceneSpec,
   type Vec3,
+  type ImportedModelBounds,
+  type ImportedModelMeta,
 } from './types';
 
 export interface SceneValidationResult {
@@ -313,6 +317,142 @@ export function validateSceneObject(value: unknown): SceneObject | null {
   return validateSceneObjectDetailed(value)?.object ?? null;
 }
 
+const SHA256_HEX = /^[0-9a-f]{64}$/u;
+const MAX_IMPORTED_FILE_NAME_LENGTH = 255;
+
+/** Same rule as `normalizeAssetPath`: no control characters in a stored name. */
+function hasControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 0x20 || code === 0x7f) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Imported metadata is rejected rather than repaired, like a stored board assignment. */
+function strictVec3(value: unknown, limit: number): Vec3 | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const axes: number[] = [];
+  for (const axis of ['x', 'y', 'z'] as const) {
+    const raw = value[axis];
+    if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < -limit || raw > limit) {
+      return null;
+    }
+    axes.push(raw);
+  }
+  return { x: axes[0], y: axes[1], z: axes[2] };
+}
+
+function normalizeImportedBounds(value: unknown): ImportedModelBounds | null {
+  const min = strictVec3(isRecord(value) ? value.min : undefined, IMPORTED_BOUNDS_LIMIT_CM);
+  const max = strictVec3(isRecord(value) ? value.max : undefined, IMPORTED_BOUNDS_LIMIT_CM);
+  if (!min || !max) {
+    return null;
+  }
+  // An inverted box cannot come from the importer and would break framing and
+  // every bounds-based capture, so it is treated as corrupt.
+  if (min.x > max.x || min.y > max.y || min.z > max.z) {
+    return null;
+  }
+  return { min, max };
+}
+
+function importedCount(value: unknown, minimum: number): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+  if (!Number.isInteger(value) || value < minimum) {
+    return null;
+  }
+  return value;
+}
+
+type ImportedObjectCheck =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'invalid' }
+  | { readonly kind: 'imported'; readonly meta: ImportedModelMeta };
+
+/**
+ * Phase 6.2 — reads the imported-model fields of a stored object.
+ *
+ * The pair `type: 'imported'` + `imported` metadata must agree: metadata without
+ * the type (or the reverse) is corrupt and the object is dropped, because a stored
+ * imported object without metadata would render as nothing while still occupying
+ * a slot and a name. Counts and hashes are rejected, never clamped — inventing a
+ * triangle count here would put a number in the UI that no file ever contained.
+ */
+function checkImportedObjectFields(value: Record<string, unknown>): ImportedObjectCheck {
+  const rawImported = value.imported;
+  if (rawImported === undefined) {
+    return { kind: 'none' };
+  }
+  if (value.type !== IMPORTED_OBJECT_TYPE || !isRecord(rawImported)) {
+    return { kind: 'invalid' };
+  }
+
+  const format = rawImported.format;
+  if (format !== 'glb') {
+    return { kind: 'invalid' };
+  }
+
+  const rawFileName = rawImported.fileName;
+  if (typeof rawFileName !== 'string') {
+    return { kind: 'invalid' };
+  }
+  const fileName = rawFileName.trim();
+  if (
+    fileName === '' ||
+    fileName.length > MAX_IMPORTED_FILE_NAME_LENGTH ||
+    hasControlCharacter(fileName)
+  ) {
+    return { kind: 'invalid' };
+  }
+
+  const sourceBytes = importedCount(rawImported.sourceBytes, 1);
+  const meshes = importedCount(rawImported.meshes, 0);
+  const triangles = importedCount(rawImported.triangles, 0);
+  const materials = importedCount(rawImported.materials, 0);
+  const textures = importedCount(rawImported.textures, 0);
+  if (
+    sourceBytes === null ||
+    meshes === null ||
+    triangles === null ||
+    materials === null ||
+    textures === null
+  ) {
+    return { kind: 'invalid' };
+  }
+
+  const sourceHash = rawImported.sourceHash;
+  if (typeof sourceHash !== 'string' || !SHA256_HEX.test(sourceHash)) {
+    return { kind: 'invalid' };
+  }
+
+  const boundsCm = normalizeImportedBounds(rawImported.boundsCm);
+  if (!boundsCm) {
+    return { kind: 'invalid' };
+  }
+
+  return {
+    kind: 'imported',
+    meta: {
+      format,
+      fileName,
+      sourceBytes,
+      meshes,
+      triangles,
+      materials,
+      textures,
+      sourceHash,
+      boundsCm,
+    },
+  };
+}
+
 type UniversalObjectCheck =
   | { readonly kind: 'legacy' }
   | { readonly kind: 'invalid' }
@@ -376,6 +516,34 @@ function checkUniversalObjectFields(value: Record<string, unknown>): UniversalOb
 }
 
 /**
+ * Builds the stored form of an imported object.
+ *
+ * Only fields common to every scene object are read (name, transform,
+ * visibility, PBR material). Manufacturing assignments are deliberately not
+ * accepted: an imported mesh has no part list, so a stored board or hardware
+ * assignment would be a number the user never entered for this object.
+ */
+function buildImportedSceneObject(
+  id: string,
+  value: Record<string, unknown>,
+  meta: ImportedModelMeta,
+): SceneObject {
+  return {
+    id: id.trim(),
+    type: IMPORTED_OBJECT_TYPE,
+    kind: 'imported',
+    name: normalizeName(value.name, meta.fileName),
+    position: normalizeVec3(value.position, OBJECT_LIMITS.position.min, OBJECT_LIMITS.position.max),
+    rotation: normalizeVec3(value.rotation, OBJECT_LIMITS.rotation.min, OBJECT_LIMITS.rotation.max),
+    scale: normalizeVec3(value.scale, OBJECT_LIMITS.scale.min, OBJECT_LIMITS.scale.max),
+    visible: typeof value.visible === 'boolean' ? value.visible : true,
+    params: { ...TABLE_DEFAULTS },
+    material: normalizeMaterial(value.material),
+    imported: meta,
+  };
+}
+
+/**
  * Same as {@link validateSceneObject}, plus the list of parameter channels that
  * had to be rewritten. Used where the result is reported to the user.
  */
@@ -390,6 +558,19 @@ function validateSceneObjectDetailed(
   if (typeof id !== 'string' || id.trim() === '') {
     return null;
   }
+
+  // Phase 6.2: an imported object is validated and returned before any furniture
+  // logic runs, so the parametric branches below never see `type: 'imported'`.
+  const imported = checkImportedObjectFields(value);
+  if (imported.kind === 'invalid') {
+    return null;
+  }
+  if (imported.kind === 'imported') {
+    return { object: buildImportedSceneObject(id, value, imported.meta), normalized: [] };
+  }
+  // A stored `type: 'imported'` without metadata falls through to the furniture
+  // check and is dropped: there is no geometry to restore, so keeping the object
+  // would leave an invisible entry in the hierarchy.
 
   const universal = checkUniversalObjectFields(value);
   if (universal.kind === 'invalid') {

@@ -8,9 +8,9 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { FurniturePanel } from './FurniturePanel';
 import { type FurnitureType } from '../geometry/furniture/types';
 import { furnitureParamsToFieldValues } from '../geometry/furniture/params';
-import { createFurnitureSceneObject, type SceneObject } from '../scene/types';
+import { createFurnitureSceneObject, type FurnitureSceneObject } from '../scene/types';
 
-function objectFor(type: FurnitureType): SceneObject {
+function objectFor(type: FurnitureType): FurnitureSceneObject {
   return createFurnitureSceneObject(type, `${type}-1`);
 }
 

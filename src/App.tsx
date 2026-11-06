@@ -69,6 +69,7 @@ import {
   ROOM_DEFAULTS,
   ROOM_OBJECT_ID,
   createDefaultSceneState,
+  isFurnitureSceneObject,
   type ObjectMaterial,
   type SceneAssembly,
   type OpeningKind,
@@ -161,13 +162,20 @@ export default function App() {
   // A preview is only shown while it still belongs to the selected object and was
   // computed from its current spec.
   const activePreview = isPreviewApplicable(specPreview, selectedObject) ? specPreview : null;
+  /**
+   * Phase 6.2: the parameter form only describes parametric furniture. An
+   * imported model has no editable parameters, so every parametric control uses
+   * this narrowed value and stays inert for it.
+   */
+  const furnitureObject =
+    selectedObject && isFurnitureSceneObject(selectedObject) ? selectedObject : null;
   const viewScene = useMemo(
     () => (activePreview ? previewScene(scene.data, activePreview) : scene.data),
     [scene.data, activePreview],
   );
   const parsed = useMemo(
-    () => (selectedObject ? parseFurnitureValues(selectedObject.type, values) : null),
-    [selectedObject, values],
+    () => (furnitureObject ? parseFurnitureValues(furnitureObject.type, values) : null),
+    [furnitureObject, values],
   );
   const paramsValid = parsed ? parsed.valid : true;
   const settings = scene.data.settings;
@@ -213,7 +221,7 @@ export default function App() {
   // Keep the parameter controls in sync with the selected object.
   useEffect(() => {
     const object = findSceneObject(scene, scene.selectedId);
-    if (object) {
+    if (object && isFurnitureSceneObject(object)) {
       setValues(furnitureParamsToFieldValues(object.type, object.params));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -239,14 +247,14 @@ export default function App() {
   }, []);
 
   const handleParamsChange = (field: string, value: string) => {
-    if (!selectedObject) {
+    if (!furnitureObject) {
       return;
     }
     const next = { ...values, [field]: value };
     setValues(next);
-    const result = parseFurnitureValues(selectedObject.type, next);
+    const result = parseFurnitureValues(furnitureObject.type, next);
     if (result.valid && result.params) {
-      dispatch({ type: 'UPDATE_PARAMS', id: selectedObject.id, params: result.params });
+      dispatch({ type: 'UPDATE_PARAMS', id: furnitureObject.id, params: result.params });
     }
   };
 
@@ -284,12 +292,12 @@ export default function App() {
   };
 
   const handleParamsReset = () => {
-    if (!selectedObject) {
+    if (!furnitureObject) {
       return;
     }
-    const defaults = createFurnitureParams(selectedObject.type);
-    setValues(furnitureParamsToFieldValues(selectedObject.type, defaults));
-    dispatch({ type: 'UPDATE_PARAMS', id: selectedObject.id, params: defaults });
+    const defaults = createFurnitureParams(furnitureObject.type);
+    setValues(furnitureParamsToFieldValues(furnitureObject.type, defaults));
+    dispatch({ type: 'UPDATE_PARAMS', id: furnitureObject.id, params: defaults });
   };
 
   const handleAddFurniture = (type: FurnitureType) => {
@@ -578,7 +586,9 @@ export default function App() {
       return;
     }
     dispatch({ type: 'LOAD_SCENE', scene: project.scene });
-    const first = project.scene.objects[0];
+    // A project may open on an imported object; the parameter form then describes
+    // the first *parametric* piece, or the table defaults when there is none.
+    const first = project.scene.objects.find(isFurnitureSceneObject);
     setValues(
       first
         ? furnitureParamsToFieldValues(first.type, first.params)

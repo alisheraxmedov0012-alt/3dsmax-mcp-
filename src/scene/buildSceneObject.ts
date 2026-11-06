@@ -9,9 +9,17 @@ import {
   type FurniturePlan,
   type FurnitureSlot,
 } from '../geometry/universal/types';
-import type { ObjectMaterial, SceneObject } from './types';
+import { IMPORTED_OBJECT_TYPE, type ObjectMaterial, type SceneObject } from './types';
 
 const DEG_TO_RAD = Math.PI / 180;
+
+/** Raised when a scene object cannot be turned into geometry. */
+export class SceneObjectBuildError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SceneObjectBuildError';
+  }
+}
 
 export interface BuiltSceneObject {
   group: THREE.Group;
@@ -143,6 +151,14 @@ function buildUniversalSceneObject(object: SceneObject): BuiltSceneObject {
  * scene is surfaced rather than silently rendered as something else.
  */
 export function buildSceneObject(object: SceneObject): BuiltSceneObject {
+  // Imported objects are checked first: their geometry never comes from a spec or
+  // from furniture parameters, so a stray `definitionId` must not win.
+  if (object.type === IMPORTED_OBJECT_TYPE) {
+    throw new SceneObjectBuildError(
+      `"${object.id}": import qilingan model geometriyasi topilmadi.`,
+    );
+  }
+
   if (object.definitionId !== undefined || object.spec !== undefined) {
     return buildUniversalSceneObject(object);
   }

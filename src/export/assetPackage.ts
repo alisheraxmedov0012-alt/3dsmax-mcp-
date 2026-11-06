@@ -22,7 +22,7 @@ import { unzipSync, zipSync } from 'fflate';
 import { FURNITURE_TYPE_LABELS, type FurnitureType } from '../geometry/furniture/types';
 import { describeUvLayout, type UvLayoutSummary } from '../materials/uv';
 import { sceneForObject } from '../scene/sceneSelection';
-import type { SceneData, SceneObject } from '../scene/types';
+import type { FurnitureSceneObject, SceneData } from '../scene/types';
 import { sha256Hex } from '../util/sha256';
 import { PRODUCT_PREVIEW_FILENAMES, isProductPreviewFilename } from '../viewer/productPreviewViews';
 import { nameDigest, slugifyName } from './exportNaming';
@@ -100,7 +100,8 @@ export interface AssetMetadata {
 
 export interface AssetPackageInput {
   scene: SceneData;
-  object: SceneObject;
+  /** Only a parametric piece can become a marketplace asset package. */
+  object: FurnitureSceneObject;
   projectName: string;
   /**
    * Measured overall size (mm), supplied by the caller. The manufacturing layer

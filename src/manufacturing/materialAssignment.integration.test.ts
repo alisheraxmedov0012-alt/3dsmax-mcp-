@@ -12,6 +12,7 @@ import {
   SCENE_SCHEMA_VERSION,
   createDefaultSceneState,
   createFurnitureSceneObject,
+  isFurnitureSceneObject,
 } from '../scene/types';
 import { createDefaultSettings } from '../scene/sceneSettings';
 import { createFurnitureParams } from '../geometry/furniture/types';
@@ -38,6 +39,7 @@ function assign(objectId: string, partId: string, materialId: string, thicknessM
   });
   const object = state.data.objects.find((entry) => entry.id === objectId);
   if (!object) throw new Error('object missing');
+  if (!isFurnitureSceneObject(object)) throw new Error('fixture is not parametric');
   return object;
 }
 

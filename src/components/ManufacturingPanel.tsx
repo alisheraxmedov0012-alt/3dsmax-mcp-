@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { downloadBlob } from '../export/downloadFile';
 import { FURNITURE_TYPE_LABELS } from '../geometry/furniture/types';
 import type { SceneData, SceneObject } from '../scene/types';
+import { isFurnitureSceneObject, isImportedSceneObject } from '../scene/types';
 import { buildBom } from '../manufacturing/bom';
 import { buildCutList } from '../manufacturing/cutList';
 import {
@@ -69,7 +70,7 @@ const EXPORT_BUTTONS: Array<{ kind: ManufacturingArtifactKind; label: string }> 
  * never modify or lose the project.
  */
 export function ManufacturingPanel({
-  object,
+  object: selected,
   projectName,
   scene,
   onAssignSheetMaterial,
@@ -79,6 +80,14 @@ export function ManufacturingPanel({
   onCapturePreview,
   onCaptureProductPreviews,
 }: ManufacturingPanelProps) {
+  /**
+   * Phase 6.2: BOM, cut list, drawings and PDFs are derived from furniture
+   * parameters and a part list. An imported mesh has neither, so the panel treats
+   * it as "nothing to manufacture" and says why, instead of inventing a bill of
+   * materials for geometry it cannot measure.
+   */
+  const object = selected && isFurnitureSceneObject(selected) ? selected : null;
+  const importedSelected = selected !== null && isImportedSceneObject(selected);
   const [status, setStatus] = useState<Status>('idle');
   const [message, setMessage] = useState('');
   const [packaging, setPackaging] = useState(false);
@@ -143,9 +152,17 @@ export function ManufacturingPanel({
     return (
       <section className="manufacturing">
         <h2 className="manufacturing__title">Ishlab chiqarishga tayyorlash</h2>
-        <p className="visual__hint">
-          Texnik chizma, detallar ro‘yxati va kesish ro‘yxati uchun mebelni tanlang.
-        </p>
+        {importedSelected ? (
+          <p className="visual__hint" data-testid="manufacturing-imported-note">
+            Import qilingan model uchun BOM, kesish ro‘yxati va chizma hisoblanmaydi: ular mebel
+            parametrlari va detallar ro‘yxatidan tuziladi, import qilingan to‘rda esa bunday
+            ma’lumot yo‘q.
+          </p>
+        ) : (
+          <p className="visual__hint">
+            Texnik chizma, detallar ro‘yxati va kesish ro‘yxati uchun mebelni tanlang.
+          </p>
+        )}
       </section>
     );
   }

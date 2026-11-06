@@ -21,6 +21,7 @@ import { downloadBlob } from '../export/downloadFile';
 import { buildAssetPackage } from '../export/assetPackage';
 import { AssetPackageV2Panel } from './AssetPackageV2Panel';
 import type { SceneData, SceneObject } from '../scene/types';
+import { isFurnitureSceneObject, isImportedSceneObject } from '../scene/types';
 import type { SheetMaterialEntry } from '../manufacturing/sheetMaterial';
 import {
   CUTTING_REASON_LABELS,
@@ -102,7 +103,7 @@ function statusLabel(status: ReadinessStatus): string {
 }
 
 export function ProductPackagePanel({
-  object,
+  object: selected,
   scene,
   projectName,
   cuttingPlan,
@@ -110,6 +111,14 @@ export function ProductPackagePanel({
   onCapturePreview,
   onCaptureProductPreviews,
 }: ProductPackagePanelProps) {
+  /**
+   * Phase 6.2: the product bundle describes a manufactured piece — its BOM,
+   * drawings, parameters and listing. An imported mesh has no such data, so it is
+   * not a product-package source and the panel says so rather than producing a
+   * document whose numbers belong to nothing.
+   */
+  const object = selected && isFurnitureSceneObject(selected) ? selected : null;
+  const importedSelected = selected !== null && isImportedSceneObject(selected);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -135,7 +144,14 @@ export function ProductPackagePanel({
     return (
       <div className="field product" data-testid="product-package">
         <span className="field__label">Mahsulot paketi</span>
-        <p className="visual__hint">Mahsulot paketini tayyorlash uchun mebelni tanlang.</p>
+        {importedSelected ? (
+          <p className="visual__hint" data-testid="product-package-imported-note">
+            Import qilingan model uchun mahsulot paketi tuzilmaydi: paket mebel parametrlari,
+            detallar ro‘yxati va chizmalardan iborat.
+          </p>
+        ) : (
+          <p className="visual__hint">Mahsulot paketini tayyorlash uchun mebelni tanlang.</p>
+        )}
       </div>
     );
   }
