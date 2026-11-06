@@ -20,6 +20,9 @@ yarn-error.log*
 # Test coverage
 coverage/
 
+# Local quality harness output
+qa-output/
+
 # Secrets
 .env
 .env.*

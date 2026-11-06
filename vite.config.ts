@@ -14,6 +14,6 @@ export default defineConfig({
     // `// @vitest-environment jsdom` docblock, so the DOM library is only paid
     // for by the tests that need it.
     environment: 'node',
-    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'tools/**/*.test.mjs'],
   },
 });

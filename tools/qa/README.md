@@ -1,0 +1,110 @@
+# 3D quality harness
+
+Local-first quality gate for exported 3D models. It answers one question from
+evidence: does the GLB this pipeline produces survive independent validation and
+a real DCC import?
+
+The harness does not generate geometry itself. It drives the existing
+`tools/glb-harness/export.html` page, then validates the resulting bytes with:
+
+1. `backend/scripts/glb_validate.py` — the repository's stdlib-only validator.
+2. `gltf-validator` — the official Khronos validator, pinned in `package.json`.
+3. Blender in background mode — only when a Blender executable is available.
+
+Results are written as machine-readable JSON and a human-readable Markdown
+report. Blender is never assumed: if it is absent, that section is
+`NOT VERIFIED`, not `PASS`.
+
+## Commands
+
+```bash
+npm run test:quality
+```
+
+Options:
+
+```text
+--glb <path>    Validate an existing GLB instead of exporting a new one.
+--out <dir>     Report directory (default: qa-output).
+--no-blender    Skip Blender even when it is installed.
+-h, --help      Show usage.
+```
+
+Environment:
+
+| Variable | Purpose |
+| --- | --- |
+| `CHROMIUM` | Chromium/Chrome executable for the export harness. |
+| `BLENDER` | Blender executable. If absent, `blender` from `PATH` is used. |
+| `QA_PYTHON` | Python executable. If absent, `python3` or `python` is used. |
+
+## Output
+
+```text
+qa-output/
+  model-with-room.glb       # generated GLB (ignored by git)
+  model-furniture-only.glb  # second artifact from the same export
+  quality-report.json
+  quality-report.md
+```
+
+`qa-output/` is in `.gitignore`. The JSON report has `schemaVersion: 1` and
+records every validator's status, counts, issue codes and messages. The Markdown
+report summarizes the same data.
+
+## Status and exit codes
+
+| Status | Meaning | Exit |
+| --- | --- | --- |
+| `PASS` | Every mandatory check passed. Blender may still be `NOT VERIFIED`. | 0 |
+| `FAIL` | A mandatory check failed, or an installed Blender failed to import. | 1 |
+| `NOT VERIFIED` | A mandatory validator could not run. This is not a green result. | 2 |
+
+Mandatory components are the GLB export/input, the repository validator and the
+Khronos validator. Blender is optional; its absence does not fail the run, but it
+is reported explicitly and listed in the limitations.
+
+Khronos warnings alone do not fail the run. The current baseline has 0 errors and
+32 `MESH_PRIMITIVE_GENERATED_TANGENT_SPACE` warnings; they are reported without
+being suppressed. Tangent generation is a separate task.
+
+## Requirements
+
+- Node.js and `npm ci` at the repository root.
+- Chromium (or Chrome) for the export step. `npm run test:glb` already needs it.
+- Python 3 for `backend/scripts/glb_validate.py` (standard library only).
+- Blender 4.2 LTS or newer for the external import check (optional).
+
+The harness never downloads anything during a run. The Khronos validator is an
+installed devDependency; Blender is only used if it is already present.
+
+### Installing Blender
+
+A portable Linux build is enough; no system package is required:
+
+```bash
+curl -L -o /tmp/blender.tar.xz \
+  https://download.blender.org/release/Blender4.2/blender-4.2.9-linux-x64.tar.xz
+tar -xJf /tmp/blender.tar.xz -C /tmp
+BLENDER=/tmp/blender-4.2.9-linux-x64/blender npm run test:quality
+```
+
+For a system install, put `blender` on `PATH` or set `BLENDER`. The inspection
+script is `tools/qa/blender-import.py` and can be run directly:
+
+```bash
+blender --background --factory-startup \
+  --python tools/qa/blender-import.py -- qa-output/model-with-room.glb
+```
+
+It prints one `QA_BLENDER_JSON:` line with objects, meshes, triangle/vertex
+counts, materials, images, UV layers, missing normals, zero-area polygons and the
+world-space bounding box.
+
+## CI
+
+The harness is not wired into the existing CI jobs. It needs Chromium, Python and
+(optionally) Blender, and the task that introduced it explicitly prohibited
+automatic binary downloads during ordinary CI. Run it locally before a release,
+or add a dedicated job once the runner image and Blender provisioning are
+decided.
