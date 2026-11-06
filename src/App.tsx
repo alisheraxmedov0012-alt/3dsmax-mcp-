@@ -8,6 +8,7 @@ import { AiPromptPanel } from './components/AiPromptPanel';
 import { ImageReferencePanel } from './components/ImageReferencePanel';
 import { FurniturePanel } from './components/FurniturePanel';
 import { ExportControls, type ExportStatus } from './components/ExportControls';
+import { ImportPanel } from './components/ImportPanel';
 import { LightingPanel } from './components/LightingPanel';
 import { MaterialPanel } from './components/MaterialPanel';
 import { LazyManufacturingPanel } from './components/LazyManufacturingPanel';
@@ -28,6 +29,8 @@ import type { SheetMaterialId } from './manufacturing/sheetMaterial';
 import type { HardwareItem } from './manufacturing/hardware';
 import { exportSceneToFormat } from './export/sceneFileExport';
 import { parseSceneJson } from './export/sceneJson';
+import type { ParsedImport } from './import/parseModel';
+import { importedModelStore } from './import/importedModelStore';
 import { ExportError } from './export/exportTypes';
 import type { ExportFormatId } from './export/exportFormats';
 import { exportScenePng, renderPngFilename, resolvePngSize, type PngPreset } from './export/sceneImage';
@@ -49,6 +52,7 @@ import {
   shouldProtectUnload,
 } from './projects/unsavedChanges';
 import { findSceneObject, sceneReducer } from './scene/sceneReducer';
+import { validateSceneObject } from './scene/sceneValidation';
 import { createSceneObjectId } from './scene/sceneIds';
 import {
   createLayoutObjects,
@@ -69,6 +73,7 @@ import {
   ROOM_DEFAULTS,
   ROOM_OBJECT_ID,
   createDefaultSceneState,
+  createImportedSceneObject,
   isFurnitureSceneObject,
   type ObjectMaterial,
   type SceneAssembly,
@@ -179,6 +184,12 @@ export default function App() {
   );
   const paramsValid = parsed ? parsed.valid : true;
   const settings = scene.data.settings;
+  const importBlockedReason =
+    exportStatus === 'exporting'
+      ? "Eksport tugaguncha import qilib bo'lmaydi."
+      : renderStatus === 'working'
+        ? "Render tugaguncha import qilib bo'lmaydi."
+        : undefined;
   const placementIssues = useMemo(
     () => findPlacementIssues(scene.data.objects, scene.data.room),
     [scene.data.objects, scene.data.room],
@@ -726,6 +737,24 @@ export default function App() {
   };
 
   /**
+   * Phase 6.2.1 — adds a parsed GLB to the scene.
+   *
+   * The metadata is validated before the geometry is registered: a record the
+   * reducer would refuse must not leave an entry orphaned in the runtime store
+   * that nothing can ever delete. The store, not the scene, owns the model, so a
+   * later `DELETE_OBJECT` releases it through the viewer.
+   */
+  const handleImportModel = (parsed: ParsedImport): void => {
+    const id = createSceneObjectId();
+    if (!validateSceneObject(createImportedSceneObject(id, parsed.meta))) {
+      parsed.dispose();
+      throw new Error("Import ma'lumotlari tekshiruvdan o'tmadi.");
+    }
+    importedModelStore.register(id, { root: parsed.root, dispose: parsed.dispose });
+    dispatch({ type: 'ADD_IMPORTED_OBJECT', id, imported: parsed.meta });
+  };
+
+  /**
    * C8: hand the live 3D view to the product panel. Returns null rather than
    * throwing when the renderer is not ready, so the panel can say so instead of
    * showing a broken image.
@@ -1084,6 +1113,9 @@ export default function App() {
         </div>
 
         <div className="panel__section" data-section="export">
+          {/* Phase 6.2.1: a model import allocates geometry and textures, so it is
+              refused while an export or a capture still owns the renderer. */}
+          <ImportPanel blockedReason={importBlockedReason} onImport={handleImportModel} />
           <ExportControls
             format={exportFormat}
             includeRoom={includeRoom}

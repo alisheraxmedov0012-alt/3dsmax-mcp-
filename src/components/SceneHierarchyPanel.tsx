@@ -1,4 +1,27 @@
-import { ROOM_OBJECT_ID, type RoomConfig, type SceneObject } from '../scene/types';
+import {
+  ROOM_OBJECT_ID,
+  isImportedSceneObject,
+  type RoomConfig,
+  type SceneObject,
+} from '../scene/types';
+
+/**
+ * The size line under an object's name.
+ *
+ * Parametric objects report their parameters; an imported model has no parameters,
+ * so it reports the measured envelope instead of the placeholder values its
+ * `params` field happens to carry.
+ */
+function importedSizeLabel(object: SceneObject): string {
+  if (!isImportedSceneObject(object)) {
+    return `${object.params.widthCm} × ${object.params.depthCm} × ${object.params.heightCm} sm`;
+  }
+  const { min, max } = object.imported.boundsCm;
+  const size = [max.x - min.x, max.y - min.y, max.z - min.z]
+    .map((value) => value.toFixed(0))
+    .join(' × ');
+  return `${size} sm · import`;
+}
 
 interface SceneHierarchyPanelProps {
   room: RoomConfig;
@@ -62,7 +85,7 @@ export function SceneHierarchyPanel({
                 <span className="node__name">{object.name}</span>
                 <span className="node__meta">
                   {object.visible ? '' : 'yashirilgan · '}
-                  {object.params.widthCm} × {object.params.depthCm} × {object.params.heightCm} sm
+                  {importedSizeLabel(object)}
                 </span>
               </button>
               <div className="node__actions">

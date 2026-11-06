@@ -2148,6 +2148,31 @@ input[type='color'] {
   color: #ff8a8a;
 }
 
+/* Phase 6.2 — imported-model summary: label/value pairs that stay readable
+   inside the narrow panel column. */
+.import__summary {
+  display: grid;
+  gap: 0.15rem;
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+}
+
+.import__summary > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.import__summary dt {
+  color: #8b98a5;
+}
+
+.import__summary dd {
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
 /* ---------------- W11: jobs, readiness, unsaved ---------------- */
 
 .projects__dirty {
