@@ -34,5 +34,47 @@ export const MAX_TEXTURE_DIMENSION = MAX_IMAGE_DIMENSION;
 /** 64 MP across the whole model; `MAX_IMAGE_PIXELS` in `imageFile` caps one at 40 MP. */
 export const MAX_TOTAL_TEXTURE_PIXELS = 64_000_000;
 
-/** glTF linear units are metres, the editor stores centimetres. */
+/**
+ * A multi-file selection: the main model plus its `.bin`, MTL and textures.
+ *
+ * 64 files is far beyond a normal furniture asset (a handful of maps) and still
+ * bounds the per-file bookkeeping; 48 MiB total keeps one import well below the
+ * memory a 4K capture already needs.
+ */
+export const MAX_SELECTED_FILES = 64;
+export const MAX_TOTAL_INPUT_BYTES = 48 * 1024 * 1024;
+
+/**
+ * OBJ/MTL are plain text, so they get their own bounds: a single enormous line
+ * is the cheapest way to make a parser allocate without a valid structure.
+ */
+export const MAX_TEXT_FILE_BYTES = MAX_MODEL_BYTES;
+export const MAX_TEXT_LINE_LENGTH = 4096;
+export const MAX_MTL_MATERIALS = 256;
+export const MAX_OBJECT_NAME_LENGTH = 255;
+/** A face with more vertices than this is treated as corrupt, not tessellated. */
+export const MAX_POLYGON_VERTICES = 64;
+
+/**
+ * glTF linear units are metres, the editor stores centimetres.
+ */
 export const METERS_TO_CENTIMETERS = 100;
+
+/**
+ * OBJ defines no linear unit, so the user picks one.
+ *
+ * The default is centimetres — the editor's own unit — because that is the only
+ * choice that changes nothing: a model authored in cm arrives at its stated size,
+ * and every other unit is an explicit, visible decision by the user. Guessing from
+ * the model's dimensions was rejected: it would silently rescale a correctly
+ * authored file.
+ */
+export const OBJ_UNIT_TO_CM = {
+  mm: 0.1,
+  cm: 1,
+  m: 100,
+} as const;
+
+export type ObjUnit = keyof typeof OBJ_UNIT_TO_CM;
+
+export const DEFAULT_OBJ_UNIT: ObjUnit = 'cm';

@@ -91,11 +91,11 @@ describe('parseModelFile — happy path', () => {
 });
 
 describe('parseModelFile — rejection', () => {
-  it('rejects a text glTF with the phase-specific message', async () => {
+  it('refuses a glTF that describes no scene', async () => {
     const json = new TextEncoder().encode(JSON.stringify({ asset: { version: '2.0' } }));
     expect(
       await rejectionCode(parseModelFile({ name: 'chair.gltf', bytes: json.buffer as ArrayBuffer })),
-    ).toBe('gltf_not_supported');
+    ).toBe('malformed');
   });
 
   it('rejects a corrupt container', async () => {

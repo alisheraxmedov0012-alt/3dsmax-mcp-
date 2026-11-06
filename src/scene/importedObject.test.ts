@@ -90,8 +90,13 @@ describe('imported scene object — validation', () => {
     expect(validateSceneObject(withoutMeta)).toBeNull();
   });
 
-  it('rejects an unsupported format', () => {
-    expect(validateSceneObject(storedImported({ imported: meta({ format: 'obj' as 'glb' }) }))).toBeNull();
+  it('accepts the supported containers and rejects the rest', () => {
+    for (const format of ['glb', 'gltf', 'obj'] as const) {
+      expect(validateSceneObject(storedImported({ imported: meta({ format }) }))).not.toBeNull();
+    }
+    expect(
+      validateSceneObject(storedImported({ imported: meta({ format: 'fbx' as 'glb' }) })),
+    ).toBeNull();
   });
 
   it('rejects a non-sha256 source hash', () => {

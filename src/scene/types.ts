@@ -71,8 +71,13 @@ export interface ImportedModelBounds {
   readonly max: Vec3;
 }
 
+/** Containers this build can import into the scene. */
+export const IMPORTED_MODEL_FORMATS = ['glb', 'gltf', 'obj'] as const;
+
+export type ImportedModelFormat = (typeof IMPORTED_MODEL_FORMATS)[number];
+
 export interface ImportedModelMeta {
-  readonly format: 'glb';
+  readonly format: ImportedModelFormat;
   readonly fileName: string;
   readonly sourceBytes: number;
   readonly meshes: number;

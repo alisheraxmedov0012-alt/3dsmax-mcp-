@@ -2173,6 +2173,21 @@ input[type='color'] {
   overflow-wrap: anywhere;
 }
 
+/* Selected-file list and the warnings that block a silent import. */
+.import__files,
+.import__warnings {
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: #9dc2f0;
+  overflow-wrap: anywhere;
+}
+
+.import__warnings {
+  color: #ffca7a;
+}
+
 /* ---------------- W11: jobs, readiness, unsaved ---------------- */
 
 .projects__dirty {

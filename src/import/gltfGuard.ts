@@ -21,6 +21,7 @@ import {
   MAX_NODES,
   MAX_TEXTURE_DIMENSION,
   MAX_TEXTURE_IMAGE_BYTES,
+  MAX_MODEL_BYTES,
   MAX_TOTAL_TEXTURE_PIXELS,
   MAX_TRIANGLES,
   MAX_VERTICES,
@@ -76,6 +77,23 @@ const MODE_TRIANGLES = 4;
 const MODE_TRIANGLE_STRIP = 5;
 const MODE_TRIANGLE_FAN = 6;
 
+/**
+ * A resource the document expects to find outside itself.
+ *
+ * Only produced when the policy allows external references (a `.gltf` whose
+ * companions the user selected). The caller resolves each one against the
+ * selected files — never the network — and validates the bytes it finds.
+ */
+export interface ExternalReference {
+  readonly kind: 'buffer' | 'image';
+  readonly uri: string;
+  /** Index in `buffers` or `images`. */
+  readonly index: number;
+  /** Declared buffer size, used to check the resolved file is big enough. */
+  readonly byteLength: number | null;
+  readonly mimeType: string | null;
+}
+
 export interface GltfDocumentStats {
   meshes: number;
   primitives: number;
@@ -85,6 +103,16 @@ export interface GltfDocumentStats {
   textures: number;
   images: number;
   nodes: number;
+  externalReferences: ExternalReference[];
+}
+
+export interface GltfGuardOptions {
+  /**
+   * `reject` — a self-contained GLB: any file reference is a policy violation.
+   * `allow` — a `.gltf`: references are collected for the caller to resolve from
+   * the user's selection.
+   */
+  externalUris: 'reject' | 'allow';
 }
 
 function isNonNegativeInt(value: unknown): value is number {
@@ -129,25 +157,47 @@ function checkScenes(json: GltfJson): void {
   }
 }
 
-function checkBuffers(json: GltfJson): void {
+function checkBuffers(
+  json: GltfJson,
+  bin: Uint8Array | null,
+  options: GltfGuardOptions,
+  references: ExternalReference[],
+): void {
   const buffers = json.buffers ?? [];
   if (buffers.length === 0) {
     throw importFailure('malformed', 'Modelda buffer yo‘q.');
   }
   buffers.forEach((buffer, index) => {
-    if (buffer.uri !== undefined && !buffer.uri.startsWith('data:')) {
+    if (!isNonNegativeInt(buffer.byteLength)) {
+      throw importFailure('malformed', `buffer[${index}].byteLength noto‘g‘ri.`);
+    }
+    if (buffer.byteLength > MAX_MODEL_BYTES) {
+      throw importFailure('too_complex', `buffer[${index}] hajmi juda katta.`);
+    }
+    if (buffer.uri === undefined) {
+      if (index > 0 || bin === null) {
+        // Only the first buffer may live in the GLB BIN chunk, and a `.gltf` has
+        // no chunk at all.
+        throw importFailure('malformed', `buffer[${index}] uchun URI ko‘rsatilmagan.`);
+      }
+      return;
+    }
+    if (buffer.uri.startsWith('data:')) {
+      return;
+    }
+    if (options.externalUris === 'reject') {
       throw importFailure(
         'external_resource',
         `buffer[${index}] tashqi faylga havola qiladi: "${buffer.uri}".`,
       );
     }
-    if (!isNonNegativeInt(buffer.byteLength)) {
-      throw importFailure('malformed', `buffer[${index}].byteLength noto‘g‘ri.`);
-    }
-    if (index > 0 && buffer.uri === undefined) {
-      // Only the first buffer may live in the GLB BIN chunk.
-      throw importFailure('malformed', `buffer[${index}] uchun URI ko‘rsatilmagan.`);
-    }
+    references.push({
+      kind: 'buffer',
+      uri: buffer.uri,
+      index,
+      byteLength: buffer.byteLength,
+      mimeType: null,
+    });
   });
 }
 
@@ -186,6 +236,8 @@ function checkBufferViews(json: GltfJson, bin: Uint8Array | null): void {
         `bufferView[${index}] buffer chegarasidan tashqarida.`,
       );
     }
+    // An external buffer's declared size is not evidence: it is checked against
+    // the bytes the user actually selected once they are resolved.
   });
 }
 
@@ -372,7 +424,12 @@ function dataUriImageSize(uri: string): { bytes: number; size: { width: number; 
   }
 }
 
-function checkImages(json: GltfJson, bin: Uint8Array | null): { images: number; textures: number } {
+function checkImages(
+  json: GltfJson,
+  bin: Uint8Array | null,
+  options: GltfGuardOptions,
+  references: ExternalReference[],
+): { images: number; textures: number } {
   const images = json.images ?? [];
   const views = json.bufferViews ?? [];
 
@@ -388,10 +445,22 @@ function checkImages(json: GltfJson, bin: Uint8Array | null): { images: number; 
   images.forEach((image, index) => {
     if (image.uri !== undefined) {
       if (!image.uri.startsWith('data:')) {
-        throw importFailure(
-          'external_resource',
-          `image[${index}] tashqi faylga havola qiladi: "${image.uri}".`,
-        );
+        if (options.externalUris === 'reject') {
+          throw importFailure(
+            'external_resource',
+            `image[${index}] tashqi faylga havola qiladi: "${image.uri}".`,
+          );
+        }
+        // Dimensions can only be read once the file is resolved, so the pixel
+        // budget for external images is enforced there.
+        references.push({
+          kind: 'image',
+          uri: image.uri,
+          index,
+          byteLength: null,
+          mimeType: image.mimeType ?? null,
+        });
+        return;
       }
       const decoded = dataUriImageSize(image.uri);
       if (!decoded) {
@@ -479,7 +548,12 @@ function bytesOfView(
  * Throws `ImportError` on the first problem; the caller therefore never gets a
  * partially accepted document.
  */
-export function guardGltfDocument(json: GltfJson, bin: Uint8Array | null): GltfDocumentStats {
+export function guardGltfDocument(
+  json: GltfJson,
+  bin: Uint8Array | null,
+  options: GltfGuardOptions = { externalUris: 'reject' },
+): GltfDocumentStats {
+  const references: ExternalReference[] = [];
   checkVersion(json);
 
   // A JSON chunk larger than the limit would already be in memory, but its parse
@@ -500,13 +574,13 @@ export function guardGltfDocument(json: GltfJson, bin: Uint8Array | null): GltfD
     );
   }
 
-  checkBuffers(json);
+  checkBuffers(json, bin, options, references);
   checkBufferViews(json, bin);
   checkAccessors(json);
 
   const meshStats = checkMeshes(json);
   const nodes = checkNodeGraph(json);
-  const imageStats = checkImages(json, bin);
+  const imageStats = checkImages(json, bin, options, references);
 
   return {
     ...meshStats,
@@ -514,5 +588,6 @@ export function guardGltfDocument(json: GltfJson, bin: Uint8Array | null): GltfD
     textures: imageStats.textures,
     images: imageStats.images,
     nodes,
+    externalReferences: references,
   };
 }

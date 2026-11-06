@@ -30,6 +30,7 @@ import {
   MATERIAL_DEFAULTS,
   MATERIAL_LIMITS,
   IMPORTED_BOUNDS_LIMIT_CM,
+  IMPORTED_MODEL_FORMATS,
   IMPORTED_OBJECT_TYPE,
   MAX_ASSEMBLIES_PER_SCENE,
   MAX_DEFINITION_ID_LENGTH,
@@ -57,6 +58,7 @@ import {
   type SceneSpec,
   type Vec3,
   type ImportedModelBounds,
+  type ImportedModelFormat,
   type ImportedModelMeta,
 } from './types';
 
@@ -395,7 +397,7 @@ function checkImportedObjectFields(value: Record<string, unknown>): ImportedObje
   }
 
   const format = rawImported.format;
-  if (format !== 'glb') {
+  if (typeof format !== 'string' || !(IMPORTED_MODEL_FORMATS as readonly string[]).includes(format)) {
     return { kind: 'invalid' };
   }
 
@@ -440,7 +442,7 @@ function checkImportedObjectFields(value: Record<string, unknown>): ImportedObje
   return {
     kind: 'imported',
     meta: {
-      format,
+      format: format as ImportedModelFormat,
       fileName,
       sourceBytes,
       meshes,

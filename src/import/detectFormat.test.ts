@@ -27,15 +27,20 @@ describe('detectModelFormat', () => {
     expect(codeOf(new ArrayBuffer(0))).toBe('empty');
   });
 
-  it('rejects a file too short to contain a header', () => {
-    expect(codeOf(new TextEncoder().encode('glTF').buffer as ArrayBuffer)).toBe('malformed');
+  it('rejects content that is neither a container, a glTF nor an OBJ', () => {
+    expect(codeOf(new TextEncoder().encode('glTF').buffer as ArrayBuffer)).toBe(
+      'unsupported_format',
+    );
   });
 
-  it('explains that a JSON glTF is a later phase, not a corrupt file', () => {
+  it('recognises a JSON glTF by its asset block', () => {
     const gltf = JSON.stringify({ asset: { version: '2.0' } });
-    expect(codeOf(new TextEncoder().encode(gltf).buffer as ArrayBuffer)).toBe(
-      'gltf_not_supported',
-    );
+    expect(detectModelFormat(new TextEncoder().encode(gltf).buffer as ArrayBuffer)).toBe('gltf');
+  });
+
+  it('recognises an OBJ by its statement list', () => {
+    const obj = '# chair\nmtllib chair.mtl\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n';
+    expect(detectModelFormat(new TextEncoder().encode(obj).buffer as ArrayBuffer)).toBe('obj');
   });
 
   it('rejects non-model content with a generic message', () => {
@@ -43,9 +48,9 @@ describe('detectModelFormat', () => {
     expect(codeOf(html.buffer as ArrayBuffer)).toBe('unsupported_format');
   });
 
-  it('rejects a payload that only looks like JSON', () => {
+  it('rejects JSON that is not a glTF document', () => {
     const text = new TextEncoder().encode('{"hello":"world"}');
-    expect(codeOf(text.buffer as ArrayBuffer)).toBe('unsupported_format');
+    expect(codeOf(text.buffer as ArrayBuffer)).toBe('malformed');
   });
 
   it('rejects a GLB whose magic is corrupted', () => {
