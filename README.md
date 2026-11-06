@@ -130,29 +130,60 @@ o'giriladi; `scale` — o'qlar bo'yicha koeffitsient.
 - 3D ko'rinishda sudrab (drag) ko'chirish yo'q (raqamli boshqaruvlar ishlatiladi).
 - Yangi mebel turkumlari va tashqi 3D AI generatorlar yo'q.
 
-### 6.2 — Model import (faqat GLB)
+### 6.2 — Model import (GLB, glTF, OBJ)
 
-- **Fayl tanlash → tekshirish → tasdiqlash**: `.glb` fayl tanish, o'lchangan xulosa
-  (mesh, uchburchak, material, tekstura, o'lcham sm) ko'rsatiladi va faqat
-  «Import qilish» bosilganda sahna o'zgaradi. Bekor qilish, xato yoki rad etish
-  joriy sahna va loyihani o'zgartirmaydi.
+- **Fayl tanlash → tekshirish → tasdiqlash**: fayllar tanlanadi, o'lchangan xulosa
+  (mesh, uchburchak, material, tekstura, o'lcham sm) va resurs hisoboti ko'rsatiladi,
+  sahna esa faqat «Import qilish» bosilganda o'zgaradi. Bekor qilish, xato yoki rad
+  etish joriy sahna va loyihani o'zgartirmaydi.
+- **Formatlar**:
+  - `.glb` — o'zi yetarli bitta fayl;
+  - `.gltf` + `.bin` + teksturalar — birga tanlanadi;
+  - `.obj` + ixtiyoriy `.mtl` va teksturalar.
+  Format fayl kengaytmasi bo'yicha emas, **magic bytes** bo'yicha aniqlanadi.
+- **Resurslarni yechish**: model faqat **tanlangan fayllar** ichidan qidiradi.
+  `http(s)://`, `file://`, `blob:` va boshqa sxemalar, absolyut yo'llar, disk harflari,
+  `\` va `..` rad etiladi; `./` e'tiborsiz qoldiriladi. Aniq yo'l mos kelsa — o'sha
+  fayl; aks holda faqat **bir xil nomli fayl yagona bo'lsa** ishlatiladi. Bir nechta
+  mos fayl bo'lsa, import "aniq emas" deb to'xtaydi — taxmin qilinmaydi.
+- **Yetishmayotgan resurslar**: bufer (`.bin`) topilmasa import **bloklanadi**.
+  Tekstura topilmasa yoki o'qilmasa, model faktura ranglari bilan yuklanadi, lekin
+  tasdiqlash uchun foydalanuvchi buni **explicit** tasdiqlashi shart.
 - **Sahna integratsiyasi**: import qilingan model mavjud obyekt sifatida qo'shiladi —
   tanlanadi, ko'chiriladi, buriladi, masshtablanadi, yashiriladi va o'chiriladi.
   Ierarxiya, obyekt nomlari va muallif materiallari saqlanadi (PBR materiallar qayta
   yozilmaydi).
-- **O'lchov birligi**: glTF metrda, muharrir santimetrda — model ildizida bir marta
-  ×100 qo'llanadi, vertexlar o'zgartirilmaydi. Model polga qo'yiladi va X/Z bo'yicha
-  markazlashtiriladi.
+- **O'lchov birligi**: glTF metrda — model ildizida bir marta ×100 qo'llanadi,
+  vertexlar o'zgartirilmaydi. **OBJ'da birlik standarti yo'q**, shuning uchun
+  foydalanuvchi tanlaydi: mm / sm / m (standart — **sm**, ya'ni hech qanday
+  o'zgartirish yo'q). O'lcham importdan oldin ko'rsatiladi.
+- **OBJ/MTL materiallari** (deterministik, soddalashtirilgan): `Kd` → rang,
+  `d`/`Tr` → shaffoflik (`Tr` teskari), `Ns` → g'adir-budurlik
+  (`1 − √(Ns/1000)`), `Ks` → metallik taxmini, `map_Kd` → rang xaritasi,
+  `map_Bump`/`bump`/`norm` → normal xarita, `Ke` → emissiv rang.
 - **Eksport**: import qilingan geometriya GLB, OBJ, STL va 3MF eksportlariga kiradi.
-- **Xavfsizlik**: format fayl kengaytmasi bo'yicha emas, **magic bytes** bo'yicha
-  aniqlanadi. Tashqi faylga havolalar, `data:` bo'lmagan URI'lar, Draco/meshopt/KTX2/WebP
-  talab qiluvchi kengaytmalar, skeletli modellar, halqali node grafi, buzuq
-  accessor/bufferView chegaralari rad etiladi. Rasm o'lchamlari dekodlashdan **oldin**
-  sarlavhadan o'qiladi. Limitlar: 32 MB fayl, 1 mln vertex, 500 ming uchburchak,
-  16 rasm, 8192 px va 64 MP umumiy piksel.
 - **Resurs egaligi**: import qilingan to'r `SceneData`ga yozilmaydi (server limiti
-  2 MB, `localStorage` kvotasi); u sahna obyekt ID'si bo'yicha alohida runtime
-  registrda saqlanadi va obyekt o'chirilganda GPU resurslari bo'shatiladi.
+  2 MB, `localStorage` kvotasi); u sahna obyekt ID'si bo'yicha `ImportedModelStore`
+  registrida saqlanadi. Registr yagona egasi: ko'rish va eksport uchun nusxa beradi,
+  obyekt o'chirilganda GPU resurslarini bo'shatadi.
+
+#### Import xavfsizligi va limitlari
+
+| Limit | Qiymat |
+| --- | --- |
+| Bitta fayl | 32 MiB |
+| Tanlovdagi fayllar | 64 ta, jami 48 MiB |
+| Vertex / uchburchak | 1 000 000 / 500 000 |
+| Node / ierarxiya chuqurligi | 10 000 / 64 |
+| Tekstura | 8 MiB, 8192 px, jami 64 MP, 16 tagacha |
+| OBJ qatori / yuz uchlari | 4 096 belgi / 64 |
+| MTL materiallari | 256 |
+
+Qo'shimcha: Draco/meshopt/KTX2/WebP talab qiluvchi kengaytmalar, skeletli modellar va
+halqali node grafi rad etiladi; rasm o'lchamlari **dekodlashdan oldin** sarlavhadan
+o'qiladi; GLB/glTF accessor va bufferView chegaralari fayldagi haqiqiy baytlarga
+solishtiriladi. Import paytida **hech qanday tashqi so'rov** yuborilmaydi (testlarda
+`fetch` chaqirilmagani tekshiriladi).
 
 #### Muhim cheklovlar (6.2)
 
@@ -160,17 +191,33 @@ o'giriladi; `scale` — o'qlar bo'yicha koeffitsient.
   yoki loyiha qayta ochilganda import qilingan obyekt yo'qoladi. Loyiha saqlanganda
   (va JSON eksportida) import qilingan modellar faylga **kiritilmaydi** va bu haqda
   xabar ko'rsatiladi; yaroqsiz ma'lumot qoldirilmaydi.
-- **Faqat `.glb`**: matnli `.gltf` (tashqi resurslar bilan), OBJ/MTL va FBX keyingi
-  bosqichlarda; ular hozir aniq xabar bilan rad etiladi.
-- **Siqilgan/atlasli formatlar yo'q**: Draco, meshopt va KTX2 dekoderlari
-  qo'shilmagan; bunday fayl ochilmaydi.
+- **FBX va ZIP import qilinmaydi**; Draco/meshopt/KTX2 dekoderlari qo'shilmagan.
+- **MTL to'liq PBR emas**: metallik/AO/emissiv xaritalar va murakkab kanallar
+  ifodalanmaydi; konversiya taxminiy va shunday deb ko'rsatiladi.
 - **Mebel hujjatlari import qilingan modelga tegishli emas**: BOM, kesish ro'yxati,
   texnik chizma va mahsulot paketi faqat parametrik mebel uchun hisoblanadi. 3D print
   tayyorligi esa haqiqiy to'r geometriyasi bo'yicha ishlaydi.
 - Import qilingan model AI orqali tahrirlanmaydi (AI parametrik spetsifikatsiya ustida
   ishlaydi).
 
-## 7-bosqich imkoniyatlari (hisoblar, obuna va to'lovlar)
+#### Brauzer va unumdorlik tekshiruvi (6.2.4)
+
+```bash
+npm run test:import   # haqiqiy Chromium + WebGL: import → render → tanlash → eksport
+```
+
+- `test:import` haqiqiy `SceneViewer` bilan ishlaydi: model framebufferga tushishi
+  (piksel farqi bilan o'lchanadi), klik bilan tanlanishi, ko'chirish/yashirish
+  natijani o'zgartirishi, ikkinchi import chizilishi, o'chirish registrni bo'shatishi,
+  3 marta qo'shish/o'chirish geometriya sonini oshirmasligi va to'rt eksport formati
+  bayt qaytarishi tekshiriladi.
+- Unumdorlik `src/import/importPerformance.test.ts` da haqiqiy soat bilan o'lchanadi
+  (virtual vaqt emas). Ushbu muhitda: GLB 10k/100k/500k uchburchak — ~40/70/290 ms;
+  OBJ 10k/100k — ~50/440 ms.
+- Xotira: `renderer.info.memory.geometries` boshlang'ich qiymatga qaytadi (6 → 6 → 6).
+  Mobil qurilmalarda o'lchanmagan.
+
+## 7-bosqich imkoniyatlari (hisoblar, obuna va to'lovlar)## 7-bosqich imkoniyatlari (hisoblar, obuna va to'lovlar)
 
 Backend `backend/` katalogida: **FastAPI + SQLAlchemy 2 + Alembic**.
 
@@ -477,8 +524,9 @@ yozilgan.
 - **Frontend:** React + TypeScript, Vite.
 - **Brauzerdagi 3D ko'rish qatlami:** Three.js (`WebGLRenderer`, `OrbitControls`).
 - **Eksport:** Three.js `GLTFExporter` (`.glb`, binary) — faqat brauzerda ishlaydi.
-- **Import (6.2):** Three.js `GLTFLoader` (dinamik chunk) + o'z himoya qatlami;
-  tashqi tarmoq so'rovi yo'q, faqat fayl ichidagi resurslar.
+- **Import (6.2):** Three.js `GLTFLoader` va `OBJLoader` (ikkalasi ham dinamik chunk),
+  MTL tokenizatori sifatida `MTLLoader.parse`; resurslar faqat foydalanuvchi tanlagan
+  fayllardan `ResourceMap` orqali yechiladi. Tashqi tarmoq so'rovi yo'q.
 - **AI qatlami:** server provayderi (OpenAI-mos) + sakkiz turni quradigan mahalliy
   (oflayn) adapter va yagona fallback siyosati.
 - **Sahna modeli (Stage 5-6):** Three.js'siz `scene/` qatlami (validatsiya + reducer).
@@ -510,7 +558,7 @@ src/
   scene/types.ts            # SceneData/SceneObject/RoomConfig + standartlar/diapazonlar
   scene/sceneSettings.ts    # fon, yorug'lik, material, kamera presetlari (sof)
   scene/sceneValidation.ts  # sahna validatsiyasi + eski loyihani migratsiya
-  import/                    # Phase 6.2: GLB import (format, himoya, loader, store)
+  import/                    # Phase 6.2: GLB/glTF/OBJ import (format, himoya, loader, store)
   scene/sceneReducer.ts     # sof sahna amallari (qo'shish/tanlash/transform/sozlama)
   scene/buildSceneObject.ts # SceneObject -> Three.js obyekt + transform + material
   scene/sceneSelection.ts   # eksport uchun bitta obyektni tanlash
