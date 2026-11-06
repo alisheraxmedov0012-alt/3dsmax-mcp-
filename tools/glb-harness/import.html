@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Model import harness</title>
+    <style>
+      body { background: #101014; color: #cfe; font: 13px/1.5 monospace; padding: 12px; }
+      pre { white-space: pre-wrap; }
+      #stage { position: fixed; left: -2000px; top: 0; width: 640px; height: 480px; }
+    </style>
+  </head>
+  <body>
+    <pre id="out">starting…</pre>
+    <div id="stage"></div>
+    <script type="module">
+      /**
+       * Phase 6.2.4 — browser integration for model import.
+       *
+       * Everything here is the shipped code: `prepareImport` validates and parses
+       * the files, `ImportedModelStore` owns the geometry, and the real
+       * `SceneViewer` renders it in WebGL. The page proves the parts a jsdom test
+       * cannot: that the model actually reaches the framebuffer, that a click picks
+       * it, and that deleting it releases its GPU resources.
+       *
+       * Results are printed as a single `RESULT {json}` line, which the runner
+       * (`import.mjs`) parses out of the dumped DOM.
+       */
+      const out = document.getElementById('out');
+      const stage = document.getElementById('stage');
+      const report = { steps: {}, errors: [] };
+
+      const assert = (condition, message) => {
+        if (!condition) throw new Error(message);
+      };
+
+      // A synthetic pointer event has no captured pointer, so OrbitControls' own
+      // pointerdown handler throws while the viewer's handler — the one under test —
+      // runs normally. Swallow that one message instead of failing the run.
+      window.addEventListener('error', (event) => {
+        if (String(event.message).includes('setPointerCapture')) {
+          event.preventDefault();
+        }
+      });
+      // Written after every step so a stalled run still shows how far it got.
+      const progress = (note) => {
+        out.textContent = `PROGRESS ${note} ${JSON.stringify(report.steps)}`;
+      };
+      /**
+       * Yields to the task queue instead of waiting for an animation frame.
+       * Headless Chromium under `--virtual-time-budget` does not run rAF callbacks,
+       * and nothing here needs one: `capturePng` renders explicitly, and picking is
+       * synchronous.
+       */
+      const settle = async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      };
+
+      async function captureFrame(viewer) {
+        // The room is excluded from the *measurement* only: from the default
+        // camera the walls occlude whatever stands inside, which would hide the
+        // very thing being measured. The scene under test still contains the room.
+        // `preview` quality and a small frame keep software WebGL affordable; the
+        // measurement is a pixel difference, so it does not need a pretty image.
+        const blob = await viewer.capturePng(256, 192, {
+          reframeSelection: false,
+          hideSelection: true,
+          includeRoom: false,
+          // The contact-shadow plane appears under an object and would otherwise
+          // dominate the diff (and sit in front of the model for picking).
+          hideShadowCatcher: true,
+          qualityPreset: 'preview',
+        });
+        const bitmap = await createImageBitmap(blob);
+        const canvas = document.createElement('canvas');
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(bitmap, 0, 0);
+        const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        bitmap.close();
+        return { width: canvas.width, height: canvas.height, data };
+      }
+
+      /**
+       * Share of pixels that differ between two frames.
+       *
+       * Comparing frames is the only measurement that survives the room: a plain
+       * brightness threshold saturates because the floor and walls already fill the
+       * view, while a difference isolates exactly what the imported model added.
+       */
+      /** Mean position of the pixels that differ — where the model landed on screen. */
+      function changedCentroid(a, b) {
+        let sumX = 0;
+        let sumY = 0;
+        let count = 0;
+        for (let index = 0; index < a.data.length; index += 4) {
+          const delta =
+            Math.abs(a.data[index] - b.data[index]) +
+            Math.abs(a.data[index + 1] - b.data[index + 1]) +
+            Math.abs(a.data[index + 2] - b.data[index + 2]);
+          if (delta <= 24) {
+            continue;
+          }
+          const pixel = index / 4;
+          sumX += pixel % a.width;
+          sumY += Math.floor(pixel / a.width);
+          count += 1;
+        }
+        return count === 0 ? null : { x: sumX / count, y: sumY / count, count, width: a.width, height: a.height };
+      }
+
+      function diffPercent(a, b) {
+        if (a.data.length !== b.data.length) {
+          throw new Error('frames have different sizes');
+        }
+        let changed = 0;
+        let total = 0;
+        for (let index = 0; index < a.data.length; index += 4) {
+          total += 1;
+          const delta =
+            Math.abs(a.data[index] - b.data[index]) +
+            Math.abs(a.data[index + 1] - b.data[index + 1]) +
+            Math.abs(a.data[index + 2] - b.data[index + 2]);
+          if (delta > 24) changed += 1;
+        }
+        return (changed / total) * 100;
+      }
+
+      // ---------------------------------------------------------------- fixtures
+
+      // ------------------------------------------------------------------ checks
+
+      async function main() {
+        const [{ SceneViewer }, parseModel, store, sceneTypes, settings, exporter, fixtures] =
+          await Promise.all([
+            import('@repo/src/viewer/SceneViewer.ts'),
+            import('@repo/src/import/parseModel.ts'),
+            import('@repo/src/import/importedModelStore.ts'),
+            import('@repo/src/scene/types.ts'),
+            import('@repo/src/scene/sceneSettings.ts'),
+            import('@repo/src/export/sceneFileExport.ts'),
+            import('@repo/src/import/__fixtures__/glbFixtures.ts'),
+          ]);
+
+        const { prepareImport } = parseModel;
+        const { importedModelStore } = store;
+        const { createImportedSceneObject, SCENE_SCHEMA_VERSION, ROOM_DEFAULTS } = sceneTypes;
+        const { createDefaultSettings } = settings;
+        const { exportSceneToFormat } = exporter;
+
+        const selected = [];
+        const viewer = new SceneViewer(stage, { onSelect: (id) => selected.push(id) });
+        await settle();
+
+        const buildScene = (objects, selectedId, room = ROOM_DEFAULTS) => ({
+          schemaVersion: SCENE_SCHEMA_VERSION,
+          room: { ...room },
+          objects,
+          settings: createDefaultSettings(),
+        });
+
+        // The picking scenario needs the camera close to the model. In the default
+        // room the walls then sit between the two, and a click correctly hits the
+        // wall — so that step uses a room large enough to contain the camera.
+        const LARGE_ROOM = { widthCm: 1200, lengthCm: 1200, heightCm: 800 };
+
+        // Baseline: the room alone, rendered once, so later counts are comparable.
+        // `renderer.info` only counts what has actually been drawn, so this needs a
+        // real render rather than a scene change.
+        viewer.setScene(buildScene([], null, LARGE_ROOM), null);
+        await settle();
+        await captureFrame(viewer);
+        const baseline = viewer.getRenderStats();
+        progress('baseline');
+
+        progress('import');
+        const parsed = await prepareImport([{ name: 'chair.glb', bytes: fixtures.triangleGlb() }]);
+        importedModelStore.register('imp-1', {
+          root: parsed.parsed.root,
+          dispose: parsed.parsed.dispose,
+        });
+        progress('import:parsed');
+        // Bigger than the fixture so it occupies a measurable share of a frame
+        // framed on the whole room.
+        const importedObject = {
+          ...createImportedSceneObject('imp-1', parsed.parsed.meta),
+          scale: { x: 3, y: 3, z: 3 },
+        };
+        const render = async (nextObjects, selectedId, room = ROOM_DEFAULTS) => {
+          viewer.setScene(buildScene(nextObjects, selectedId, room), selectedId);
+          await settle();
+          return captureFrame(viewer);
+        };
+
+        // The whole scenario runs from one camera, framed on the model: that is both
+        // what a user does before clicking and what makes every frame comparable.
+        viewer.setScene(buildScene([importedObject], 'imp-1', LARGE_ROOM), 'imp-1');
+        viewer.applyCameraAngle('hero');
+        await settle();
+
+        // 1. The model must add pixels to the frame. The reference is the same scene
+        // with the object hidden, not an empty scene: removing the object from the
+        // scene is a delete, and the store correctly releases its geometry.
+        const visible = await render([importedObject], 'imp-1', LARGE_ROOM);
+        progress('render:visible');
+        const hidden = await render([{ ...importedObject, visible: false }], 'imp-1', LARGE_ROOM);
+        progress('render:hidden');
+
+        const visibleContribution = diffPercent(hidden, visible);
+        report.steps.visibleContribution = Number(visibleContribution.toFixed(3));
+        assert(visibleContribution > 0.5, `imported model did not reach the framebuffer (${visibleContribution.toFixed(3)}%)`);
+
+        // 2. Transform: moving the geometry must change the picture.
+        const moved = await render([{ ...importedObject, position: { x: 900, y: 0, z: 0 } }], 'imp-1', LARGE_ROOM);
+        const moveDelta = diffPercent(visible, moved);
+        report.steps.moveDelta = Number(moveDelta.toFixed(3));
+        assert(moveDelta > 0.5, 'moving the object did not change the rendered result');
+        progress('transform');
+
+        // 3. Visibility: the hidden frame must contain no model pixels at all.
+        const hiddenAgain = await render([{ ...importedObject, visible: false }], 'imp-1', LARGE_ROOM);
+        const hiddenDelta = diffPercent(hidden, hiddenAgain);
+        report.steps.hiddenDelta = Number(hiddenDelta.toFixed(3));
+        assert(hiddenDelta < 0.2, `hiding the object left ${hiddenDelta.toFixed(3)}% of it on screen`);
+        progress('visibility');
+
+        // 4. Selection: click where the model was measured. Every frame above shares
+        // this camera, so the centroid is directly usable as a click point.
+        const target = changedCentroid(hidden, visible);
+        assert(target, 'the model produced no measurable pixels to click');
+        const canvas = stage.querySelector('canvas');
+        const rect = canvas.getBoundingClientRect();
+        const clickAt = {
+          clientX: rect.left + (target.x / target.width) * rect.width,
+          clientY: rect.top + (target.y / target.height) * rect.height,
+        };
+        canvas.dispatchEvent(new PointerEvent('pointerdown', { ...clickAt, bubbles: true }));
+        canvas.dispatchEvent(new PointerEvent('pointerup', { ...clickAt, bubbles: true }));
+        await settle();
+        report.steps.selected = selected.slice();
+        assert(
+          selected.includes('imp-1'),
+          `clicking the model did not select it (got ${selected.slice().join(',') || 'nothing'})`,
+        );
+        progress('select');
+
+        // 5. Re-import the same file as a second object.
+        await render([importedObject], 'imp-1', LARGE_ROOM);
+        const second = await prepareImport([{ name: 'chair.glb', bytes: fixtures.triangleGlb() }]);
+        importedModelStore.register('imp-2', {
+          root: second.parsed.root,
+          dispose: second.parsed.dispose,
+        });
+        const two = await render(
+          [
+            importedObject,
+            {
+              ...createImportedSceneObject('imp-2', second.parsed.meta),
+              position: { x: 120, y: 0, z: 0 },
+              scale: { x: 3, y: 3, z: 3 },
+            },
+          ],
+          'imp-2',
+          LARGE_ROOM,
+        );
+        report.steps.storeAfterReimport = importedModelStore.size;
+        report.steps.twoObjectsContribution = Number(diffPercent(hidden, two).toFixed(3));
+        assert(importedModelStore.size === 2, 'the second import was not registered');
+        assert(diffPercent(hidden, two) > 0.5, 'a second import did not render');
+        progress('reimport');
+
+        // 7. Delete everything: the viewer must release the store entries.
+        await render([], null, LARGE_ROOM);
+        report.steps.storeAfterDelete = importedModelStore.size;
+        assert(importedModelStore.size === 0, 'deleting the objects did not release the store');
+
+        const afterDelete = viewer.getRenderStats();
+        report.steps.geometries = { baseline: baseline.geometries, afterDelete: afterDelete.geometries };
+        assert(
+          afterDelete.geometries <= baseline.geometries,
+          `geometry count did not return to baseline (${afterDelete.geometries} > ${baseline.geometries})`,
+        );
+        progress('delete');
+
+        // 7. Repeated add/delete cycles must not leak geometries.
+        for (let cycle = 0; cycle < 3; cycle += 1) {
+          const reimported = await prepareImport([
+            { name: 'chair.glb', bytes: fixtures.triangleGlb() },
+          ]);
+          importedModelStore.register('cycle', {
+            root: reimported.parsed.root,
+            dispose: reimported.parsed.dispose,
+          });
+          viewer.setScene(
+            buildScene([createImportedSceneObject('cycle', reimported.parsed.meta)], 'cycle', LARGE_ROOM),
+            'cycle',
+          );
+          await settle();
+          viewer.setScene(buildScene([], null, LARGE_ROOM), null);
+          await settle();
+        }
+        report.steps.geometriesAfterCycles = viewer.getRenderStats().geometries;
+        assert(
+          viewer.getRenderStats().geometries <= baseline.geometries,
+          'repeated add/delete cycles leaked geometries',
+        );
+
+        progress('export');
+        // 8. Exports of a scene that contains an imported model.
+        const exported = await prepareImport([{ name: 'chair.glb', bytes: fixtures.triangleGlb() }]);
+        importedModelStore.register('export-me', {
+          root: exported.parsed.root,
+          dispose: exported.parsed.dispose,
+        });
+        const exportScene = buildScene(
+          [createImportedSceneObject('export-me', exported.parsed.meta)],
+          'export-me',
+          LARGE_ROOM,
+        );
+        const metadata = { name: 'Harness', furnitureType: 'imported', units: 'cm' };
+        const sizes = {};
+        for (const format of ['glb', 'obj', 'stl', '3mf']) {
+          const artifact = await exportSceneToFormat(format, exportScene, metadata, {
+            includeRoom: false,
+          });
+          sizes[format] = artifact.blob.size;
+          assert(artifact.blob.size > 0, `export ${format} produced no bytes`);
+        }
+        report.steps.exports = sizes;
+        viewer.setScene(buildScene([], null, LARGE_ROOM), null);
+        await settle();
+
+        progress('timing');
+        // Timing and memory budgets are measured in Node (`importPerformance.test.ts`):
+        // under `--virtual-time-budget` the browser clock is virtualised, so a
+        // duration measured here would be fiction.
+
+        report.ok = true;
+        report.webgl = viewer.getRenderStats();
+        viewer.dispose();
+      }
+
+      main()
+        .catch((error) => {
+          report.errors.push(String((error && error.message) || error));
+        })
+        .finally(() => {
+          out.textContent = `RESULT ${JSON.stringify(report)}`;
+        });
+    </script>
+  </body>
+</html>

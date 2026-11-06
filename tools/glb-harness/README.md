@@ -12,6 +12,8 @@ browser (canvas, WebGL, `GLTFExporter`); a Node test can only reach it through a
 | `export.html` | Builds a scene of all eight furniture types with real PBR presets and calls `exportSceneToGlb` |
 | `viewer.html` | Re-parses the result with `GLTFLoader`, renders it, reads the framebuffer back |
 | `server.py` | Stdlib HTTP sink that receives the artefacts (and serves them back to the viewer) |
+| `import.html` | Phase 6.2: imports a model through the real `prepareImport` and `ImportedModelStore`, renders it in the real `SceneViewer`, clicks it, moves it, hides it, deletes it and exports all four formats |
+| `import.mjs` | Runner for `import.html` |
 | `vite.config.mjs` | Serves the pages and exposes the repo root as `@repo`, so the real pipeline is imported, not a copy |
 
 ## Running it
@@ -26,6 +28,24 @@ npm run test:glb
 It uses Chromium from `PATH` (override with `CHROMIUM=/path/to/chromium`), keeps
 all artefacts under `/tmp`, and removes them on success. It is not part of
 `npm test` because the software-WebGL export takes about a minute.
+
+The import integration test is separate:
+
+```bash
+npm run test:import
+# or: node tools/glb-harness/import.mjs
+```
+
+It drives a real WebGL context: the model must reach the framebuffer (measured as
+a pixel difference against the same scene with the object hidden), a synthetic
+click must select it, moving and hiding must change the frame, deleting must empty
+the runtime store, three add/delete cycles must not grow the geometry count, and
+GLB/OBJ/STL/3MF must all produce bytes. It takes a few seconds.
+
+Two environment notes are baked into the page: `--virtual-time-budget` does not run
+`requestAnimationFrame` callbacks, and it virtualises `performance.now()`, so the
+page waits with `setTimeout` and does not report timings. Import cost is measured
+in `src/import/importPerformance.test.ts`, where the clock is real.
 
 The manual steps below are useful when debugging a failure.
 
