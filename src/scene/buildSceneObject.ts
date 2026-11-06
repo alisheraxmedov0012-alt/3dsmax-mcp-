@@ -19,6 +19,21 @@ import {
 
 const DEG_TO_RAD = Math.PI / 180;
 
+/**
+ * Writes the user-visible name into `userData`, which glTF exporters serialise as
+ * node `extras`.
+ *
+ * The node name is `object:<id>` — stable and unique, but a buyer opening the file
+ * in Blender would only see a GUID. The display name ("Stol") is what a person
+ * looks for, and `extras` is the standard place for it: it survives export, shows
+ * up as a custom property in DCCs, and does not change the node-name contract.
+ */
+function applyExportIdentity(group: THREE.Object3D, object: SceneObject): void {
+  if (typeof object.name === 'string' && object.name.trim() !== '') {
+    group.userData.displayName = object.name;
+  }
+}
+
 /** Raised when a scene object cannot be turned into geometry. */
 export class SceneObjectBuildError extends Error {
   constructor(message: string) {
@@ -166,6 +181,7 @@ function buildUniversalSceneObject(object: SceneObject): BuiltSceneObject {
   built.group.name = `object:${object.id}`;
   built.group.userData.sceneObjectId = object.id;
   built.group.userData.definitionId = plan.definitionId;
+  applyExportIdentity(built.group, object);
 
   applyObjectTransform(built.group, object);
 
@@ -208,6 +224,7 @@ function buildImportedSceneObject(
   group.name = `object:${object.id}`;
   group.userData.sceneObjectId = object.id;
   group.userData.importedFormat = object.imported.format;
+  applyExportIdentity(group, object);
 
   applyObjectTransform(group, object);
 
@@ -237,6 +254,7 @@ export function buildSceneObject(
   const built = buildFurniture(object.type, object.params, object.material);
   built.group.name = `object:${object.id}`;
   built.group.userData.sceneObjectId = object.id;
+  applyExportIdentity(built.group, object);
 
   applyObjectTransform(built.group, object);
 

@@ -225,6 +225,12 @@ async function loadGltfExporter() {
 
 const GLB_JSON_CHUNK = 0x4e4f534a;
 
+/** The parts of an exported glTF document the naming pass rewrites. */
+interface GltfNamingShape {
+  meshes?: Array<{ name?: string }>;
+  nodes?: Array<{ name?: string; mesh?: number }>;
+}
+
 /**
  * Give glTF meshes stable, readable names without touching geometry or buffers.
  *
@@ -232,9 +238,49 @@ const GLB_JSON_CHUNK = 0x4e4f534a;
  * node names are already meaningful (`table-top`, `table-leg-1`, ...), so the
  * names are derived from them. A mesh shared by several nodes (all table legs)
  * uses their common prefix plus a collision suffix, never one arbitrary node.
- * Only the JSON chunk is rewritten; the BIN chunk and every bufferView offset
- * stay byte-identical.
+ *
+ * Shared by the GLB writer (which rewrites only the JSON chunk) and the `.gltf`
+ * writer (which re-serialises the whole document), so both produce the same names.
  */
+export function nameGltfMeshes(json: GltfNamingShape): void {
+  const meshes = json.meshes ?? [];
+  const nodes = json.nodes ?? [];
+
+  const nodesByMesh = new Map<number, string[]>();
+  for (const node of nodes) {
+    if (typeof node.mesh !== 'number') continue;
+    const names = nodesByMesh.get(node.mesh) ?? [];
+    if (typeof node.name === 'string' && node.name.trim() !== '') names.push(node.name);
+    nodesByMesh.set(node.mesh, names);
+  }
+
+  const commonPrefix = (values: string[]): string => {
+    if (values.length === 0) return '';
+    let prefix = values[0];
+    for (const value of values.slice(1)) {
+      while (!value.startsWith(prefix)) prefix = prefix.slice(0, -1);
+    }
+    return prefix.replace(/[-_.\s]+$/, '');
+  };
+
+  const used = new Set<string>();
+  meshes.forEach((mesh, index) => {
+    if (typeof mesh.name === 'string' && mesh.name.trim() !== '') {
+      used.add(mesh.name);
+      return;
+    }
+    const names = nodesByMesh.get(index) ?? [];
+    let candidate = names.length === 1 ? names[0] : commonPrefix(names);
+    if (candidate.length < 3) candidate = `mesh-${index}`;
+    let unique = candidate;
+    let suffix = 2;
+    while (used.has(unique)) unique = `${candidate}-${suffix++}`;
+    mesh.name = unique;
+    used.add(unique);
+  });
+}
+
+/** Rewrites only the JSON chunk of a GLB; the BIN chunk stays byte-identical. */
 export function nameExportedMeshes(glb: ArrayBuffer): ArrayBuffer {
   try {
     const view = new DataView(glb);
@@ -252,45 +298,8 @@ export function nameExportedMeshes(glb: ArrayBuffer): ArrayBuffer {
 
     const jsonChunk = chunks.find((chunk) => chunk.type === GLB_JSON_CHUNK);
     if (!jsonChunk) return glb;
-    const json = JSON.parse(new TextDecoder().decode(jsonChunk.bytes)) as {
-      meshes?: Array<{ name?: string }>;
-      nodes?: Array<{ name?: string; mesh?: number }>;
-    };
-    const meshes = json.meshes ?? [];
-    const nodes = json.nodes ?? [];
-
-    const nodesByMesh = new Map<number, string[]>();
-    for (const node of nodes) {
-      if (typeof node.mesh !== 'number') continue;
-      const names = nodesByMesh.get(node.mesh) ?? [];
-      if (typeof node.name === 'string' && node.name.trim() !== '') names.push(node.name);
-      nodesByMesh.set(node.mesh, names);
-    }
-
-    const commonPrefix = (values: string[]): string => {
-      if (values.length === 0) return '';
-      let prefix = values[0];
-      for (const value of values.slice(1)) {
-        while (!value.startsWith(prefix)) prefix = prefix.slice(0, -1);
-      }
-      return prefix.replace(/[-_.\s]+$/, '');
-    };
-
-    const used = new Set<string>();
-    meshes.forEach((mesh, index) => {
-      if (typeof mesh.name === 'string' && mesh.name.trim() !== '') {
-        used.add(mesh.name);
-        return;
-      }
-      const names = nodesByMesh.get(index) ?? [];
-      let candidate = names.length === 1 ? names[0] : commonPrefix(names);
-      if (candidate.length < 3) candidate = `mesh-${index}`;
-      let unique = candidate;
-      let suffix = 2;
-      while (used.has(unique)) unique = `${candidate}-${suffix++}`;
-      mesh.name = unique;
-      used.add(unique);
-    });
+    const json = JSON.parse(new TextDecoder().decode(jsonChunk.bytes)) as GltfNamingShape;
+    nameGltfMeshes(json);
 
     const encoded = new TextEncoder().encode(JSON.stringify(json));
     const rebuilt: Array<{ type: number; bytes: Uint8Array }> = chunks.map((chunk) =>
@@ -535,6 +544,52 @@ export async function exportSceneToGlb(
   const { scene, dispose } = await buildTexturedExportScene(data, options);
   try {
     return await exportRootToGlb(scene);
+  } finally {
+    dispose();
+  }
+}
+
+/**
+ * Serialises the same export scene as a textual glTF document.
+ *
+ * Identical content to the GLB — same nodes, materials, UVs and metre-scaled
+ * root — but with buffers and images inlined as `data:` URIs, so the single file
+ * is still self-contained. Some DCC importers and inspection tools are happier
+ * with readable JSON, and a buyer can diff it.
+ */
+async function exportRootToGltf(scene: THREE.Scene): Promise<string> {
+  assertFiniteGeometry(scene);
+  assertExportableScene(scene);
+  addMetreScaleRoot(scene);
+  const GltfExporter = await loadGltfExporter();
+
+  let parsed: ArrayBuffer | Record<string, unknown>;
+  try {
+    parsed = await new GltfExporter().parseAsync(scene, { binary: false });
+  } catch (error) {
+    throw new ExportError(
+      'failed',
+      `glTF faylini yozib bo'lmadi. Material yoki tekstura ma'lumotini tekshiring. ${
+        error instanceof Error ? error.message : ''
+      }`.trim(),
+    );
+  }
+  if (parsed instanceof ArrayBuffer || typeof parsed !== 'object' || parsed === null) {
+    throw new ExportError('failed', 'glTF eksporti matnli hujjat qaytarmadi.');
+  }
+
+  nameGltfMeshes(parsed as GltfNamingShape);
+  return JSON.stringify(parsed);
+}
+
+/** Serialises the whole scene to a self-contained `.gltf` document. */
+export async function exportSceneToGltf(
+  data: SceneData,
+  options: BuildExportOptions = {},
+): Promise<string> {
+  const { scene, dispose } = await buildTexturedExportScene(data, options);
+  try {
+    return await exportRootToGltf(scene);
   } finally {
     dispose();
   }

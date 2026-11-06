@@ -12,8 +12,19 @@ import { FURNITURE_TYPES } from '../geometry/furniture/types';
 
 const META = { name: 'Yotoqxona', furnitureType: 'wardrobe', units: 'cm' as const };
 
+/** Base64 of a buffer, without relying on Node's `Buffer` typings. */
+function toBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunk));
+  }
+  return btoa(binary);
+}
+
+
 class TestFileReader {
-  result: ArrayBuffer | null = null;
+  result: ArrayBuffer | string | null = null;
   onloadend: (() => void) | null = null;
   onerror: ((error: unknown) => void) | null = null;
 
@@ -22,6 +33,21 @@ class TestFileReader {
       .arrayBuffer()
       .then((buffer) => {
         this.result = buffer;
+        this.onloadend?.();
+      })
+      .catch((error) => this.onerror?.(error));
+  }
+
+  /**
+   * Textual glTF inlines its buffer as a data URL, so the exporter calls this.
+   * Node has no FileReader; the stub reproduces the browser contract.
+   */
+  readAsDataURL(blob: Blob): void {
+    blob
+      .arrayBuffer()
+      .then((buffer) => {
+        const base64 = toBase64(new Uint8Array(buffer));
+        this.result = `data:${blob.type || 'application/octet-stream'};base64,${base64}`;
         this.onloadend?.();
       })
       .catch((error) => this.onerror?.(error));
@@ -90,6 +116,31 @@ describe('exportSceneToFormat', () => {
     const bytes = await artifact.blob.arrayBuffer();
     // glTF binary magic "glTF".
     expect(new DataView(bytes).getUint32(0, true)).toBe(0x46546c67);
+  });
+
+  it('produces a self-contained .gltf document with the same content as the GLB', async () => {
+    const artifact = await exportSceneToFormat('gltf', makeScene(), META);
+    expect(artifact.filename).toBe('yotoqxona-wardrobe.gltf');
+    expect(artifact.mimeType).toBe('model/gltf+json');
+
+    const document = JSON.parse(await artifact.blob.text()) as {
+      asset?: { version?: string };
+      buffers?: Array<{ uri?: string }>;
+      nodes?: Array<{ name?: string; matrix?: number[] }>;
+      meshes?: Array<{ name?: string }>;
+    };
+    expect(document.asset?.version).toBe('2.0');
+    // Self-contained: the buffer is inlined, so no companion file is needed.
+    expect(document.buffers?.[0]?.uri?.startsWith('data:')).toBe(true);
+    // Same metre-scaled root and object nodes as the GLB writer.
+    const root = document.nodes?.find((node) => node.name === 'scene-root');
+    expect(root?.matrix?.[0]).toBeCloseTo(0.01, 6);
+    expect(document.nodes?.some((node) => node.name === 'object:t1')).toBe(true);
+    // The shared naming pass still applies.
+    const names = (document.meshes ?? []).map((mesh) => mesh.name ?? '');
+    expect(names.length).toBeGreaterThan(0);
+    expect(names.every((name) => name.length > 0)).toBe(true);
+    expect(new Set(names).size).toBe(names.length);
   });
 
   it('produces JSON carrying the scene parameters', async () => {

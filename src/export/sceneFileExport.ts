@@ -15,7 +15,13 @@
  */
 import * as THREE from 'three';
 import type { SceneData } from '../scene/types';
-import { assertExportableScene, buildExportScene, exportSceneToGlb, type BuildExportOptions } from './sceneExport';
+import {
+  assertExportableScene,
+  buildExportScene,
+  exportSceneToGltf,
+  exportSceneToGlb,
+  type BuildExportOptions,
+} from './sceneExport';
 import { EXPORT_FORMATS, type ExportFormatId } from './exportFormats';
 import { assertFiniteGeometry } from './geometryGuard';
 import { serializeSceneToJson } from './sceneJson';
@@ -42,7 +48,14 @@ async function loadExporter<T>(load: () => Promise<T>, label: string): Promise<T
 }
 
 /** File formats produced by `exportSceneToFormat` (PNG is a render, not a file format here). */
-export const DATA_EXPORT_FORMATS: readonly ExportFormatId[] = ['glb', 'json', 'obj', 'stl', '3mf'];
+export const DATA_EXPORT_FORMATS: readonly ExportFormatId[] = [
+  'glb',
+  'gltf',
+  'json',
+  'obj',
+  'stl',
+  '3mf',
+];
 
 /**
  * Remove OBJ material references so the export stays geometry-only by contract.
@@ -120,6 +133,10 @@ export async function exportSceneToFormat(
     case 'glb': {
       const buffer = await exportSceneToGlb(data, options);
       return { blob: toBlob(buffer, spec.mimeType), filename, mimeType: spec.mimeType };
+    }
+    case 'gltf': {
+      const document = await exportSceneToGltf(data, options);
+      return { blob: toBlob(document, spec.mimeType), filename, mimeType: spec.mimeType };
     }
     case 'json': {
       // JSON carries the parameters, not the mesh; it is built directly from the

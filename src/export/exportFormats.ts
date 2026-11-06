@@ -25,10 +25,11 @@
  * - PNG: a rendered image, produced by the existing viewer render path.
  */
 
-export type ExportFormatId = 'glb' | 'json' | 'obj' | 'stl' | '3mf' | 'png';
+export type ExportFormatId = 'glb' | 'gltf' | 'json' | 'obj' | 'stl' | '3mf' | 'png';
 
 export const EXPORT_FORMAT_ORDER: readonly ExportFormatId[] = [
   'glb',
+  'gltf',
   'json',
   'obj',
   'stl',
@@ -86,6 +87,27 @@ export const EXPORT_FORMATS: Record<ExportFormatId, ExportFormatSpec> = {
       "Cheklov: ORM (occlusion/roughness/metalness) teksturasi yo'q — bu ikki kanal scalar.",
       "Cheklov: UV — BoxGeometry yuzalari 50 sm'lik jismoniy kafelga keltirilgan; alohida unwrap yo'q.",
       'Interyer (xona) va barcha ko‘rinadigan mebel eksport qilinadi.',
+    ],
+  },
+  gltf: {
+    id: 'gltf',
+    label: 'glTF (matnli .gltf)',
+    extension: 'gltf',
+    mimeType: 'model/gltf+json',
+    kind: 'file',
+    capabilities: {
+      geometry: true,
+      material: true,
+      textures: true,
+      transparency: true,
+      data: false,
+      render: false,
+    },
+    notes: [
+      'GLB bilan bir xil mazmun, lekin matnli JSON: buferlar va rasmlar `data:` URI sifatida ichida.',
+      'Alohida `.bin` yoki tekstura fayllari yo‘q — fayl o‘zi yetarli.',
+      'Metr; PBR materiallar, transformlar va obyekt nomlari saqlanadi.',
+      "GLB'dan farqi: hajmi kattaroq (base64) va ba'zi vositalar uchun qulayroq.",
     ],
   },
   json: {
