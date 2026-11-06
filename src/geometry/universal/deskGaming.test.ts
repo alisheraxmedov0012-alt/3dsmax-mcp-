@@ -250,8 +250,8 @@ describe('desk.gaming definition', () => {
 
   it('does not change desk.computer parity', () => {
     const plan = createFurniturePlan('desk.computer', DEFAULT_DESK_SPEC);
-    expect(plan.parts).toHaveLength(16);
-    expect(plan.connections).toHaveLength(12);
+    expect(plan.parts).toHaveLength(24);
+    expect(plan.connections).toHaveLength(16);
     expect(new Set(plan.parts.map((part) => part.materialSlot))).toEqual(
       new Set(['tabletop', 'structure', 'drawer', 'hardware']),
     );

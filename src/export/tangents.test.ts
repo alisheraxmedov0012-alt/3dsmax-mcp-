@@ -47,6 +47,35 @@ function expectValidTangents(geometry: THREE.BufferGeometry): void {
 }
 
 describe('tangent generation', () => {
+  it('can index a non-indexed mesh before tangents when explicitly requested', () => {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute(
+      'position',
+      new THREE.Float32BufferAttribute(
+        [-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, -1, 0, 1, 1, 0, -1, 1, 0],
+        3,
+      ),
+    );
+    geometry.setAttribute(
+      'normal',
+      new THREE.Float32BufferAttribute(
+        [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
+        3,
+      ),
+    );
+    geometry.setAttribute(
+      'uv',
+      new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1], 2),
+    );
+
+    expect(addTangentsToGeometry(geometry).reason).toBe('non-indexed');
+    const result = addTangentsToGeometry(geometry, { indexNonIndexed: true });
+
+    expect(result.applied).toBe(true);
+    expect(geometry.getIndex()?.count).toBe(6);
+    expectValidTangents(geometry);
+  });
+
   it('adds a four-component TANGENT attribute to an indexed mesh', () => {
     const geometry = indexedPlane(NORMAL_UVS);
     const result = addTangentsToGeometry(geometry);

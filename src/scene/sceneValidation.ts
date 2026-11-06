@@ -208,6 +208,9 @@ function normalizeMaterial(value: unknown): ObjectMaterial {
   if (baseColor !== undefined) material.baseColor = baseColor;
   const emissiveColor = normalizeHexColor(record.emissiveColor);
   if (emissiveColor !== undefined) material.emissiveColor = emissiveColor;
+  if (typeof record.premiumTextures === 'boolean') {
+    material.premiumTextures = record.premiumTextures;
+  }
 
   // Phase 4.5: every map role goes through the shared validator, which enforces
   // role/color-space rules and rejects unknown roles. Malformed stored data is

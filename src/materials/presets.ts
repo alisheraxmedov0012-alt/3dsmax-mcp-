@@ -12,9 +12,11 @@ import {
   resolveMaterialSettings,
   type MaterialCategory,
   type MaterialPresetId,
-  type MaterialType,
   type MaterialSettingsInput,
+  type MaterialType,
   type ResolvedMaterialSettings,
+  type TextureKind,
+  type TextureSize,
 } from './types';
 
 export interface MaterialPreset {
@@ -34,6 +36,19 @@ export interface MaterialPreset {
   opacity: number;
   textureScale: number;
   normalStrength: number;
+  /**
+   * Explicit procedural pattern. Standard presets derive it from `type`;
+   * premium product presets select a dedicated generator so existing furniture
+   * keeps its exact 128 px material output.
+   */
+  readonly textureKind?: TextureKind;
+  /** Native bitmap size for the preset; premium presets pin 2048. */
+  readonly textureSize?: TextureSize;
+  /**
+   * Premium maps bake albedo/roughness/metalness into bitmaps. The material
+   * colour is then white, otherwise the slot colour would tint the baked oak.
+   */
+  readonly premiumMaps?: boolean;
 }
 
 /**
@@ -342,6 +357,36 @@ export const MATERIAL_PRESETS: readonly MaterialPreset[] = [
     opacity: 1,
     textureScale: 1.5,
     normalStrength: 0.12,
+  },
+  {
+    id: 'wood-oak-premium',
+    name: "Eman (premium 2K)",
+    type: 'wood',
+    category: 'wood',
+    color: '#b98a5e',
+    metalness: 1,
+    roughness: 1,
+    opacity: 1,
+    textureScale: 1,
+    normalStrength: 0.45,
+    textureKind: 'oak',
+    textureSize: 2048,
+    premiumMaps: true,
+  },
+  {
+    id: 'metal-satin-black',
+    name: 'Qora satin metall (2K)',
+    type: 'metal',
+    category: 'metal',
+    color: '#1b1d20',
+    metalness: 1,
+    roughness: 1,
+    opacity: 1,
+    textureScale: 1,
+    normalStrength: 0.15,
+    textureKind: 'satin-metal',
+    textureSize: 2048,
+    premiumMaps: true,
   },
 ];
 

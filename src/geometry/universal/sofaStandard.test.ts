@@ -333,7 +333,7 @@ describe('sofa.standard definition', () => {
   });
 
   it('keeps the previous definitions intact', () => {
-    expect(createFurniturePlan('desk.computer', DEFAULT_DESK_SPEC).parts).toHaveLength(16);
+    expect(createFurniturePlan('desk.computer', DEFAULT_DESK_SPEC).parts).toHaveLength(24);
     expect(
       createFurniturePlan('desk.gaming', DEFAULT_GAMING_DESK_SPEC).parts,
     ).toHaveLength(21);

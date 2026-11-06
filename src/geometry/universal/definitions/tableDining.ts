@@ -369,7 +369,7 @@ function diningId(id: string): string {
 }
 
 function solveDiningPlan(spec: DiningTableSpec): FurniturePlanDraft {
-  const base = solveDesk(baseDeskSpec(spec));
+  const base = solveDesk(baseDeskSpec(spec), { detail: 'standard' });
 
   const removed = new Set<string>(spec.supportEnabled ? [] : SUPPORT_PART_IDS);
   const components = base.components.filter((component) => !removed.has(component.id));

@@ -108,6 +108,7 @@ export function createComponent<K extends ComponentType>(
     materialSlot,
     componentVersion: COMPONENT_VERSION,
     metadata,
+    ...(placement.uv === undefined ? {} : { uv: placement.uv }),
   };
 }
 
@@ -126,7 +127,7 @@ export function addComponent(builder: PartBuilder, component: ComponentPart): TH
       component.rotation[2] * DEG_TO_RAD,
     ],
     {
-      uv: 'auto',
+      uv: component.uv ?? 'auto',
       uvOrientation: uvOrientationForPart(component.type),
     },
   );

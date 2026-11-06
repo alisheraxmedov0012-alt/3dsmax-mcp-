@@ -1,4 +1,4 @@
-import type { GeometryRecipe } from '../kernel';
+import type { GeometryRecipe, Vec2Tuple } from '../kernel';
 
 export function panelRecipe(
   width: number,
@@ -28,22 +28,109 @@ export function shelfRecipe(
     : { kind: 'box', width, height: thickness, depth };
 }
 
+/** Closed rounded-rectangle contour in CCW order, in the plate's XY plane. */
+function roundedRectangleProfile(
+  width: number,
+  height: number,
+  radius: number,
+  segmentsPerCorner: number,
+): Vec2Tuple[] {
+  const r = Math.min(radius, width / 2, height / 2);
+  const corners = [
+    { x: width / 2 - r, y: height / 2 - r, start: 0 },
+    { x: -width / 2 + r, y: height / 2 - r, start: 90 },
+    { x: -width / 2 + r, y: -height / 2 + r, start: 180 },
+    { x: width / 2 - r, y: -height / 2 + r, start: 270 },
+  ] as const;
+  const points: Vec2Tuple[] = [];
+  for (const corner of corners) {
+    for (let index = 0; index < segmentsPerCorner; index += 1) {
+      const angle = ((corner.start + (index / segmentsPerCorner) * 90) * Math.PI) / 180;
+      points.push([corner.x + r * Math.cos(angle), corner.y + r * Math.sin(angle)]);
+    }
+  }
+  return points;
+}
+
+/** Clockwise circular hole, so it winds opposite the outer contour. */
+function circularHole(
+  x: number,
+  y: number,
+  radius: number,
+  segments: number,
+): Vec2Tuple[] {
+  const points: Vec2Tuple[] = [];
+  for (let index = 0; index < segments; index += 1) {
+    const angle = (-index / segments) * Math.PI * 2;
+    points.push([x + radius * Math.cos(angle), y + radius * Math.sin(angle)]);
+  }
+  return points;
+}
+
+/**
+ * Horizontal plate with an optional through-hole.
+ *
+ * `ExtrudeGeometry` bevels outward by `bevelSize` and shrinks holes by the same
+ * amount, so the contours are inset/counter-grown here to keep the caller's
+ * nominal width, depth and hole radius exact. The result is built in local XY
+ * (thickness along +Z); callers rotate it 90° about X for a tabletop.
+ */
+export function plateRecipe(
+  width: number,
+  thickness: number,
+  depth: number,
+  cornerRadius: number,
+  bevel: number,
+  segments: number,
+  hole?: { readonly x: number; readonly z: number; readonly radius: number },
+): GeometryRecipe {
+  const edge = Math.max(bevel, 0.05);
+  const profileWidth = width - 2 * edge;
+  const profileDepth = depth - 2 * edge;
+  const profileRadius = Math.max(cornerRadius - edge, 0.02);
+  const points = roundedRectangleProfile(
+    profileWidth,
+    profileDepth,
+    profileRadius,
+    Math.max(2, Math.min(segments, 12)),
+  );
+  const holes = hole
+    ? [circularHole(hole.x, hole.z, hole.radius + edge, 32)]
+    : undefined;
+  return {
+    kind: 'extrude',
+    profile: points,
+    ...(holes ? { holes } : {}),
+    depth: Math.max(thickness - 2 * edge, 0.1),
+    bevelEnabled: true,
+    bevelThickness: edge,
+    bevelSize: edge,
+    bevelSegments: 2,
+    curveSegments: 1,
+    steps: 1,
+  };
+}
+
 /** Rectangular picture-frame profile, extruded along Z. */
 export function frameRecipe(
   width: number,
   height: number,
   depth: number,
   memberThickness: number,
+  bevel = 0,
 ): GeometryRecipe {
-  const innerWidth = width - 2 * memberThickness;
-  const innerHeight = height - 2 * memberThickness;
+  const edge = Math.max(bevel, 0);
+  const outerWidth = width - 2 * edge;
+  const outerHeight = height - 2 * edge;
+  const innerWidth = width - 2 * memberThickness + 2 * edge;
+  const innerHeight = height - 2 * memberThickness + 2 * edge;
   return {
     kind: 'extrude',
     profile: [
-      [-width / 2, -height / 2],
-      [width / 2, -height / 2],
-      [width / 2, height / 2],
-      [-width / 2, height / 2],
+      [-outerWidth / 2, -outerHeight / 2],
+      [outerWidth / 2, -outerHeight / 2],
+      [outerWidth / 2, outerHeight / 2],
+      [-outerWidth / 2, outerHeight / 2],
     ],
     holes: [[
       [-innerWidth / 2, -innerHeight / 2],
@@ -51,7 +138,16 @@ export function frameRecipe(
       [innerWidth / 2, innerHeight / 2],
       [-innerWidth / 2, innerHeight / 2],
     ]],
-    depth,
+    depth: edge > 0 ? Math.max(depth - 2 * edge, 0.1) : depth,
+    ...(edge > 0
+      ? {
+          bevelEnabled: true,
+          bevelThickness: edge,
+          bevelSize: edge,
+          bevelSegments: 2,
+          curveSegments: 1,
+        }
+      : {}),
   };
 }
 
@@ -141,6 +237,90 @@ export function taperedSquareRecipe(
   };
 }
 
+function addFlatBox(
+  positions: number[],
+  indices: number[],
+  normals: number[],
+  centre: readonly [number, number, number],
+  size: readonly [number, number, number],
+): void {
+  const [cx, cy, cz] = centre;
+  const [sx, sy, sz] = size;
+  const hx = sx / 2;
+  const hy = sy / 2;
+  const hz = sz / 2;
+  const faces: Array<{
+    normal: readonly [number, number, number];
+    corners: ReadonlyArray<readonly [number, number, number]>;
+  }> = [
+    {
+      normal: [0, 0, 1],
+      corners: [
+        [cx - hx, cy - hy, cz + hz],
+        [cx + hx, cy - hy, cz + hz],
+        [cx + hx, cy + hy, cz + hz],
+        [cx - hx, cy + hy, cz + hz],
+      ],
+    },
+    {
+      normal: [0, 0, -1],
+      corners: [
+        [cx + hx, cy - hy, cz - hz],
+        [cx - hx, cy - hy, cz - hz],
+        [cx - hx, cy + hy, cz - hz],
+        [cx + hx, cy + hy, cz - hz],
+      ],
+    },
+    {
+      normal: [1, 0, 0],
+      corners: [
+        [cx + hx, cy - hy, cz + hz],
+        [cx + hx, cy - hy, cz - hz],
+        [cx + hx, cy + hy, cz - hz],
+        [cx + hx, cy + hy, cz + hz],
+      ],
+    },
+    {
+      normal: [-1, 0, 0],
+      corners: [
+        [cx - hx, cy - hy, cz - hz],
+        [cx - hx, cy - hy, cz + hz],
+        [cx - hx, cy + hy, cz + hz],
+        [cx - hx, cy + hy, cz - hz],
+      ],
+    },
+    {
+      normal: [0, 1, 0],
+      corners: [
+        [cx - hx, cy + hy, cz + hz],
+        [cx + hx, cy + hy, cz + hz],
+        [cx + hx, cy + hy, cz - hz],
+        [cx - hx, cy + hy, cz - hz],
+      ],
+    },
+    {
+      normal: [0, -1, 0],
+      corners: [
+        [cx - hx, cy - hy, cz - hz],
+        [cx + hx, cy - hy, cz - hz],
+        [cx + hx, cy - hy, cz + hz],
+        [cx - hx, cy - hy, cz + hz],
+      ],
+    },
+  ];
+  for (const face of faces) {
+    const base = positions.length / 3;
+    for (const corner of face.corners) {
+      positions.push(corner[0], corner[1], corner[2]);
+      normals.push(face.normal[0], face.normal[1], face.normal[2]);
+    }
+    indices.push(
+      base + 0, base + 1, base + 2,
+      base + 0, base + 2, base + 3,
+    );
+  }
+}
+
 function addBox(
   positions: number[],
   indices: number[],
@@ -177,37 +357,50 @@ export function drawerRecipe(
   depth: number,
   sideThickness: number,
   bottomThickness: number,
+  flatShading = false,
 ): GeometryRecipe {
   const positions: number[] = [];
   const indices: number[] = [];
+  const normals: number[] = [];
+  const add = flatShading
+    ? (
+        centre: readonly [number, number, number],
+        size: readonly [number, number, number],
+      ): void => addFlatBox(positions, indices, normals, centre, size)
+    : (
+        centre: readonly [number, number, number],
+        size: readonly [number, number, number],
+      ): void => addBox(positions, indices, centre, size);
   const wallHeight = height - bottomThickness;
   const wallY = bottomThickness / 2;
-  addBox(positions, indices, [0, -height / 2 + bottomThickness / 2, 0], [
+  add([0, -height / 2 + bottomThickness / 2, 0], [
     width,
     bottomThickness,
     depth,
   ]);
-  addBox(positions, indices, [-(width / 2 - sideThickness / 2), wallY, 0], [
+  add([-(width / 2 - sideThickness / 2), wallY, 0], [
     sideThickness,
     wallHeight,
     depth,
   ]);
-  addBox(positions, indices, [width / 2 - sideThickness / 2, wallY, 0], [
+  add([width / 2 - sideThickness / 2, wallY, 0], [
     sideThickness,
     wallHeight,
     depth,
   ]);
-  addBox(positions, indices, [0, wallY, -(depth / 2 - sideThickness / 2)], [
+  add([0, wallY, -(depth / 2 - sideThickness / 2)], [
     width - 2 * sideThickness,
     wallHeight,
     sideThickness,
   ]);
-  addBox(positions, indices, [0, wallY, depth / 2 - sideThickness / 2], [
+  add([0, wallY, depth / 2 - sideThickness / 2], [
     width - 2 * sideThickness,
     wallHeight,
     sideThickness,
   ]);
-  return { kind: 'custom', positions, indices };
+  return flatShading
+    ? { kind: 'custom', positions, indices, normals }
+    : { kind: 'custom', positions, indices };
 }
 
 /** Curved bar handle with two mounting posts. */

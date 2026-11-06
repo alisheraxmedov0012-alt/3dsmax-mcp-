@@ -13,6 +13,7 @@ export {
   type ComponentPlacement,
   type ComponentRole,
   type ComponentType,
+  type ComponentUvMode,
   type ConnectionInput,
   type ConnectionType,
   type DoorParams,

@@ -13,7 +13,8 @@
     "test": "vitest run",
     "test:glb": "node tools/glb-harness/roundtrip.mjs",
     "test:import": "node tools/glb-harness/import.mjs",
-    "test:quality": "node tools/qa/quality-harness.mjs"
+    "test:quality": "node tools/qa/quality-harness.mjs",
+    "product:desk": "node tools/product/build.mjs"
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",

@@ -21,7 +21,14 @@ export function buildDrawer(params: DrawerParams): ComponentBuild {
     );
   }
   return {
-    geometry: drawerRecipe(width, height, depth, sideThickness, bottomThickness),
+    geometry: drawerRecipe(
+      width,
+      height,
+      depth,
+      sideThickness,
+      bottomThickness,
+      params.flatShading === true,
+    ),
     dimensions: { width, height, depth },
     metadata: { sideThickness, bottomThickness },
   };

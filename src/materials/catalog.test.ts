@@ -293,7 +293,11 @@ describe('search and filtering', () => {
   });
 
   it('searches the stable id, which exposes the English family names', () => {
-    expect(ids(searchMaterialCatalog('oak'))).toEqual(['wood-oak']);
+    // The premium product preset shares the oak family keyword.
+    expect(ids(searchMaterialCatalog('oak'))).toEqual([
+      'wood-oak',
+      'wood-oak-premium',
+    ]);
     expect(ids(searchMaterialCatalog('walnut'))).toEqual(['wood-walnut']);
     expect(ids(searchMaterialCatalog('velvet'))).toEqual(['fabric-velvet']);
     expect(ids(searchMaterialCatalog('suede'))).toEqual(['leather-suede']);

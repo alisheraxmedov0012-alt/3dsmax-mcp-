@@ -18,10 +18,10 @@ describe('buildPlan', () => {
       expect(built.group.name).toBe('desk-assembly');
       expect(built.materialSlots).toEqual(['tabletop', 'structure', 'drawer', 'hardware']);
       expect(built.materialNames).toEqual([
-        'desk-tabletop-group-material',
-        'desk-structure-group-material',
-        'desk-drawer-group-material',
-        'desk-hardware-group-material',
+        'Desk_Tabletop_Oak',
+        'Desk_Structure_Steel',
+        'Desk_Drawer_Oak',
+        'Desk_Hardware_Steel',
       ]);
 
       const expected = slotCounts(plan);
@@ -35,9 +35,9 @@ describe('buildPlan', () => {
         'desk-hardware-group': expected.hardware,
       });
       expect(actual['desk-tabletop-group']).toBe(1);
-      expect(actual['desk-structure-group']).toBe(7);
-      expect(actual['desk-drawer-group']).toBe(1);
-      expect(actual['desk-hardware-group']).toBe(7);
+      expect(actual['desk-structure-group']).toBe(11);
+      expect(actual['desk-drawer-group']).toBe(2);
+      expect(actual['desk-hardware-group']).toBe(10);
     } finally {
       built.dispose();
     }
@@ -48,7 +48,7 @@ describe('buildPlan', () => {
     const built = buildPlan(plan);
     built.dispose();
     expect(built.group.children).toHaveLength(0);
-    expect(plan.parts).toHaveLength(16);
+    expect(plan.parts).toHaveLength(24);
   });
 
   it('rejects an unknown definition', () => {

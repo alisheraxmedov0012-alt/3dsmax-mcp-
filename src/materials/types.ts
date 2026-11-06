@@ -46,7 +46,17 @@ export const MATERIAL_TYPE_LABELS: Record<MaterialType, string> = {
 };
 
 /** Procedural surface pattern a material type renders with. */
-export type TextureKind = 'none' | 'wood' | 'brushed' | 'fabric' | 'grain';
+export type TextureKind =
+  | 'none'
+  | 'wood'
+  | 'brushed'
+  | 'fabric'
+  | 'grain'
+  | 'oak'
+  | 'satin-metal';
+
+/** Bitmap size the material pipeline can generate or export. */
+export type TextureSize = 128 | 512 | 1024 | 2048;
 
 /** Which procedural pattern belongs to a material type. */
 export function textureKindFor(type: MaterialType): TextureKind {
@@ -157,6 +167,11 @@ export interface MaterialSettingsInput {
   baseColor?: string;
   /** Emissive tint (hex). Without it an emissive map is rendered white. */
   emissiveColor?: string;
+  /**
+   * Product opt-in for the 2K baked oak/black-satin maps. Off by default so the
+   * catalogue, tests and ordinary furniture keep the 128 px procedural maps.
+   */
+  premiumTextures?: boolean;
 }
 
 /** Fully-resolved material settings — every field present and valid. */

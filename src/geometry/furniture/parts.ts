@@ -117,6 +117,11 @@ export class PartBuilder {
     setSlotMaterialInfo(this.material, { presetId, color, scope: 'slot' });
   }
 
+  /** Overrides the default `<groupName>-material` name for product-facing assets. */
+  setMaterialName(name: string): void {
+    this.material.name = name;
+  }
+
   /** Adds a box part centred at `position` (cm). */
   box(
     partId: string,
@@ -177,10 +182,16 @@ export class PartBuilder {
         );
       }
     }
-    if (uv === 'box' && recipe.kind !== 'box' && recipe.kind !== 'roundedBox') {
+    if (
+      uv === 'box' &&
+      recipe.kind !== 'box' &&
+      recipe.kind !== 'roundedBox' &&
+      recipe.kind !== 'extrude' &&
+      recipe.kind !== 'custom'
+    ) {
       throw new GeometryKernelError(
         'unsupported_recipe',
-        'box UV faqat box yoki roundedBox recipe uchun qo‘llanadi.',
+        'box UV faqat box, roundedBox, extrude yoki custom recipe uchun qo‘llanadi.',
       );
     }
     if (

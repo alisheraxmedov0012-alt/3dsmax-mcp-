@@ -11,6 +11,7 @@ import type {
   ComponentDimensions,
   ComponentRole,
   ComponentType,
+  ComponentUvMode,
 } from '../components';
 import type { FurnitureType } from '../furniture/types';
 import type { GeometryRecipe, Vec3Tuple } from '../kernel';
@@ -43,6 +44,8 @@ export interface FurnitureSlot {
   readonly materialId: MaterialPresetId;
   /** PartBuilder group name; also the prefix of the material name. */
   readonly groupName: string;
+  /** Optional buyer-facing material name; defaults to `${groupName}-material`. */
+  readonly materialName?: string;
 }
 
 export interface PlanLimits {
@@ -79,6 +82,8 @@ export interface PlanPart {
   readonly manufacturing?: ManufacturingMetadata;
   readonly notes?: readonly string[];
   readonly metadata?: Readonly<Record<string, unknown>>;
+  /** Optional UV policy carried over from the component (e.g. `box`). */
+  readonly uv?: ComponentUvMode;
 }
 
 export interface FurniturePlanDraft {

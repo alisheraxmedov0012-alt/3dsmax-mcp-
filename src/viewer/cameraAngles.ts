@@ -97,15 +97,23 @@ export function computeCameraAngleFraming(
   angle: CameraAngleId,
   aspect: number,
   detailBounds?: BoundsBox | null,
+  margin?: number,
 ): Framing {
   const definition = CAMERA_ANGLE_DEFINITIONS[angle];
   if (angle === 'detail') {
     const focus = isValidBounds(detailBounds) ? detailBounds : bounds;
     return computeObjectFramingForDirection(focus, definition.direction, aspect, {
-      margin: isValidBounds(detailBounds) ? DETAIL_MARGIN : DETAIL_FALLBACK_MARGIN,
+      margin:
+        margin ??
+        (isValidBounds(detailBounds) ? DETAIL_MARGIN : DETAIL_FALLBACK_MARGIN),
     });
   }
-  return computeObjectFramingForDirection(bounds, definition.direction, aspect);
+  return computeObjectFramingForDirection(
+    bounds,
+    definition.direction,
+    aspect,
+    margin === undefined ? undefined : { margin },
+  );
 }
 
 export function isCameraAngleId(value: unknown): value is CameraAngleId {

@@ -341,6 +341,8 @@ export interface ObjectMaterial {
   baseColor?: string;
   /** Phase 4.6: emissive tint (hex); an emissive map renders white by default. */
   emissiveColor?: string;
+  /** Phase 8B.2: opt into the product's baked 2K PBR material maps. */
+  premiumTextures?: boolean;
   /**
    * Phase 4.3/4.5: serializable bitmap texture references (no binary data).
    * Every map role is a `TextureAssetRef`; the type is shared with MaterialAsset

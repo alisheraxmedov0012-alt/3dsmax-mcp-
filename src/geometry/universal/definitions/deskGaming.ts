@@ -499,7 +499,7 @@ function baseDeskSpec(spec: GamingDeskSpec): DeskSpec {
 }
 
 function solveGamingDeskPlan(spec: GamingDeskSpec): FurniturePlanDraft {
-  const base = solveDesk(baseDeskSpec(spec));
+  const base = solveDesk(baseDeskSpec(spec), { detail: 'standard' });
   const idMap = new Map<string, string>();
   for (const component of base.components) {
     idMap.set(component.id, `gaming-${component.id}`);

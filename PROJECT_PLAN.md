@@ -169,3 +169,51 @@ Tartib qat'iy; har bir bosqich oldingisiga tayanishi shart.
 - Maqsadli eksport formatlari ro'yxati — 2-bosqichda aniqlashtiriladi.
 - Ko'p foydalanuvchili ish (collaboration) kerak-mi — 4-bosqichda ko'rib chiqiladi.
 - To'lov provayderi tanlovi mintaqaga bog'liq — 7-bosqichda.
+
+## 11. Phase 8B — tijoriy mahsulot yo'nalishi
+
+> Phase 7 hisobotida loyiha "shaxsiy foydalanish" doirasida ekani yozilgan.
+> Bu tarixiy cheklov o'zgartirilmaydi; Phase 8B uning ustiga **tijoriy
+> marketplace mahsulotlari** yo'nalishini qo'shadi. Phase 7 natijalari
+> marketplace'ga tayyorlik dalili emas.
+
+Maqsad: birinchi mahsulot — **Premium Office Desk (160 × 80 × 75 cm)** ni texnik
+prototipdan sotiladigan 3D assetga aylantirish.
+
+### 8B.1 — bajarildi
+
+- `src/products/premiumOfficeDesk.ts`: SKU, slug, listing draft va
+  `desk.computer` scene fixture; `license`/`price`/`author` hali `null`.
+- Desk geometriyasi v2: 24 mesh, 5 144 triangle, 12 422 vertex, 4 material slot;
+  real grommet teshigi; oldga chiqarilgan tortma (2 sm panel, bar handle, 2
+  runner); bevel/roundover va leg mounting plate'lar.
+- `npm run product:desk`: real viewer/exporter orqali GLB + 6 × 1920×1080
+  preview + `product-metrics.json`.
+- Desk GLB: Khronos 0 error / 0 warning; sakkiz mebel turi golden regressiyasi
+  37/37 (Blender checklari NOT VERIFIED).
+- `desk.gaming`, `desk.writing`, `table.dining` `detail: 'standard'` bilan eski
+  geometriyada qoldirildi; ularning golden chiqishi o'zgarmadi.
+
+Batafsil: `docs/PHASE8B_DESK_GEOMETRY.md`.
+
+### 8B.2 — bajarildi
+
+- 2K (2048 × 2048) oak va black-satin PBR to‘plami: BaseColor, Normal,
+  Roughness, Metalness; GLB uchun umumiy ORM (G = roughness, B = metalness).
+- 128 px eksport muammosining sababi topildi: retarget obyekt materiali bilan
+  ishlab, slot presetini yo‘qotgan edi. Endi slot metadata orqali to‘g‘ri preset
+  va 2048 o‘lcham qo‘llanadi.
+- GLB: 6 × 2048² rasm, 18 854 956 bayt, 4 material; Khronos 0 error / 0 warning.
+- Tashqi delivery uchun 16 × 2048² PNG (har material uchun 4 rol).
+- Drawer front physical box UV’ga o‘tkazildi; ko‘rinadigan panellarda 0 degenerate
+  UV; jami 4 696 triangle.
+- 6 ta preview 1920×1080, mahsulot kadrda 39–62% kenglikda; hero va detail ikkala
+  materialni ko‘rsatadi.
+- Golden regressiya 37/0; to‘liq testlar 226 fayl / 3 102 test PASS.
+
+Batafsil: `docs/PHASE8B_PBR_MATERIALS.md`.
+
+### 8B.3 — keyingi bosqich
+
+Blender 4.2.9 source file, binary FBX va glTF+textures delivery; Blender import
+QA; yakuniy studio renderlar; buyer ZIP va litsenziya.

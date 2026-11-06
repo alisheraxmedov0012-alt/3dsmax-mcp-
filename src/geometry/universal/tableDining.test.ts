@@ -237,8 +237,8 @@ describe('table.dining definition', () => {
 
   it('keeps desk.computer and desk.gaming regression intact', () => {
     const computer = createFurniturePlan('desk.computer', DEFAULT_DESK_SPEC);
-    expect(computer.parts).toHaveLength(16);
-    expect(computer.connections).toHaveLength(12);
+    expect(computer.parts).toHaveLength(24);
+    expect(computer.connections).toHaveLength(16);
 
     const gaming = createFurniturePlan('desk.gaming', DEFAULT_GAMING_DESK_SPEC);
     expect(gaming.parts).toHaveLength(21);

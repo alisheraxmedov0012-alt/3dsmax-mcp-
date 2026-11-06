@@ -180,7 +180,9 @@ describe('universal scene object material', () => {
       });
 
       for (const slot of definition.slots) {
-        const material = materials.get(`${slot.groupName}-material`);
+        const material = materials.get(
+          slot.materialName ?? `${slot.groupName}-material`,
+        );
         expect(material).toBeDefined();
         expect(material?.metalness).toBeCloseTo(0.4, 6);
         expect(material?.roughness).toBeCloseTo(0.25, 6);
@@ -189,7 +191,7 @@ describe('universal scene object material', () => {
 
       // The tabletop slot is wood-oak: its procedural map must survive, which it
       // would not if an explicit `materialId: undefined` overwrote the preset.
-      expect(materials.get('desk-tabletop-group-material')?.map).not.toBeNull();
+      expect(materials.get('Desk_Tabletop_Oak')?.map).not.toBeNull();
     } finally {
       built.dispose();
     }

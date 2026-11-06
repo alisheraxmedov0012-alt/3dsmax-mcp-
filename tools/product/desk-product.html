@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Premium Office Desk — product artifact harness</title>
+    <style>
+      html, body { margin: 0; background: #101014; color: #cfe; font: 13px/1.5 monospace; }
+      #viewer { width: 1920px; height: 1080px; overflow: hidden; }
+      #out { position: fixed; left: 8px; top: 8px; color: #9f9; white-space: pre-wrap;
+             background: #000a; padding: 6px; max-width: 60ch; }
+    </style>
+  </head>
+  <body>
+    <div id="viewer"></div>
+    <pre id="out">starting…</pre>
+    <script type="module">
+      // Builds the shipped Premium Desk product fixture through the real scene,
+      // viewer, exporter and preview-capture paths. The page is the browser half
+      // of `npm run product:desk`; it never fabricates a render or a metric.
+      const out = document.getElementById('out');
+      const lines = [];
+      const note = (line) => {
+        lines.push(line);
+        out.textContent = lines.join('\n');
+        console.log(line);
+      };
+
+      async function postBinary(path, bytes) {
+        const response = await fetch(path, {
+          method: 'POST',
+          headers: { 'content-type': 'application/octet-stream' },
+          body: bytes,
+        });
+        if (!response.ok) throw new Error(`POST ${path} -> ${response.status}`);
+      }
+
+      async function postJson(path, value) {
+        const response = await fetch(path, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(value),
+        });
+        if (!response.ok) throw new Error(`POST ${path} -> ${response.status}`);
+      }
+
+      async function previewStats(bytes) {
+        if (typeof createImageBitmap !== 'function' || typeof OffscreenCanvas !== 'function') {
+          return {
+            width: null,
+            height: null,
+            nonBackgroundRatio: null,
+            contentBounds: null,
+          };
+        }
+        const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+        const width = bitmap.width;
+        const height = bitmap.height;
+        const canvas = new OffscreenCanvas(width, height);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          bitmap.close();
+          return { width, height, nonBackgroundRatio: null, contentBounds: null };
+        }
+        ctx.drawImage(bitmap, 0, 0);
+        const data = ctx.getImageData(0, 0, width, height).data;
+        let sampled = 0;
+        let nonBackground = 0;
+        let minX = width;
+        let minY = height;
+        let maxX = -1;
+        let maxY = -1;
+        for (let index = 0; index < data.length; index += 4 * 16) {
+          sampled += 1;
+          const pixel = index / 4;
+          const x = pixel % width;
+          const y = Math.floor(pixel / width);
+          const dr = Math.abs(data[index] - 244);
+          const dg = Math.abs(data[index + 1] - 244);
+          const db = Math.abs(data[index + 2] - 246);
+          if (dr > 12 || dg > 12 || db > 12) {
+            nonBackground += 1;
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+        }
+        bitmap.close();
+        const hasContent = maxX >= minX && maxY >= minY;
+        const left = hasContent ? minX / width : null;
+        const top = hasContent ? minY / height : null;
+        const right = hasContent ? (maxX + 1) / width : null;
+        const bottom = hasContent ? (maxY + 1) / height : null;
+        return {
+          width,
+          height,
+          nonBackgroundRatio: sampled === 0 ? 0 : nonBackground / sampled,
+          contentBounds:
+            left === null || top === null || right === null || bottom === null
+              ? null
+              : {
+                  left,
+                  top,
+                  right,
+                  bottom,
+                  widthFraction: right - left,
+                  heightFraction: bottom - top,
+                },
+        };
+      }
+
+      async function main() {
+        const startedAt = Date.now();
+        let viewer = null;
+        let built = null;
+        try {
+          const THREE = await import('three');
+          const { PREMIUM_DESK_PRODUCT } = await import('@repo/src/products/premiumOfficeDesk.ts');
+          const { buildSceneObject } = await import('@repo/src/scene/buildSceneObject.ts');
+          const { SceneViewer } = await import('@repo/src/viewer/SceneViewer.ts');
+          const { exportSceneToGlb } = await import('@repo/src/export/sceneExport.ts');
+          const { summarizeGlb } = await import('@repo/src/export/glbSummary.ts');
+          const { sha256Hex } = await import('@repo/src/util/sha256.ts');
+
+          const scene = PREMIUM_DESK_PRODUCT.scene;
+          const objectId = PREMIUM_DESK_PRODUCT.objectId;
+          const object = scene.objects.find((entry) => entry.id === objectId);
+          if (!object) throw new Error(`product object ${objectId} is missing`);
+
+          // 1. Independent build for exact per-part metrics and texture sources.
+          built = buildSceneObject(object);
+          const parts = [];
+          let triangles = 0;
+          let vertices = 0;
+          let meshes = 0;
+          built.group.updateMatrixWorld(true);
+          built.group.traverse((node) => {
+            if (!node.isMesh) return;
+            const geometry = node.geometry;
+            const index = geometry.getIndex();
+            const position = geometry.getAttribute('position');
+            const tris = (index ? index.count : position.count) / 3;
+            const bounds = new THREE.Box3().setFromObject(node);
+            meshes += 1;
+            triangles += tris;
+            vertices += position.count;
+            parts.push({
+              name: node.name,
+              triangles: tris,
+              vertices: position.count,
+              bounds: { min: bounds.min.toArray(), max: bounds.max.toArray() },
+              material: Array.isArray(node.material) ? null : node.material.name,
+            });
+          });
+          const bounds = new THREE.Box3().setFromObject(built.group);
+          const size = bounds.getSize(new THREE.Vector3());
+
+          // 2. GLB through the shipped exporter, product only, no room.
+          const glb = await exportSceneToGlb(scene, {
+            onlyObjectId: objectId,
+            includeRoom: false,
+            textureSize: 2048,
+            indexNonIndexedTangents: true,
+          });
+          const summary = summarizeGlb(glb);
+          if (!summary.ok) throw new Error(`GLB summary failed: ${summary.reason}`);
+          await postBinary('/artefakt/product-glb', glb);
+          note(`glb=${glb.byteLength} bytes`);
+
+          // 3. Six canonical previews through the real viewer. The metrics build
+          // stays alive so the 2K texture cache is shared instead of regenerated.
+          const host = document.getElementById('viewer');
+          viewer = new SceneViewer(host);
+          viewer.setScene(scene, objectId);
+          await new Promise((resolve) => setTimeout(resolve, 1200));
+          const previews = await viewer.captureProductPreviews(1920, 1080, {
+            // A deliberate close-up of the cable grommet and the oak surface:
+            // the detail shot must show wood and the metal ring, not the whole
+            // desk again.
+            detailBounds: {
+              min: { x: -14, y: 64, z: -40 },
+              max: { x: 14, y: 75, z: -22 },
+            },
+            margin: 1.1,
+          });
+
+          const previewMetrics = [];
+          for (const preview of previews) {
+            const stats = await previewStats(preview.bytes);
+            const digest = sha256Hex(preview.bytes);
+            await postBinary(`/artefakt/product-preview-${preview.id}`, preview.bytes);
+            previewMetrics.push({
+              id: preview.id,
+              filename: preview.filename,
+              bytes: preview.bytes.byteLength,
+              sha256: digest,
+              ...stats,
+            });
+            note(`preview ${preview.id}=${preview.bytes.byteLength} bytes`);
+          }
+
+          const metrics = {
+            ok: true,
+            sku: PREMIUM_DESK_PRODUCT.sku,
+            slug: PREMIUM_DESK_PRODUCT.slug,
+            generatedAt: new Date().toISOString(),
+            durationMs: Date.now() - startedAt,
+            scene: {
+              objects: scene.objects.length,
+              objectId,
+              definitionId: object.definitionId,
+              name: object.name,
+            },
+            geometry: {
+              meshes,
+              triangles,
+              vertices,
+              bounds: { min: bounds.min.toArray(), max: bounds.max.toArray(), size: size.toArray() },
+              parts,
+            },
+            glb: {
+              bytes: glb.byteLength,
+              sha256: sha256Hex(new Uint8Array(glb)),
+              summary: summary.summary,
+            },
+            previews: previewMetrics,
+            limitations: [
+              'PBR maps are deterministic 2K procedural oak/black-satin sets, not authored photographs.',
+              'External PNGs are extracted from the final GLB by the runner, so they match the delivered bytes.',
+              'Blender import and FBX are not part of this harness.',
+              'Preview PNGs prove the capture path, not a professional visual review.',
+            ],
+          };
+          viewer.dispose();
+          viewer = null;
+          await postJson('/artefakt/product-metrics', metrics);
+          note(
+            `PRODUCT_OK meshes=${meshes} triangles=${triangles} vertices=${vertices} glb=${glb.byteLength}`,
+          );
+        } catch (error) {
+          const detail = error instanceof Error ? `${error.message}\n${error.stack ?? ''}` : String(error);
+          note(`PRODUCT_ERROR ${detail}`);
+        } finally {
+          viewer?.dispose();
+          built?.dispose();
+        }
+      }
+
+      main();
+    </script>
+  </body>
+</html>

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -23,7 +24,19 @@ ROUTES = {
     "/artefakt/visual": "visual-stats.json",
     "/artefakt/quality": "quality-stats.json",
     "/artefakt/model-with-room.glb": "model-with-room.glb",
+    # Premium Desk product harness (tools/product/desk-product.html).
+    "/artefakt/product-glb": "premium-office-desk.glb",
+    "/artefakt/product-metrics": "product-metrics.json",
+    "/artefakt/product-preview-hero": "preview-hero.png",
+    "/artefakt/product-preview-front": "preview-front.png",
+    "/artefakt/product-preview-side": "preview-side.png",
+    "/artefakt/product-preview-back": "preview-back.png",
+    "/artefakt/product-preview-top": "preview-top.png",
+    "/artefakt/product-preview-detail": "preview-detail.png",
 }
+
+PRODUCT_TEXTURE_PREFIX = "/artefakt/product-texture/"
+PRODUCT_TEXTURE_NAME = re.compile(r"^[A-Za-z0-9_.-]+\.png$")
 
 
 def make_handler(out_dir: Path) -> type[BaseHTTPRequestHandler]:
@@ -33,6 +46,10 @@ def make_handler(out_dir: Path) -> type[BaseHTTPRequestHandler]:
         def do_POST(self) -> None:  # noqa: N802 (BaseHTTPRequestHandler's name)
             route = self.path.split("?")[0]
             filename = ROUTES.get(route)
+            if filename is None and route.startswith(PRODUCT_TEXTURE_PREFIX):
+                name = route[len(PRODUCT_TEXTURE_PREFIX) :]
+                if PRODUCT_TEXTURE_NAME.fullmatch(name):
+                    filename = f"textures/{name}"
             length = int(self.headers.get("content-length", "0"))
             body = self.rfile.read(length) if length else b""
 
@@ -41,6 +58,7 @@ def make_handler(out_dir: Path) -> type[BaseHTTPRequestHandler]:
                 return
 
             target = out_dir / filename
+            target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(body)
             sys.stderr.write(f"wrote {target} ({len(body)} bytes)\n")
             sys.stderr.flush()

@@ -114,11 +114,15 @@ export interface CapturePngOptions {
   transparent?: boolean;
   /** Probe-only: hide the contact shadow plane that would tint corner pixels. */
   hideShadowCatcher?: boolean;
+  /** Product framing margin; omitted keeps the renderer's default (1.25). */
+  cameraMargin?: number;
 }
 
 export interface CaptureProductPreviewsOptions {
   /** Optional selected part bounds for the detail shot. */
   detailBounds?: BoundsBox | null;
+  /** Tighter framing for a sales gallery; omitted keeps the default margin. */
+  margin?: number;
 }
 
 interface ObjectEntry {
@@ -172,6 +176,7 @@ export class SceneViewer {
   private captureDepth = 0;
   private outputPass: OutputPass | null = null;
   private contextLost = false;
+  private disposed = false;
   private readonly onContextLost?: () => void;
   private readonly onContextRestored?: () => void;
 
@@ -1012,6 +1017,7 @@ export class SceneViewer {
             options.cameraAngle,
             aspect,
             options.detailBounds,
+            options.cameraMargin,
           );
           this.setOrbitDistanceLimits(
             computeOrbitDistanceLimits(framing.distance, framing.radius),
@@ -1208,6 +1214,7 @@ export class SceneViewer {
         const blob = await this.capturePng(width, height, {
           cameraAngle: view.cameraAngle,
           detailBounds: options.detailBounds,
+          cameraMargin: options.margin,
         });
         const bytes = new Uint8Array(await blob.arrayBuffer());
         if (bytes.length === 0) {
@@ -1344,6 +1351,7 @@ export class SceneViewer {
 
   private start(): void {
     const loop = () => {
+      if (this.disposed) return;
       this.frameId = requestAnimationFrame(loop);
       this.controls.update();
       if (!this.renderPaused && !this.contextLost) {
@@ -1375,6 +1383,7 @@ export class SceneViewer {
   }
 
   dispose(): void {
+    this.disposed = true;
     if (this.frameId !== null) {
       cancelAnimationFrame(this.frameId);
       this.frameId = null;

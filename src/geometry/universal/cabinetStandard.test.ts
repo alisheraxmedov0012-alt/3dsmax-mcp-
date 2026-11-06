@@ -411,7 +411,7 @@ describe('cabinet.standard definition', () => {
   });
 
   it('keeps the previous definitions intact', () => {
-    expect(createFurniturePlan('desk.computer', DEFAULT_DESK_SPEC).parts).toHaveLength(16);
+    expect(createFurniturePlan('desk.computer', DEFAULT_DESK_SPEC).parts).toHaveLength(24);
     expect(createFurniturePlan('desk.gaming', DEFAULT_GAMING_DESK_SPEC).parts).toHaveLength(21);
     expect(createFurniturePlan('table.dining', DEFAULT_DINING_TABLE_SPEC).parts).toHaveLength(14);
     expect(createFurniturePlan('desk.writing', DEFAULT_WRITING_DESK_SPEC).parts).toHaveLength(17);

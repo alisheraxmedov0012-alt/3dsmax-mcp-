@@ -61,6 +61,7 @@ export function buildPlan(
         ...options.materialOverrides?.[slot.id],
       });
       builder.setSlotBase(slot.materialId, slot.color);
+      builder.setMaterialName(slot.materialName ?? `${slot.groupName}-material`);
       builders.set(slot.id, builder);
     }
 
@@ -74,7 +75,7 @@ export function buildPlan(
         part.rotation[2] * DEG_TO_RAD,
       ],
       {
-        uv: 'auto',
+        uv: part.uv ?? 'auto',
         uvOrientation: uvOrientationForPart(part.type),
       },
     );
@@ -95,7 +96,9 @@ export function buildPlan(
     group,
     plan,
     materialSlots: usedSlots.map((slot) => slot.id),
-    materialNames: usedSlots.map((slot) => `${slot.groupName}-material`),
+    materialNames: usedSlots.map(
+      (slot) => slot.materialName ?? `${slot.groupName}-material`,
+    ),
     dispose: () => {
       for (const builder of builders.values()) {
         builder.dispose();

@@ -42,7 +42,7 @@ const EXPECTED_MANUFACTURING: Record<string, { total: number; cutFromSheet: numb
   'chair.dining': { total: 8, cutFromSheet: 0 },
   'chair.ergonomic': { total: 15, cutFromSheet: 0 },
   'chair.office': { total: 12, cutFromSheet: 0 },
-  'desk.computer': { total: 6, cutFromSheet: 0 },
+  'desk.computer': { total: 0, cutFromSheet: 0 },
   'desk.gaming': { total: 10, cutFromSheet: 1 },
   'desk.writing': { total: 7, cutFromSheet: 1 },
   'kitchen.baseCabinet': { total: 10, cutFromSheet: 10 },

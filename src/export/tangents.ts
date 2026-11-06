@@ -219,8 +219,20 @@ export function validateTangentAttribute(
   };
 }
 
+export interface TangentGeometryOptions {
+  /**
+   * Give a non-indexed geometry a sequential index before computing tangents.
+   * Opt-in: it changes the stored attribute layout, so only product exports that
+   * need one material variant per slot enable it.
+   */
+  readonly indexNonIndexed?: boolean;
+}
+
 /** Add a valid four-component TANGENT attribute to one geometry when possible. */
-export function addTangentsToGeometry(geometry: THREE.BufferGeometry): TangentResult {
+export function addTangentsToGeometry(
+  geometry: THREE.BufferGeometry,
+  options: TangentGeometryOptions = {},
+): TangentResult {
   const position = geometry.getAttribute('position');
   const normal = geometry.getAttribute('normal');
   const uv = geometry.getAttribute('uv');
@@ -237,8 +249,15 @@ export function addTangentsToGeometry(geometry: THREE.BufferGeometry): TangentRe
     return { applied: false, sanitizedVertices: 0, reason: 'already-present' };
   }
   if (!geometry.getIndex()) {
-    // Three's implementation needs an index to average shared vertices.
-    return { applied: false, sanitizedVertices: 0, reason: 'non-indexed' };
+    if (options.indexNonIndexed !== true) {
+      // Three's implementation needs an index to average shared vertices.
+      return { applied: false, sanitizedVertices: 0, reason: 'non-indexed' };
+    }
+    const indices = new Uint32Array(position.count);
+    for (let index = 0; index < position.count; index += 1) {
+      indices[index] = index;
+    }
+    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   }
 
   geometry.computeTangents();
@@ -259,6 +278,7 @@ export function addTangentsToGeometry(geometry: THREE.BufferGeometry): TangentRe
  */
 export function ensureTangentsForNormalMappedMeshes(
   root: THREE.Object3D,
+  options: TangentGeometryOptions = {},
 ): TangentGenerationReport {
   const report: TangentGenerationReport = {
     meshesUsingNormalMap: 0,
@@ -281,7 +301,7 @@ export function ensureTangentsForNormalMappedMeshes(
     }
 
     report.meshesUsingNormalMap += 1;
-    const result = addTangentsToGeometry(mesh.geometry);
+    const result = addTangentsToGeometry(mesh.geometry, options);
     if (result.applied) {
       report.tangentsGenerated += 1;
       report.sanitizedVertices += result.sanitizedVertices;

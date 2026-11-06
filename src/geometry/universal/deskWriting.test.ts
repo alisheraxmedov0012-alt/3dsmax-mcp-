@@ -273,8 +273,8 @@ describe('desk.writing definition', () => {
 
   it('keeps the previous three definitions intact', () => {
     const computer = createFurniturePlan('desk.computer', DEFAULT_DESK_SPEC);
-    expect(computer.parts).toHaveLength(16);
-    expect(computer.connections).toHaveLength(12);
+    expect(computer.parts).toHaveLength(24);
+    expect(computer.connections).toHaveLength(16);
 
     const gaming = createFurniturePlan('desk.gaming', DEFAULT_GAMING_DESK_SPEC);
     expect(gaming.parts).toHaveLength(21);

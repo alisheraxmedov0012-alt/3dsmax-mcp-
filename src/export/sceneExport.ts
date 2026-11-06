@@ -19,10 +19,12 @@ import {
 import { buildSceneObject } from '../scene/buildSceneObject';
 import { isImportedSceneObject, type SceneData, type SceneObject } from '../scene/types';
 import { importedModelStore } from '../import/importedModelStore';
+import { getSlotMaterialInfo } from '../materials/materialRuntimeMetadata';
 import { assertFiniteGeometry } from './geometryGuard';
 import { ExportError } from './exportTypes';
 import { ensureTangentsForNormalMappedMeshes } from './tangents';
 import type { QualityProfile } from './quality/types';
+import type { TextureSize } from '../materials/types';
 
 export const SCENE_EXPORT_FILENAME = '3d-studio-ai-scene.glb';
 
@@ -43,7 +45,7 @@ export interface BuildExportOptions {
    * interactive preview also uses; 512 is an explicit opt-in. This is never
    * persisted in scene data and the viewer never reads it.
    */
-  textureSize?: 128 | 512;
+  textureSize?: TextureSize;
   /**
    * Restrict the export to one scene object by id.
    *
@@ -65,6 +67,13 @@ export interface BuildExportOptions {
    * Throwing here aborts the export without writing a file.
    */
   onPreflightScene?: (scene: THREE.Scene) => void;
+  /**
+   * Product-only: index non-indexed meshes before tangent generation so every
+   * normal-mapped mesh in a slot carries TANGENT. This keeps one glTF material
+   * per slot instead of the exporter's tangent/no-tangent split. Off by default
+   * because it changes the attribute layout of existing exports.
+   */
+  indexNonIndexedTangents?: boolean;
 }
 
 /**
@@ -79,7 +88,7 @@ export interface BuildExportOptions {
 function retargetExportTextures(
   root: THREE.Object3D,
   object: SceneObject,
-  textureSize: 128 | 512,
+  textureSize: TextureSize,
 ): Array<() => void> {
   const seen = new Set<THREE.Material>();
   const disposers: Array<() => void> = [];
@@ -98,7 +107,16 @@ function retargetExportTextures(
       if (!(material instanceof THREE.MeshStandardMaterial)) {
         continue;
       }
-      const dispose = applyTextureResolution(material, object.material, textureSize);
+      // Universal slots carry their own preset (oak vs steel). Passing only the
+      // object-level material resolves the neutral preset, which has no
+      // procedural maps — the original reason a requested 512/2048 export kept
+      // the 128 px viewer maps.
+      const slot = getSlotMaterialInfo(material);
+      const settings =
+        slot?.scope === 'slot'
+          ? { ...object.material, materialId: slot.presetId }
+          : object.material;
+      const dispose = applyTextureResolution(material, settings, textureSize);
       if (dispose) {
         disposers.push(dispose);
       }
@@ -120,10 +138,16 @@ function retargetExportTextures(
  */
 export function buildExportScene(data: SceneData, options: BuildExportOptions = {}): ExportScene {
   const requested = options.textureSize as unknown;
-  if (requested !== undefined && requested !== 128 && requested !== 512) {
+  if (
+    requested !== undefined &&
+    requested !== 128 &&
+    requested !== 512 &&
+    requested !== 1024 &&
+    requested !== 2048
+  ) {
     throw new ExportError(
       'failed',
-      "Tekstura o'lchami faqat 128 yoki 512 bo'lishi mumkin.",
+      "Tekstura o'lchami 128, 512, 1024 yoki 2048 bo'lishi mumkin.",
     );
   }
 
@@ -371,10 +395,12 @@ function addMetreScaleRoot(scene: THREE.Scene): void {
  * Shared preparation for both glTF writers: reject unsafe geometry, add
  * tangents only where a normal map needs them, then apply the metre root.
  */
-function prepareGltfScene(scene: THREE.Scene): void {
+function prepareGltfScene(scene: THREE.Scene, options: BuildExportOptions = {}): void {
   assertFiniteGeometry(scene);
   assertExportableScene(scene);
-  ensureTangentsForNormalMappedMeshes(scene);
+  ensureTangentsForNormalMappedMeshes(scene, {
+    indexNonIndexed: options.indexNonIndexedTangents === true,
+  });
   addMetreScaleRoot(scene);
 }
 
@@ -398,8 +424,11 @@ export async function exportGroupToGlb(root: THREE.Object3D): Promise<ArrayBuffe
   }
 }
 
-async function exportRootToGlb(scene: THREE.Scene): Promise<ArrayBuffer> {
-  prepareGltfScene(scene);
+async function exportRootToGlb(
+  scene: THREE.Scene,
+  options: BuildExportOptions = {},
+): Promise<ArrayBuffer> {
+  prepareGltfScene(scene, options);
   const GltfExporter = await loadGltfExporter();
   const exporter = new GltfExporter();
 
@@ -562,7 +591,7 @@ export async function exportSceneToGlb(
   const { scene, dispose } = await buildTexturedExportScene(data, options);
   try {
     options.onPreflightScene?.(scene);
-    return await exportRootToGlb(scene);
+    return await exportRootToGlb(scene, options);
   } finally {
     dispose();
   }
@@ -576,8 +605,11 @@ export async function exportSceneToGlb(
  * is still self-contained. Some DCC importers and inspection tools are happier
  * with readable JSON, and a buyer can diff it.
  */
-async function exportRootToGltf(scene: THREE.Scene): Promise<string> {
-  prepareGltfScene(scene);
+async function exportRootToGltf(
+  scene: THREE.Scene,
+  options: BuildExportOptions = {},
+): Promise<string> {
+  prepareGltfScene(scene, options);
   const GltfExporter = await loadGltfExporter();
 
   let parsed: ArrayBuffer | Record<string, unknown>;
@@ -607,7 +639,7 @@ export async function exportSceneToGltf(
   const { scene, dispose } = await buildTexturedExportScene(data, options);
   try {
     options.onPreflightScene?.(scene);
-    return await exportRootToGltf(scene);
+    return await exportRootToGltf(scene, options);
   } finally {
     dispose();
   }

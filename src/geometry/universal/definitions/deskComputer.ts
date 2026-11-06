@@ -89,29 +89,33 @@ const SLOTS: readonly FurnitureSlot[] = [
     id: 'tabletop',
     label: 'Stol usti',
     color: '#a9744f',
-    materialId: 'wood-oak',
+    materialId: 'wood-oak-premium',
     groupName: 'desk-tabletop-group',
+    materialName: 'Desk_Tabletop_Oak',
   },
   {
     id: 'structure',
     label: 'Karkas',
     color: '#3f4650',
-    materialId: 'metal-steel',
+    materialId: 'metal-satin-black',
     groupName: 'desk-structure-group',
+    materialName: 'Desk_Structure_Steel',
   },
   {
     id: 'drawer',
     label: 'Tortma',
     color: '#8b5a2b',
-    materialId: 'wood-oak',
+    materialId: 'wood-oak-premium',
     groupName: 'desk-drawer-group',
+    materialName: 'Desk_Drawer_Oak',
   },
   {
     id: 'hardware',
     label: 'Furnitura',
     color: '#9aa3ad',
-    materialId: 'metal-steel',
+    materialId: 'metal-satin-black',
     groupName: 'desk-hardware-group',
+    materialName: 'Desk_Hardware_Steel',
   },
 ];
 
@@ -228,6 +232,7 @@ function toPlanPart(component: ComponentPart): PlanPart {
       componentSlot: component.materialSlot,
       componentVersion: component.componentVersion,
     },
+    ...(component.uv === undefined ? {} : { uv: component.uv }),
     ...(manufacturing ? { manufacturing } : { notes: [NO_MANUFACTURING_NOTE] }),
   };
 }

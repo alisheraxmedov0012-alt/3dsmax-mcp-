@@ -106,22 +106,26 @@ describe('DeskSpec V1 — defaults and validation', () => {
 describe('DeskSpec solver — default plan', () => {
   const plan = solveDesk(DEFAULT_DESK_SPEC);
 
-  it('builds a deterministic 16-component plan', () => {
-    expect(plan.components).toHaveLength(16);
-    expect(plan.componentIds).toHaveLength(16);
-    expect(new Set(plan.componentIds).size).toBe(16);
-    expect(plan.connections).toHaveLength(12);
+  it('builds a deterministic 24-component plan', () => {
+    expect(plan.components).toHaveLength(24);
+    expect(plan.componentIds).toHaveLength(24);
+    expect(new Set(plan.componentIds).size).toBe(24);
+    expect(plan.connections).toHaveLength(16);
     expect(plan.warnings).toEqual([]);
     expect(solveDesk(DEFAULT_DESK_SPEC)).toEqual(plan);
   });
 
-  it('places the tabletop as a horizontal panel', () => {
+  it('places the tabletop as a horizontal beveled plate with a grommet hole', () => {
     const tabletop = component(plan, 'desk-tabletop');
     expect(tabletop.type).toBe('shelf');
     expect(tabletop.role).toBe('panel');
     expect(tabletop.materialSlot).toBe('surface');
     expect(tabletop.dimensions).toEqual({ width: 160, height: 3, depth: 80 });
-    expect(tabletop.position).toEqual([0, 73.5, 0]);
+    expect(tabletop.position).toEqual([0, 74.75, 0]);
+    expect(tabletop.rotation).toEqual([90, 0, 0]);
+    expect(tabletop.geometry.kind).toBe('extrude');
+    expect(tabletop.uv).toBe('box');
+    expect(tabletop.metadata.hole).toEqual({ x: 0, z: -31, radius: 4 });
   });
 
   it('places four legs inset from every tabletop edge', () => {
@@ -142,7 +146,7 @@ describe('DeskSpec solver — default plan', () => {
     const frame = component(plan, 'desk-frame');
     expect(frame.type).toBe('frame');
     expect(frame.dimensions).toEqual({ width: 150, height: 70, depth: 6 });
-    expect(frame.position).toEqual([0, 72, 0]);
+    expect(frame.position).toEqual([0, 71.85, 0]);
     expect(frame.rotation).toEqual([90, 0, 0]);
     expect(frame.geometry.kind).toBe('extrude');
   });
@@ -157,19 +161,39 @@ describe('DeskSpec solver — default plan', () => {
     expect(supports[0].dimensions).toEqual({ width: 134, height: 2, depth: 3 });
   });
 
-  it('places the drawer on the right under the tabletop', () => {
+  it('places a forward-facing drawer assembly on the right', () => {
     const drawer = component(plan, 'desk-drawer');
     expect(drawer.type).toBe('drawer');
-    expect(drawer.dimensions).toEqual({ width: 45, height: 20, depth: 50 });
-    expect(drawer.position).toEqual([49.5, 62, 0]);
+    expect(drawer.dimensions).toEqual({ width: 45, height: 20, depth: 48 });
+    expect(drawer.position).toEqual([47, 55.7, 8]);
     expect(drawer.metadata.sideThickness).toBe(1.5);
+
+    const front = component(plan, 'desk-drawer-front');
+    expect(front.type).toBe('panel');
+    expect(front.dimensions).toEqual({ width: 45, height: 20, depth: 2 });
+    // ExtrudeGeometry's origin is offset by the bevel; the finished panel is
+    // still centred on z = 33 cm (32..34 cm).
+    expect(front.position).toEqual([47, 55.7, 32.2]);
+
+    const handle = component(plan, 'desk-drawer-handle');
+    expect(handle.type).toBe('handle');
+    expect(handle.position).toEqual([47, 55.7, 35.5]);
+    expect(handle.rotation).toEqual([-90, 0, 0]);
+
+    const runners = plan.components.filter((part) =>
+      part.id.startsWith('desk-drawer-runner-'),
+    );
+    expect(runners).toHaveLength(2);
+    expect(runners.map((runner) => runner.position[0])).toEqual([28.5, 65.5]);
   });
 
-  it('places the grommet near the back edge of the tabletop', () => {
+  it('places the grommet inside the tabletop hole', () => {
     const grommet = component(plan, 'desk-grommet');
     expect(grommet.type).toBe('grommet');
     expect(grommet.position).toEqual([0, 73.5, -31]);
-    expect(grommet.dimensions).toEqual({ width: 8, height: 3, depth: 8 });
+    expect(grommet.dimensions.width).toBeCloseTo(7.92, 6);
+    expect(grommet.dimensions.height).toBe(3);
+    expect(grommet.dimensions.depth).toBeCloseTo(7.92, 6);
   });
 });
 
@@ -194,7 +218,7 @@ describe('DeskSpec solver — connections and hardware', () => {
     expect(plan.connections.filter((item) => item.type === 'bolt')).toHaveLength(4);
     expect(plan.connections.filter((item) => item.type === 'leg-to-frame')).toHaveLength(4);
     expect(plan.connections.filter((item) => item.type === 'screw')).toHaveLength(2);
-    expect(plan.connections.filter((item) => item.type === 'fixed')).toHaveLength(2);
+    expect(plan.connections.filter((item) => item.type === 'fixed')).toHaveLength(6);
   });
 
   it('removes drawer component and connection when disabled', () => {
@@ -202,7 +226,7 @@ describe('DeskSpec solver — connections and hardware', () => {
     const withoutDrawer = solveDesk(spec);
     expect(withoutDrawer.componentIds).not.toContain('desk-drawer');
     expect(withoutDrawer.connections.map((item) => item.id)).not.toContain('desk-drawer-frame');
-    expect(withoutDrawer.components).toHaveLength(15);
+    expect(withoutDrawer.components).toHaveLength(19);
     expect(withoutDrawer.connections).toHaveLength(11);
   });
 
@@ -211,8 +235,8 @@ describe('DeskSpec solver — connections and hardware', () => {
     const withoutGrommet = solveDesk(spec);
     expect(withoutGrommet.componentIds).not.toContain('desk-grommet');
     expect(withoutGrommet.connections.map((item) => item.id)).not.toContain('desk-grommet-top');
-    expect(withoutGrommet.components).toHaveLength(15);
-    expect(withoutGrommet.connections).toHaveLength(11);
+    expect(withoutGrommet.components).toHaveLength(23);
+    expect(withoutGrommet.connections).toHaveLength(15);
   });
 });
 
@@ -234,8 +258,8 @@ describe('DeskSpec solver — parametric changes and determinism', () => {
   it('recomputes leg height and tabletop height when height changes', () => {
     const plan = solveDesk(createDeskSpec({ height: 90 }));
     expect(component(plan, 'desk-leg-nw').dimensions.height).toBe(87);
-    expect(component(plan, 'desk-tabletop').position[1]).toBe(88.5);
-    expect(component(plan, 'desk-frame').position[1]).toBe(87);
+    expect(component(plan, 'desk-tabletop').position[1]).toBe(89.75);
+    expect(component(plan, 'desk-frame').position[1]).toBe(86.85);
   });
 
   it('recomputes leg coordinates when legInset changes', () => {

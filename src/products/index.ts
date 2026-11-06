@@ -1,0 +1,15 @@
+export {
+  PREMIUM_DESK_DEFINITION_ID,
+  PREMIUM_DESK_DESCRIPTION,
+  PREMIUM_DESK_OBJECT_ID,
+  PREMIUM_DESK_OBJECT_NAME,
+  PREMIUM_DESK_PRODUCT,
+  PREMIUM_DESK_SKU,
+  PREMIUM_DESK_SLUG,
+  PREMIUM_DESK_TAGS,
+  PREMIUM_DESK_TITLE,
+  createPremiumDeskScene,
+  createProductSettings,
+  type ProductDefinition,
+  type ProductListingDraft,
+} from './premiumOfficeDesk';

@@ -19,7 +19,7 @@ import {
   type ProceduralTextures,
   type TextureKind,
 } from './textures';
-import type { MaterialSettingsInput } from './types';
+import type { MaterialSettingsInput, TextureSize } from './types';
 
 export interface BuiltMaterial {
   material: THREE.MeshStandardMaterial;
@@ -28,8 +28,11 @@ export interface BuiltMaterial {
 
 /** Export-only knobs; interactive previews never pass these. */
 export interface PbrMaterialBuildOptions {
-  /** Bitmap size for the procedural maps. Omitted keeps the 128 px default. */
-  textureSize?: 128 | 512;
+  /**
+   * Bitmap size for procedural maps. Premium presets pin their own size
+   * (2048), so this remains a request for standard presets.
+   */
+  textureSize?: TextureSize;
 }
 
 /** Runtime-only procedural texture ownership; kept off userData for GLB purity. */
@@ -109,24 +112,41 @@ function attachProceduralState(
   return state;
 }
 
+interface MaterialDescriptor {
+  settings: ReturnType<typeof resolvePresetSettings>;
+  preset: ReturnType<typeof getMaterialPreset>;
+  premium: boolean;
+  kind: TextureKind;
+  size: TextureSize;
+}
+
+function resolveMaterialDescriptor(
+  input: MaterialSettingsInput | null | undefined,
+  options: PbrMaterialBuildOptions,
+): MaterialDescriptor {
+  const settings = resolvePresetSettings(input);
+  const preset = getMaterialPreset(settings.materialId);
+  const premium = input?.premiumTextures === true;
+  const kind = premium
+    ? (preset.textureKind ?? textureKindFor(preset.type))
+    : textureKindFor(preset.type);
+  const size = premium
+    ? (preset.textureSize ?? options.textureSize ?? DEFAULT_TEXTURE_SIZE)
+    : (options.textureSize ?? DEFAULT_TEXTURE_SIZE);
+  return { settings, preset, premium, kind, size };
+}
+
 function resolveMaterialTextures(
   input: MaterialSettingsInput | null | undefined,
   options: PbrMaterialBuildOptions,
-): {
-  settings: ReturnType<typeof resolvePresetSettings>;
-  kind: TextureKind;
-  textures: ProceduralTextures | null;
-} {
-  const settings = resolvePresetSettings(input);
-  const preset = getMaterialPreset(settings.materialId);
-  const kind = textureKindFor(preset.type);
+): MaterialDescriptor & { textures: ProceduralTextures | null } {
+  const descriptor = resolveMaterialDescriptor(input, options);
   return {
-    settings,
-    kind,
+    ...descriptor,
     textures: createProceduralTextures(
-      kind,
-      settings.textureScale,
-      options.textureSize,
+      descriptor.kind,
+      descriptor.settings.textureScale,
+      descriptor.size,
     ),
   };
 }
@@ -141,10 +161,15 @@ export function buildPbrMaterial(
   input?: MaterialSettingsInput | null,
   options: PbrMaterialBuildOptions = {},
 ): BuiltMaterial {
-  const { settings, kind, textures } = resolveMaterialTextures(input, options);
+  const { settings, premium, kind, size, textures } = resolveMaterialTextures(
+    input,
+    options,
+  );
 
   const parameters: THREE.MeshStandardMaterialParameters = {
-    color: new THREE.Color(baseColor),
+    // Premium maps bake the oak/graphite albedo; tinting them with the slot
+    // colour would double-darken the result.
+    color: new THREE.Color(premium ? '#ffffff' : baseColor),
     metalness: settings.metalness,
     roughness: settings.roughness,
     opacity: settings.opacity,
@@ -158,6 +183,10 @@ export function buildPbrMaterial(
     parameters.map = textures.map;
     parameters.normalMap = textures.normalMap;
     parameters.normalScale = new THREE.Vector2(settings.normalStrength, settings.normalStrength);
+    if (textures.ormMap) {
+      parameters.roughnessMap = textures.ormMap;
+      parameters.metalnessMap = textures.ormMap;
+    }
   }
 
   const material = new THREE.MeshStandardMaterial(parameters);
@@ -165,7 +194,7 @@ export function buildPbrMaterial(
     material,
     kind,
     settings.textureScale,
-    options.textureSize ?? DEFAULT_TEXTURE_SIZE,
+    size,
     textures,
   );
 
@@ -189,24 +218,42 @@ export function buildPbrMaterial(
 export function applyTextureResolution(
   material: THREE.MeshStandardMaterial,
   input: MaterialSettingsInput | null | undefined,
-  textureSize: 128 | 512,
+  textureSize: TextureSize,
 ): (() => void) | null {
-  const { settings, kind, textures } = resolveMaterialTextures(input, { textureSize });
+  const descriptor = resolveMaterialDescriptor(input, { textureSize });
+  const { settings, kind, size } = descriptor;
+  const state = getProceduralState(material);
+  if (
+    state &&
+    state.kind === kind &&
+    state.scale === settings.textureScale &&
+    state.size === size
+  ) {
+    return null;
+  }
+  const textures = createProceduralTextures(
+    kind,
+    settings.textureScale,
+    size,
+  );
   if (!textures) {
     return null;
   }
-  const state = getProceduralState(material);
   if (state) {
     state.textures?.dispose();
     state.textures = textures;
     state.kind = kind;
     state.scale = settings.textureScale;
-    state.size = textureSize;
+    state.size = size;
   } else {
-    attachProceduralState(material, kind, settings.textureScale, textureSize, textures);
+    attachProceduralState(material, kind, settings.textureScale, size, textures);
   }
   material.map = textures.map;
   material.normalMap = textures.normalMap;
+  if (textures.ormMap) {
+    material.roughnessMap = textures.ormMap;
+    material.metalnessMap = textures.ormMap;
+  }
   material.needsUpdate = true;
   return textures.dispose;
 }

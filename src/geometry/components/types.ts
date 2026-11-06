@@ -29,6 +29,22 @@ export type ComponentType = (typeof COMPONENT_TYPES)[number];
 export type ComponentRole = ComponentType;
 export type ComponentMaterialSlot = 'panel' | 'frame' | 'hardware' | 'surface';
 
+/**
+ * UV policy a component may request explicitly.
+ *
+ * `auto` keeps the per-recipe default. `box` is used by the desk tabletop: its
+ * extruded plate is not a box, but a physical box projection keeps the wood
+ * grain density uniform instead of stretching one 0–1 planar map over 160 cm.
+ */
+export type ComponentUvMode =
+  | 'auto'
+  | 'box'
+  | 'planar'
+  | 'cylindrical'
+  | 'geometry'
+  | 'preserve'
+  | 'physical-box';
+
 export interface ComponentDimensions {
   readonly width: number;
   readonly height: number;
@@ -54,6 +70,8 @@ export interface ComponentPart {
   readonly materialSlot: ComponentMaterialSlot;
   readonly componentVersion: number;
   readonly metadata: ComponentMetadata;
+  /** Optional explicit UV policy; absent keeps `addComponent`'s `auto` behaviour. */
+  readonly uv?: ComponentUvMode;
 }
 
 export interface ComponentPlacement {
@@ -62,6 +80,7 @@ export interface ComponentPlacement {
   readonly role?: ComponentRole;
   readonly materialSlot?: ComponentMaterialSlot;
   readonly metadata?: Record<string, unknown>;
+  readonly uv?: ComponentUvMode;
 }
 
 /** Internal result of a component-specific builder. */
@@ -78,6 +97,8 @@ export interface PanelParams {
   readonly cornerRadius?: number;
   readonly bevel?: number;
   readonly segments?: number;
+  /** Use the extruded-plate recipe (local XY, thickness along Z) instead of a rounded box. */
+  readonly plate?: boolean;
 }
 
 export interface LegParams {
@@ -88,6 +109,10 @@ export interface LegParams {
   readonly radius?: number;
   readonly taper?: number;
   readonly segments?: number;
+  /** Square legs only: edge roundover in cm. `0` keeps the original sharp box. */
+  readonly bevel?: number;
+  /** Square legs only: roundover subdivisions. Defaults to 2. */
+  readonly bevelSegments?: number;
 }
 
 export interface FrameParams {
@@ -96,6 +121,8 @@ export interface FrameParams {
   readonly depth: number;
   readonly memberThickness: number;
   readonly profile?: 'rectangular';
+  /** Edge roundover in cm; `0` keeps the original sharp extrusion. */
+  readonly bevel?: number;
 }
 
 export interface ShelfParams {
@@ -105,12 +132,30 @@ export interface ShelfParams {
   readonly cornerRadius?: number;
   readonly bevel?: number;
   readonly segments?: number;
+  /**
+   * Force the extruded-plate recipe even without a hole. The plate is built in
+   * local XY (thickness along Z), so the caller must rotate it into place.
+   */
+  readonly plate?: boolean;
+  /**
+   * Optional through-hole. When present the shelf becomes an extruded plate in
+   * local XY (thickness along Z), so the caller must rotate it into place.
+   * Coordinates are in the plate plane: x across width, z across depth.
+   */
+  readonly hole?: {
+    readonly x: number;
+    readonly z: number;
+    readonly radius: number;
+  };
 }
 
 export interface SupportParams {
   readonly width: number;
   readonly height: number;
   readonly depth: number;
+  /** Edge roundover in cm; `0` keeps the original sharp box. */
+  readonly bevel?: number;
+  readonly segments?: number;
 }
 
 export interface DrawerParams {
@@ -119,6 +164,13 @@ export interface DrawerParams {
   readonly depth: number;
   readonly sideThickness: number;
   readonly bottomThickness: number;
+  /**
+   * Split each face into its own vertices with face normals. The default keeps
+   * the historical shared-vertex/smooth-normal output for existing furniture;
+   * the Premium Desk opts in so its box edges shade sharply and box UVs do not
+   * degenerate on shared diagonal normals.
+   */
+  readonly flatShading?: boolean;
 }
 
 export interface DoorParams {

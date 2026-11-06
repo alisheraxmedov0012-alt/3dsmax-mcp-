@@ -65,8 +65,8 @@ describe('desk.computer plan', () => {
   it('creates a frozen, structurally complete plan', () => {
     const plan = createFurniturePlan('desk.computer', DEFAULT_DESK_SPEC);
     expect(plan.definitionId).toBe('desk.computer');
-    expect(plan.parts).toHaveLength(16);
-    expect(plan.connections).toHaveLength(12);
+    expect(plan.parts).toHaveLength(24);
+    expect(plan.connections).toHaveLength(16);
     expect(new Set(plan.parts.map((entry) => entry.materialSlot))).toEqual(
       new Set(['tabletop', 'structure', 'drawer', 'hardware']),
     );

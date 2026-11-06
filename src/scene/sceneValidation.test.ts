@@ -168,6 +168,17 @@ describe('validateSceneObject', () => {
       material: { metalness: 0.5, roughness: 0.5, materialId: 'nope' },
     });
     expect(unknownPreset?.material.materialId).toBeUndefined();
+
+    const premium = validateSceneObject({
+      ...createTableSceneObject('e'),
+      material: { metalness: 1, roughness: 1, premiumTextures: true },
+    });
+    expect(premium?.material.premiumTextures).toBe(true);
+    const malformed = validateSceneObject({
+      ...createTableSceneObject('f'),
+      material: { metalness: 1, roughness: 1, premiumTextures: 'yes' },
+    });
+    expect(malformed?.material.premiumTextures).toBeUndefined();
   });
 });
 

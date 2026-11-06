@@ -11,6 +11,8 @@ export type DeskMaterialSlot = 'tabletop' | 'structure' | 'hardware' | 'drawer';
 interface MaterialSlotConfig {
   readonly color: string;
   readonly materialId: MaterialPresetId;
+  /** Buyer-facing material name; also used by the universal adapter. */
+  readonly materialName: string;
 }
 
 /**
@@ -19,10 +21,26 @@ interface MaterialSlotConfig {
  * single-material PartBuilder contract without rewriting it.
  */
 const MATERIAL_SLOTS: Record<DeskMaterialSlot, MaterialSlotConfig> = {
-  tabletop: { color: '#a9744f', materialId: 'wood-oak' },
-  structure: { color: '#3f4650', materialId: 'metal-steel' },
-  hardware: { color: '#9aa3ad', materialId: 'metal-steel' },
-  drawer: { color: '#8b5a2b', materialId: 'wood-oak' },
+  tabletop: {
+    color: '#a9744f',
+    materialId: 'wood-oak-premium',
+    materialName: 'Desk_Tabletop_Oak',
+  },
+  structure: {
+    color: '#3f4650',
+    materialId: 'metal-satin-black',
+    materialName: 'Desk_Structure_Steel',
+  },
+  hardware: {
+    color: '#9aa3ad',
+    materialId: 'metal-satin-black',
+    materialName: 'Desk_Hardware_Steel',
+  },
+  drawer: {
+    color: '#8b5a2b',
+    materialId: 'wood-oak-premium',
+    materialName: 'Desk_Drawer_Oak',
+  },
 };
 
 function deskSlot(slot: ComponentPart['materialSlot']): DeskMaterialSlot {
@@ -62,6 +80,7 @@ export function buildDesk(spec: DeskSpec = DEFAULT_DESK_SPEC): BuiltDesk {
       builder = new PartBuilder(`desk-${slot}-group`, config.color, {
         materialId: config.materialId,
       });
+      builder.setMaterialName(config.materialName);
       builders.set(slot, builder);
     }
     addComponent(builder, component);
@@ -76,7 +95,9 @@ export function buildDesk(spec: DeskSpec = DEFAULT_DESK_SPEC): BuiltDesk {
   }
 
   const materialSlots = slotOrder.filter((slot) => builders.has(slot));
-  const materialNames = materialSlots.map((slot) => `desk-${slot}-group-material`);
+  const materialNames = materialSlots.map(
+    (slot) => MATERIAL_SLOTS[slot].materialName,
+  );
   return {
     group,
     spec: { ...spec },

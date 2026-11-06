@@ -110,10 +110,10 @@ describe('desk.computer parity with Premium Desk Builder', () => {
     const plan = createFurniturePlan('desk.computer', DEFAULT_DESK_SPEC);
     const legacy = solveDesk(DEFAULT_DESK_SPEC);
 
-    expect(plan.parts).toHaveLength(16);
-    expect(legacy.components).toHaveLength(16);
-    expect(plan.connections).toHaveLength(12);
-    expect(legacy.connections).toHaveLength(12);
+    expect(plan.parts).toHaveLength(24);
+    expect(legacy.components).toHaveLength(24);
+    expect(plan.connections).toHaveLength(16);
+    expect(legacy.connections).toHaveLength(16);
 
     plan.parts.forEach((part, index) => {
       const component = legacy.components[index];
@@ -137,6 +137,10 @@ describe('desk.computer parity with Premium Desk Builder', () => {
         'desk-leg-ne',
         'desk-leg-sw',
         'desk-leg-se',
+        'desk-leg-plate-nw',
+        'desk-leg-plate-ne',
+        'desk-leg-plate-sw',
+        'desk-leg-plate-se',
         'desk-frame',
         'desk-support-front',
         'desk-support-back',
@@ -148,9 +152,12 @@ describe('desk.computer parity with Premium Desk Builder', () => {
         'desk-bolt-4',
         'desk-screw-1',
         'desk-screw-2',
+        'desk-drawer-handle',
+        'desk-drawer-runner-left',
+        'desk-drawer-runner-right',
         'desk-grommet',
       ],
-      drawer: ['desk-drawer'],
+      drawer: ['desk-drawer', 'desk-drawer-front'],
     });
   });
 
@@ -215,43 +222,33 @@ describe('desk.computer parity with Premium Desk Builder', () => {
     ]);
   });
 
-  it('publishes manufacturing metadata only for rectangular boxes', () => {
+  it('does not claim rectangular cut metadata for beveled or extruded parts', () => {
     const plan = createFurniturePlan('desk.computer', DEFAULT_DESK_SPEC);
     const byId = new Map(plan.parts.map((part) => [part.id, part]));
 
-    expect(byId.get('desk-leg-nw')?.manufacturing).toEqual({
-      boxCm: [5, 72, 5],
-      cutFromSheet: false,
-    });
-    expect(byId.get('desk-support-front')?.manufacturing).toEqual({
-      boxCm: [134, 2, 3],
-      cutFromSheet: false,
-    });
-    expect(byId.get('desk-tabletop')?.manufacturing).toBeUndefined();
-    expect(byId.get('desk-tabletop')?.notes?.length).toBe(1);
-    expect(byId.get('desk-frame')?.manufacturing).toBeUndefined();
-    expect(byId.get('desk-drawer')?.manufacturing).toBeUndefined();
-    expect(byId.get('desk-grommet')?.manufacturing).toBeUndefined();
-
-    const withManufacturing = plan.parts.filter((part) => part.manufacturing !== undefined);
-    expect(withManufacturing.map((part) => part.id)).toEqual([
+    // The v2 geometry is beveled/extruded, so an exact axis-aligned boxCm would
+    // be false. The plan states that gap instead of inventing cut dimensions.
+    for (const id of [
       'desk-leg-nw',
-      'desk-leg-ne',
-      'desk-leg-sw',
-      'desk-leg-se',
       'desk-support-front',
-      'desk-support-back',
-    ]);
+      'desk-tabletop',
+      'desk-frame',
+      'desk-drawer',
+      'desk-grommet',
+    ]) {
+      expect(byId.get(id)?.manufacturing, id).toBeUndefined();
+      expect(byId.get(id)?.notes, id).toEqual([
+        'manufacturing: boxCm mavjud emas (geometry to‘rtburchak box emas).',
+      ]);
+    }
+    expect(plan.parts.every((part) => part.manufacturing === undefined)).toBe(true);
   });
 
-  it('marks a square-cornered tabletop as a sheet part', () => {
+  it('keeps the tabletop an extruded plate even with a zero corner radius', () => {
     const spec = createDeskSpec({ cornerRadius: 0 });
     const plan = createFurniturePlan('desk.computer', spec);
     const tabletop = plan.parts.find((part) => part.id === 'desk-tabletop');
-    expect(tabletop?.geometry.kind).toBe('box');
-    expect(tabletop?.manufacturing).toEqual({
-      boxCm: [160, 3, 80],
-      cutFromSheet: true,
-    });
+    expect(tabletop?.geometry.kind).toBe('extrude');
+    expect(tabletop?.manufacturing).toBeUndefined();
   });
 });

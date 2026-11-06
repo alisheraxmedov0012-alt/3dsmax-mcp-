@@ -157,6 +157,9 @@ function slotMaterialOverride(
   if (material.emissiveColor !== undefined) {
     override.emissiveColor = material.emissiveColor;
   }
+  if (material.premiumTextures !== undefined) {
+    override.premiumTextures = material.premiumTextures;
+  }
   return override;
 }
 

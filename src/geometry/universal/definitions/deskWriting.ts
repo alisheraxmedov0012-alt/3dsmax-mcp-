@@ -455,7 +455,7 @@ function writingId(id: string): string {
 }
 
 function solveWritingDeskPlan(spec: WritingDeskSpec): FurniturePlanDraft {
-  const base = solveDesk(baseDeskSpec(spec));
+  const base = solveDesk(baseDeskSpec(spec), { detail: 'standard' });
   const idMap = new Map<string, string>();
   for (const component of base.components) {
     idMap.set(component.id, writingId(component.id));
