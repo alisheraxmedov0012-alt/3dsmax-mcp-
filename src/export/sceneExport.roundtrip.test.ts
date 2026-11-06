@@ -83,9 +83,10 @@ interface GltfJson {
   asset?: { version?: string };
   extensionsUsed?: string[];
   buffers?: Array<{ uri?: string; byteLength: number }>;
-  bufferViews?: Array<{ byteOffset?: number; byteLength: number }>;
+  bufferViews?: Array<{ byteOffset?: number; byteLength: number; byteStride?: number }>;
   accessors?: Array<{
     bufferView?: number;
+    byteOffset?: number;
     count: number;
     type: string;
     componentType: number;
@@ -513,5 +514,86 @@ describe('GLB round-trip QA', () => {
     expect(registry.size()).toBe(0);
     expect(close).toHaveBeenCalledTimes(1);
     vi.unstubAllGlobals();
+  });
+});
+
+describe('tangent attributes for normal-mapped primitives', () => {
+  function readVec4(json: GltfJson, bin: Uint8Array, accessorIndex: number): number[][] {
+    const accessor = json.accessors?.[accessorIndex];
+    const view = json.bufferViews?.[accessor?.bufferView ?? -1];
+    if (!accessor || !view) {
+      throw new Error(`missing accessor ${accessorIndex}`);
+    }
+    const start = (view.byteOffset ?? 0) + (accessor.byteOffset ?? 0);
+    const stride = view.byteStride ?? 4 * 4;
+    const values: number[][] = [];
+    for (let index = 0; index < accessor.count; index += 1) {
+      const base = start + index * stride;
+      const row: number[] = [];
+      for (let component = 0; component < 4; component += 1) {
+        row.push(
+          new DataView(bin.buffer, bin.byteOffset + base + component * 4, 4).getFloat32(0, true),
+        );
+      }
+      values.push(row);
+    }
+    return values;
+  }
+
+  it('writes a valid TANGENT only where a normal map is present', async () => {
+    installCanvasStub();
+    const provider = new SharedTextureProvider();
+    const normalMapped = objectWithAllMaps();
+    const plain = createFurnitureSceneObject('table', 'plain-1', {
+      material: { metalness: 0.05, roughness: 0.6 },
+    });
+
+    const glb = await exportSceneToGlb(sceneOf(normalMapped, plain), {
+      includeRoom: false,
+      textureProvider: provider,
+    });
+    const { json, bin } = parseGlb(glb);
+
+    let normalMappedPrimitives = 0;
+    let primitivesWithTangent = 0;
+    let primitivesWithoutTangent = 0;
+
+    for (const mesh of json.meshes ?? []) {
+      for (const primitive of mesh.primitives) {
+        expect(primitive.attributes.NORMAL, `${mesh.name} NORMAL`).toBeTypeOf('number');
+        expect(primitive.attributes.TEXCOORD_0, `${mesh.name} TEXCOORD_0`).toBeTypeOf('number');
+
+        const material =
+          primitive.material === undefined ? undefined : json.materials?.[primitive.material];
+        const tangentIndex = primitive.attributes.TANGENT;
+        if (material?.normalTexture) {
+          normalMappedPrimitives += 1;
+          expect(tangentIndex, `${mesh.name} TANGENT`).toBeTypeOf('number');
+          const accessor = json.accessors?.[tangentIndex as number];
+          const position = json.accessors?.[primitive.attributes.POSITION];
+          expect(accessor?.type).toBe('VEC4');
+          expect(accessor?.componentType).toBe(5126);
+          expect(accessor?.count).toBe(position?.count);
+
+          for (const [x, y, z, w] of readVec4(json, bin, tangentIndex as number)) {
+            expect(Number.isFinite(x), `${mesh.name} tangent x`).toBe(true);
+            expect(Number.isFinite(y), `${mesh.name} tangent y`).toBe(true);
+            expect(Number.isFinite(z), `${mesh.name} tangent z`).toBe(true);
+            expect(Math.hypot(x, y, z), `${mesh.name} unit tangent`).toBeCloseTo(1, 5);
+            expect(Math.abs(w), `${mesh.name} W sign`).toBe(1);
+          }
+          primitivesWithTangent += 1;
+        } else {
+          expect(tangentIndex, `${mesh.name} no TANGENT`).toBeUndefined();
+          primitivesWithoutTangent += 1;
+        }
+      }
+    }
+
+    expect(normalMappedPrimitives).toBeGreaterThan(0);
+    expect(primitivesWithTangent).toBe(normalMappedPrimitives);
+    expect(primitivesWithoutTangent).toBeGreaterThan(0);
+    expect(json.materials?.some((material) => material.normalTexture)).toBe(true);
+    expect(json.textures?.length ?? 0).toBeGreaterThan(0);
   });
 });

@@ -21,6 +21,7 @@ import { isImportedSceneObject, type SceneData, type SceneObject } from '../scen
 import { importedModelStore } from '../import/importedModelStore';
 import { assertFiniteGeometry } from './geometryGuard';
 import { ExportError } from './exportTypes';
+import { ensureTangentsForNormalMappedMeshes } from './tangents';
 
 export const SCENE_EXPORT_FILENAME = '3d-studio-ai-scene.glb';
 
@@ -359,6 +360,17 @@ function addMetreScaleRoot(scene: THREE.Scene): void {
 }
 
 /**
+ * Shared preparation for both glTF writers: reject unsafe geometry, add
+ * tangents only where a normal map needs them, then apply the metre root.
+ */
+function prepareGltfScene(scene: THREE.Scene): void {
+  assertFiniteGeometry(scene);
+  assertExportableScene(scene);
+  ensureTangentsForNormalMappedMeshes(scene);
+  addMetreScaleRoot(scene);
+}
+
+/**
  * Serialise an already-built Three.js object group through the same GLB path
  * used by scene export. The caller owns the group and its geometries.
  */
@@ -379,9 +391,7 @@ export async function exportGroupToGlb(root: THREE.Object3D): Promise<ArrayBuffe
 }
 
 async function exportRootToGlb(scene: THREE.Scene): Promise<ArrayBuffer> {
-  assertFiniteGeometry(scene);
-  assertExportableScene(scene);
-  addMetreScaleRoot(scene);
+  prepareGltfScene(scene);
   const GltfExporter = await loadGltfExporter();
   const exporter = new GltfExporter();
 
@@ -558,9 +568,7 @@ export async function exportSceneToGlb(
  * with readable JSON, and a buyer can diff it.
  */
 async function exportRootToGltf(scene: THREE.Scene): Promise<string> {
-  assertFiniteGeometry(scene);
-  assertExportableScene(scene);
-  addMetreScaleRoot(scene);
+  prepareGltfScene(scene);
   const GltfExporter = await loadGltfExporter();
 
   let parsed: ArrayBuffer | Record<string, unknown>;
