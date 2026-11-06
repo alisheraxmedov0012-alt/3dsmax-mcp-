@@ -157,8 +157,9 @@ o'giriladi; `scale` — o'qlar bo'yicha koeffitsient.
 #### Muhim cheklovlar (6.2)
 
 - **Import faqat sessiya uchun**: modelning to'ri saqlanmaydi — sahifa yangilanganda
-  yoki loyiha qayta ochilganda import qilingan obyekt yo'qoladi. Loyiha faylida faqat
-  uning metama'lumoti qoladi va u to'rsiz yuklanmaydi.
+  yoki loyiha qayta ochilganda import qilingan obyekt yo'qoladi. Loyiha saqlanganda
+  (va JSON eksportida) import qilingan modellar faylga **kiritilmaydi** va bu haqda
+  xabar ko'rsatiladi; yaroqsiz ma'lumot qoldirilmaydi.
 - **Faqat `.glb`**: matnli `.gltf` (tashqi resurslar bilan), OBJ/MTL va FBX keyingi
   bosqichlarda; ular hozir aniq xabar bilan rad etiladi.
 - **Siqilgan/atlasli formatlar yo'q**: Draco, meshopt va KTX2 dekoderlari

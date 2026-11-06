@@ -657,6 +657,15 @@ export function validateSceneData(value: unknown): SceneValidationResult {
       droppedObjects += 1;
       return;
     }
+    // Phase 6.2: an imported model's geometry lives in the runtime store, which a
+    // stored scene cannot carry. Its metadata is valid on its own (the reducer uses
+    // `validateSceneObject` to accept a fresh import), but inside a *loaded* scene
+    // it is a record that could never be rebuilt, so it is dropped and counted
+    // rather than left to fail in the viewer.
+    if (object.type === IMPORTED_OBJECT_TYPE) {
+      droppedObjects += 1;
+      return;
+    }
     if (detailed && detailed.normalized.length > 0) {
       normalizations.push({ objectId: object.id, fields: detailed.normalized });
     }

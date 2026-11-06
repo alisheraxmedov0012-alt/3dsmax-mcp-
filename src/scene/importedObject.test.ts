@@ -12,8 +12,12 @@ import {
   isFurnitureSceneObject,
   isImportedSceneObject,
   type ImportedModelMeta,
+  type SceneData,
 } from './types';
 import { createDefaultSettings } from './sceneSettings';
+import { sceneForPersistence } from './persistence';
+import { sceneSignature } from '../projects/unsavedChanges';
+import { serializeSceneToJson } from '../export/sceneJson';
 
 const HASH = 'a'.repeat(64);
 
@@ -224,30 +228,66 @@ describe('imported scene object — reducer', () => {
 });
 
 describe('imported scene object — whole-scene validation', () => {
-  it('keeps a valid imported object and drops a corrupt one', () => {
+  it('drops a session-only imported object when loading a stored scene', () => {
+    // A loaded scene cannot restore imported geometry, so keeping the record would
+    // leave an object that can never be built.
     const result = validateSceneData(
-      sceneWith([
-        storedImported(),
-        storedImported({ id: 'broken', imported: meta({ sourceHash: 'nope' }) }),
-      ]),
+      sceneWith([createFurnitureSceneObject('table', 't-1'), storedImported()]),
     );
-    expect(result.scene?.objects).toHaveLength(1);
-    expect(result.scene?.objects[0].id).toBe('import-1');
+    expect(result.scene?.objects.map((object) => object.type)).toEqual(['table']);
     expect(result.droppedObjects).toBe(1);
   });
 
-  it('round-trips an imported object through JSON without changing it', () => {
+  it('counts a corrupt imported record once, like any other dropped object', () => {
+    const result = validateSceneData(
+      sceneWith([storedImported({ id: 'broken', imported: meta({ sourceHash: 'nope' }) })]),
+    );
+    expect(result.scene?.objects).toHaveLength(0);
+    expect(result.droppedObjects).toBe(1);
+  });
+
+  it('still validates a single imported record, which is how the reducer accepts one', () => {
     const validated = validateSceneObject(storedImported());
     expect(validated).not.toBeNull();
     const again = validateSceneObject(JSON.parse(JSON.stringify(validated)));
     expect(again).toEqual(validated);
   });
+});
 
-  it('accepts an imported object in a scene alongside furniture', () => {
-    const result = validateSceneData(
-      sceneWith([createFurnitureSceneObject('table', 't-1'), storedImported()]),
-    );
-    expect(result.scene?.objects.map((object) => object.type)).toEqual(['table', 'imported']);
-    expect(result.droppedObjects).toBe(0);
+describe('imported scene object — persistence', () => {
+  it('keeps imported models out of the saved scene and reports them', () => {
+    const data = sceneWith([createFurnitureSceneObject('table', 't-1'), storedImported()]);
+    const persisted = sceneForPersistence(data as unknown as SceneData);
+    expect(persisted.scene.objects.map((object) => object.id)).toEqual(['t-1']);
+    expect(persisted.droppedImported).toBe(1);
+  });
+
+  it('returns the very same scene when there is nothing to strip', () => {
+    const data = sceneWith([createFurnitureSceneObject('table', 't-1')]) as unknown as SceneData;
+    const persisted = sceneForPersistence(data);
+    expect(persisted.droppedImported).toBe(0);
+    expect(persisted.scene).toBe(data);
+  });
+
+  it('keeps imported models out of the JSON document as well', () => {
+    const data = sceneWith([
+      createFurnitureSceneObject('table', 't-1'),
+      storedImported(),
+    ]) as unknown as SceneData;
+    const document = JSON.parse(
+      serializeSceneToJson(data, { name: 'Loyiha', furnitureType: null, units: 'cm' }),
+    ) as { scene: { objects: Array<{ id: string }> } };
+    expect(document.scene.objects.map((object) => object.id)).toEqual(['t-1']);
+  });
+
+  it('does not let an unsaved import keep the project dirty after a save', () => {
+    const before = sceneWith([createFurnitureSceneObject('table', 't-1')]) as unknown as SceneData;
+    const withImport = sceneWith([
+      createFurnitureSceneObject('table', 't-1'),
+      storedImported(),
+    ]) as unknown as SceneData;
+    // The imported model is not part of the saved project, so the signature of the
+    // saved scene must be unchanged by importing it.
+    expect(sceneSignature('Loyiha', withImport)).toBe(sceneSignature('Loyiha', before));
   });
 });

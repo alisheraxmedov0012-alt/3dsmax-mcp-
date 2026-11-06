@@ -16,6 +16,7 @@
  * existing project on its own, and an import failure leaves the current scene
  * untouched.
  */
+import { sceneForPersistence } from '../scene/persistence';
 import { validateSceneData } from '../scene/sceneValidation';
 import type { SceneData } from '../scene/types';
 import type { ExportMetadata } from './exportTypes';
@@ -59,7 +60,9 @@ export function serializeSceneToJson(
       furnitureType: metadata.furnitureType,
       units: metadata.units,
     },
-    scene: data,
+    // Session-only imported models are not written: their geometry lives in the
+    // runtime store, so a stored record could never be rebuilt.
+    scene: sceneForPersistence(data).scene,
   };
   return JSON.stringify(document, null, 2);
 }

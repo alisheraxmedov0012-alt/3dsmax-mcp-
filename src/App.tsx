@@ -52,6 +52,7 @@ import {
   shouldProtectUnload,
 } from './projects/unsavedChanges';
 import { findSceneObject, sceneReducer } from './scene/sceneReducer';
+import { sceneForPersistence } from './scene/persistence';
 import { validateSceneObject } from './scene/sceneValidation';
 import { createSceneObjectId } from './scene/sceneIds';
 import {
@@ -543,25 +544,34 @@ export default function App() {
     setSavingProject(true);
     try {
       const repository = getRepository();
+      // Imported models are session-only: their geometry lives in the runtime
+      // store, so a saved record could never be rebuilt. They are left out of the
+      // saved scene and the user is told, rather than finding an empty object
+      // after reloading.
+      const persisted = sceneForPersistence(scene.data);
+      const importedNote =
+        persisted.droppedImported > 0
+          ? ` ${persisted.droppedImported} import qilingan model saqlanmadi — u faqat sessiyada ishlaydi.`
+          : '';
       if (activeProjectId) {
         const updated = await repository.update(activeProjectId, {
           name: projectName,
-          scene: scene.data,
+          scene: persisted.scene,
         });
         if (!updated) {
           setProjectsStatus('error');
           setProjectsMessage("Loyiha topilmadi. Iltimos, ro'yxatni yangilang.");
         } else {
           setProjectsStatus('ok');
-          setProjectsMessage('Loyiha yangilandi.');
+          setProjectsMessage(`Loyiha yangilandi.${importedNote}`);
           setSavedSignature(sceneSignature(projectName, scene.data));
         }
       } else {
-        const created = await repository.create({ name: projectName, scene: scene.data });
+        const created = await repository.create({ name: projectName, scene: persisted.scene });
         setActiveProjectId(created.id);
         setProjectName(created.name);
         setProjectsStatus('ok');
-        setProjectsMessage('Loyiha saqlandi.');
+        setProjectsMessage(`Loyiha saqlandi.${importedNote}`);
         setSavedSignature(sceneSignature(created.name, scene.data));
       }
       await refreshProjects();
@@ -670,7 +680,12 @@ export default function App() {
       });
       downloadBlob(artifact.blob, artifact.filename);
       setExportStatus('success');
-      setExportMessage(`Sahna "${artifact.filename}" sifatida yuklab olindi.`);
+      // The JSON document is a saved scene, so it carries parametric objects only.
+      const importedNote =
+        exportFormat === 'json' && sceneForPersistence(scene.data).droppedImported > 0
+          ? ' Import qilingan modellar faylga kiritilmadi (faqat sessiyada ishlaydi).'
+          : '';
+      setExportMessage(`Sahna "${artifact.filename}" sifatida yuklab olindi.${importedNote}`);
     } catch (error) {
       setExportStatus('error');
       setExportMessage(

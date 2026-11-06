@@ -1,3 +1,4 @@
+import { sceneForPersistence } from '../scene/persistence';
 import type { SceneData } from '../scene/types';
 
 /**
@@ -10,7 +11,9 @@ import type { SceneData } from '../scene/types';
  */
 
 export function sceneSignature(name: string, scene: SceneData): string {
-  return JSON.stringify({ name: name.trim(), scene });
+  // Signed in its persisted form: a session-only imported model is not part of
+  // what gets saved, so it must not keep the project "dirty" after a save.
+  return JSON.stringify({ name: name.trim(), scene: sceneForPersistence(scene).scene });
 }
 
 export function hasUnsavedChanges(currentSignature: string, savedSignature: string): boolean {
