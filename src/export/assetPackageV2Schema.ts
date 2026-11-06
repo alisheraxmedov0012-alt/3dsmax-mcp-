@@ -98,6 +98,8 @@ const MAX_DESCRIPTION_LENGTH = 2000;
 const MAX_AUTHOR_LENGTH = 120;
 const MAX_LICENSE_NAME_LENGTH = 120;
 const MAX_LICENSE_TEXT_LENGTH = 100_000;
+/** The terms summary is a sentence or two, not the licence itself. */
+const MAX_LICENSE_TERMS_LENGTH = 2000;
 const MAX_MODELS = 16;
 const MAX_TEXTURES = 128;
 const MAX_PREVIEWS = 32;
@@ -123,6 +125,15 @@ export interface AssetPackageV2License {
   spdx?: string;
   /** Present only when the archive contains the license text file. */
   textFile?: string;
+  /**
+   * Whether the buyer must credit the author. Absent means "not stated", which is
+   * different from `false` and is reported as unresolved in the README.
+   */
+  attributionRequired?: boolean;
+  /** Whether commercial use is granted. Absent means "not stated". */
+  commercialUseAllowed?: boolean;
+  /** Short human-readable summary of the terms; the full text lives in LICENSE.txt. */
+  terms?: string;
 }
 
 export interface AssetPackageV2Product {
@@ -209,6 +220,9 @@ export interface AssetPackageV2LicenseInput {
   spdx?: string;
   /** When supplied, written verbatim to LICENSE.txt and linked from metadata. */
   text?: string;
+  attributionRequired?: boolean;
+  commercialUseAllowed?: boolean;
+  terms?: string;
 }
 
 export interface AssetPackageV2ProductInput {
@@ -493,6 +507,23 @@ function validateProduct(value: unknown, problems: string[]): value is AssetPack
         (typeof value.license.spdx !== 'string' || !SPDX_PATTERN.test(value.license.spdx))
       ) {
         problems.push('product.license.spdx formati noto\'g\'ri.');
+      }
+      if (
+        value.license.attributionRequired !== undefined &&
+        typeof value.license.attributionRequired !== 'boolean'
+      ) {
+        problems.push('product.license.attributionRequired mantiqiy qiymat bo\'lishi kerak.');
+      }
+      if (
+        value.license.commercialUseAllowed !== undefined &&
+        typeof value.license.commercialUseAllowed !== 'boolean'
+      ) {
+        problems.push('product.license.commercialUseAllowed mantiqiy qiymat bo\'lishi kerak.');
+      }
+      if (!isOptionalString(value.license.terms, MAX_LICENSE_TERMS_LENGTH)) {
+        problems.push(
+          `product.license.terms ${MAX_LICENSE_TERMS_LENGTH} belgidan oshmasligi kerak.`,
+        );
       }
       if (value.license.textFile !== undefined) {
         const textFile = normalizeAssetPath(value.license.textFile);

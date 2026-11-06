@@ -93,13 +93,31 @@ function readme(metadata: AssetPackageV2Metadata): string {
   if (product.author) lines.push(`Muallif: ${product.author}`);
   if (product.description) lines.push(`Tavsif: ${product.description}`);
   if (product.license) {
+    const license = product.license;
     lines.push(
-      `Litsenziya: ${product.license.name}` +
-        (product.license.spdx ? ` (${product.license.spdx})` : '') +
-        (product.license.textFile ? ` — ${product.license.textFile}` : ''),
+      `Litsenziya: ${license.name}` +
+        (license.spdx ? ` (${license.spdx})` : '') +
+        (license.textFile ? ` — ${license.textFile}` : ''),
     );
+    lines.push(`  Attribution: ${yesNoUnknown(license.attributionRequired, 'talab qilinadi', 'talab qilinmaydi')}`);
+    lines.push(
+      `  Tijoriy foydalanish: ${yesNoUnknown(license.commercialUseAllowed, 'ruxsat etilgan', 'ruxsat etilmagan')}`,
+    );
+    if (license.terms) {
+      lines.push(`  Shartlar: ${license.terms}`);
+    }
+    if (license.attributionRequired === undefined || license.commercialUseAllowed === undefined) {
+      lines.push(
+        "  Diqqat: ko'rsatilmagan shartlar Tasdiqlanmagan hisoblanadi — sotuvchi bilan aniqlashtiring.",
+      );
+    }
   } else {
-    lines.push("Litsenziya: ko'rsatilmagan");
+    // The explicit fallback: an unlicensed package grants nothing by default.
+    lines.push(
+      "Litsenziya: ko'rsatilmagan — ushbu paketdagi aktivlar uchun foydalanish huquqi berilmagan.",
+      "  Tijoriy foydalanish, qayta tarqatish va attribution talabi Tasdiqlanmagan.",
+      '  Ishlatishdan oldin sotuvchi bilan yozma kelishuv talab qilinadi.',
+    );
   }
   lines.push(
     '',
@@ -172,6 +190,18 @@ function readme(metadata: AssetPackageV2Metadata): string {
   return lines.join('\n');
 }
 
+/**
+ * Renders a tri-state licensing flag.
+ *
+ * `undefined` is deliberately not "no": a licensor who never answered is not the
+ * same as one who refused, and the README must not silently read one as the other.
+ */
+function yesNoUnknown(value: boolean | undefined, yes: string, no: string): string {
+  if (value === true) return yes;
+  if (value === false) return no;
+  return "ko'rsatilmagan";
+}
+
 function checksumsText(records: readonly AssetPackageV2File[]): string {
   return [...records]
     .sort((a, b) => a.path.localeCompare(b.path))
@@ -215,11 +245,19 @@ function buildAssets(
 
   const licenseText = input.product.license?.text;
   const licensePath = licenseText !== undefined ? ASSET_PACKAGE_V2_LICENSE : null;
-  const productLicense: AssetPackageV2License | undefined = input.product.license
+  const licenseInput = input.product.license;
+  const productLicense: AssetPackageV2License | undefined = licenseInput
     ? {
-        name: input.product.license.name.trim(),
-        ...(input.product.license.spdx ? { spdx: input.product.license.spdx } : {}),
+        name: licenseInput.name.trim(),
+        ...(licenseInput.spdx ? { spdx: licenseInput.spdx } : {}),
         ...(licensePath ? { textFile: licensePath } : {}),
+        ...(licenseInput.attributionRequired === undefined
+          ? {}
+          : { attributionRequired: licenseInput.attributionRequired }),
+        ...(licenseInput.commercialUseAllowed === undefined
+          ? {}
+          : { commercialUseAllowed: licenseInput.commercialUseAllowed }),
+        ...(licenseInput.terms?.trim() ? { terms: licenseInput.terms.trim() } : {}),
       }
     : undefined;
 

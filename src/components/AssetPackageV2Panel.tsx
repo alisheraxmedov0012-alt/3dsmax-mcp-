@@ -64,6 +64,10 @@ export function AssetPackageV2Panel({
   const [licenseName, setLicenseName] = useState('');
   const [licenseSpdx, setLicenseSpdx] = useState('');
   const [licenseText, setLicenseText] = useState('');
+  // Tri-state on purpose: '' means the licensor said nothing, which is not "no".
+  const [licenseAttribution, setLicenseAttribution] = useState<'' | 'yes' | 'no'>('');
+  const [licenseCommercial, setLicenseCommercial] = useState<'' | 'yes' | 'no'>('');
+  const [licenseTerms, setLicenseTerms] = useState('');
   const [formats, setFormats] = useState<AssetPackageV2ModelFormat[]>([
     ...ASSET_PACKAGE_V2_MODEL_FORMATS,
   ]);
@@ -147,6 +151,13 @@ export function AssetPackageV2Panel({
                     name: licenseName.trim(),
                     ...(licenseSpdx.trim() ? { spdx: licenseSpdx.trim() } : {}),
                     ...(licenseText.trim() ? { text: licenseText } : {}),
+                    ...(licenseAttribution === ''
+                      ? {}
+                      : { attributionRequired: licenseAttribution === 'yes' }),
+                    ...(licenseCommercial === ''
+                      ? {}
+                      : { commercialUseAllowed: licenseCommercial === 'yes' }),
+                    ...(licenseTerms.trim() ? { terms: licenseTerms.trim() } : {}),
                   },
                 }
               : {}),
@@ -275,8 +286,51 @@ export function AssetPackageV2Panel({
           rows={3}
           data-testid="asset-v2-license-text"
         />
+        <label className="field__label" htmlFor="asset-v2-license-attribution">
+          Attribution talabi
+        </label>
+        <select
+          id="asset-v2-license-attribution"
+          className="field__input"
+          value={licenseAttribution}
+          onChange={(event) => setLicenseAttribution(event.target.value as '' | 'yes' | 'no')}
+          data-testid="asset-v2-license-attribution"
+        >
+          <option value="">Ko‘rsatilmagan</option>
+          <option value="yes">Talab qilinadi</option>
+          <option value="no">Talab qilinmaydi</option>
+        </select>
+
+        <label className="field__label" htmlFor="asset-v2-license-commercial">
+          Tijoriy foydalanish
+        </label>
+        <select
+          id="asset-v2-license-commercial"
+          className="field__input"
+          value={licenseCommercial}
+          onChange={(event) => setLicenseCommercial(event.target.value as '' | 'yes' | 'no')}
+          data-testid="asset-v2-license-commercial"
+        >
+          <option value="">Ko‘rsatilmagan</option>
+          <option value="yes">Ruxsat etilgan</option>
+          <option value="no">Ruxsat etilmagan</option>
+        </select>
+
+        <label className="field__label" htmlFor="asset-v2-license-terms">
+          Foydalanish shartlari (qisqa)
+        </label>
+        <input
+          id="asset-v2-license-terms"
+          className="field__input"
+          value={licenseTerms}
+          onChange={(event) => setLicenseTerms(event.target.value)}
+          placeholder="Masalan: muallifni ko‘rsatish shart, tijoriy foydalanish mumkin"
+          data-testid="asset-v2-license-terms"
+        />
+
         <p className="visual__hint">
           Litsenziya avtomatik tanlanmaydi. Matn kiritilsa, u LICENSE.txt sifatida paketga qo‘shiladi.
+          “Ko‘rsatilmagan” — shart tasdiqlanmagan degani, “yo‘q” degani emas.
         </p>
       </div>
 

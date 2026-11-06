@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { createDefaultSettings } from '../scene/sceneSettings';
 import { createTableSceneObject, SCENE_SCHEMA_VERSION, type SceneData } from '../scene/types';
@@ -147,6 +147,57 @@ describe('AssetPackageV2Panel', () => {
     expect(options?.archiveRoot).toBe('OAK-001');
     expect(downloadMock.mock.calls[0][1]).toBe('oak-001-asset-v2.zip');
     expect(screen.getByTestId('asset-v2-message').textContent).toMatch(/ZIP tayyor/);
+  });
+
+  it('passes the tri-state licence terms to the builder only when answered', async () => {
+    renderPanel({
+      onCaptureProductPreviews: vi.fn(async () => [
+        { name: 'preview-hero.png', bytes: new Uint8Array([1, 2, 3]) },
+      ]),
+    });
+    fireEvent.change(screen.getByTestId('asset-v2-license-name'), {
+      target: { value: 'CC BY 4.0' },
+    });
+    fireEvent.click(screen.getByTestId('asset-v2-license-attribution'));
+    fireEvent.change(screen.getByTestId('asset-v2-license-attribution'), {
+      target: { value: 'yes' },
+    });
+    fireEvent.change(screen.getByTestId('asset-v2-license-commercial'), {
+      target: { value: 'no' },
+    });
+    fireEvent.change(screen.getByTestId('asset-v2-license-terms'), {
+      target: { value: 'Credit the author.' },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('asset-v2-download'));
+    });
+    await waitFor(() => expect(buildMock).toHaveBeenCalledTimes(1));
+    const [input] = buildMock.mock.calls[0];
+    expect(input.product.license).toMatchObject({
+      name: 'CC BY 4.0',
+      attributionRequired: true,
+      commercialUseAllowed: false,
+      terms: 'Credit the author.',
+    });
+  });
+
+  it('leaves the licence terms unset when the user does not answer them', async () => {
+    renderPanel({
+      onCaptureProductPreviews: vi.fn(async () => [
+        { name: 'preview-hero.png', bytes: new Uint8Array([1, 2, 3]) },
+      ]),
+    });
+    fireEvent.change(screen.getByTestId('asset-v2-license-name'), {
+      target: { value: 'Proprietary' },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('asset-v2-download'));
+    });
+    await waitFor(() => expect(buildMock).toHaveBeenCalledTimes(1));
+    const [input] = buildMock.mock.calls[0];
+    expect(input.product.license).toEqual({ name: 'Proprietary' });
   });
 
   it('can exclude previews without calling the capture handler', async () => {

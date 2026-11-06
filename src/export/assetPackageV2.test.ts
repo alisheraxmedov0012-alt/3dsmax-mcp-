@@ -376,6 +376,71 @@ describe('buildAssetPackageV2', () => {
     expect(verifyAssetPackageV2(asset).ok).toBe(true);
   });
 
+  it('carries attribution, commercial use and terms as structured fields', async () => {
+    const asset = await built({
+      product: {
+        title: 'Eman stol',
+        author: 'Studio',
+        license: {
+          name: 'CC BY 4.0',
+          spdx: 'CC-BY-4.0',
+          attributionRequired: true,
+          commercialUseAllowed: true,
+          terms: 'Credit the author; commercial use allowed.',
+        },
+      },
+    });
+
+    expect(asset.metadata.product.license).toEqual({
+      name: 'CC BY 4.0',
+      spdx: 'CC-BY-4.0',
+      attributionRequired: true,
+      commercialUseAllowed: true,
+      terms: 'Credit the author; commercial use allowed.',
+    });
+
+    const readmeText = new TextDecoder().decode(archiveOf(asset)[ASSET_PACKAGE_V2_README]);
+    expect(readmeText).toContain('Attribution: talab qilinadi');
+    expect(readmeText).toContain('Tijoriy foydalanish: ruxsat etilgan');
+    expect(readmeText).toContain('Shartlar: Credit the author; commercial use allowed.');
+    expect(verifyAssetPackageV2(asset).ok).toBe(true);
+  });
+
+  it('distinguishes an unanswered licence term from a refused one', async () => {
+    // "not stated" must never be rendered as "no".
+    const unanswered = await built({
+      product: { title: 'Stol', license: { name: 'Proprietary' } },
+    });
+    const unansweredReadme = new TextDecoder().decode(
+      archiveOf(unanswered)[ASSET_PACKAGE_V2_README],
+    );
+    expect(unansweredReadme).toContain("Attribution: ko'rsatilmagan");
+    expect(unansweredReadme).toContain("Tijoriy foydalanish: ko'rsatilmagan");
+    expect(unanswered.metadata.product.license).not.toHaveProperty('attributionRequired');
+
+    const refused = await built({
+      product: {
+        title: 'Stol',
+        license: { name: 'Proprietary', attributionRequired: false, commercialUseAllowed: false },
+      },
+    });
+    const refusedReadme = new TextDecoder().decode(
+      archiveOf(refused)[ASSET_PACKAGE_V2_README],
+    );
+    expect(refusedReadme).toContain('Attribution: talab qilinmaydi');
+    expect(refusedReadme).toContain('Tijoriy foydalanish: ruxsat etilmagan');
+  });
+
+  it('states an explicit fallback when no licence is supplied', async () => {
+    const asset = await built();
+    const readmeText = new TextDecoder().decode(archiveOf(asset)[ASSET_PACKAGE_V2_README]);
+    expect(readmeText).toContain("Litsenziya: ko'rsatilmagan");
+    expect(readmeText).toContain('foydalanish huquqi berilmagan');
+    expect(readmeText).toContain('Tasdiqlanmagan');
+    // Absence in metadata is the machine-readable form of the same statement.
+    expect(asset.metadata.product).not.toHaveProperty('license');
+  });
+
   it('rejects invalid product metadata before exporting', async () => {
     await expect(build({ product: { title: '' } })).resolves.toMatchObject({
       ok: false,
