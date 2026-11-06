@@ -153,6 +153,9 @@ Tartib qat'iy; har bir bosqich oldingisiga tayanishi shart.
   Sahnaga qo'yish (staging), yorug'lik/material sozlamalari, sifatli render/eksport.
   (6.2 — model import: GLB, glTF (tashqi `.bin`/teksturalar bilan) va OBJ+MTL;
   sessiyalik, xavfsiz tekshiruv bilan; to'r `SceneData`da saqlanmaydi.)
+  Eksport: GLB, glTF (.gltf), OBJ, STL, 3MF, JSON, PNG; professional paket —
+  GLB + OBJ/MTL + STL + 3MF, teksturalar, preview, metadata, checksums, litsenziya.
+  FBX ataylab qo'shilmagan — sabab `docs/FBX_DECISION.md`.
 
 - **7-bosqich — hisoblar, obuna va to'lovlar**
   Tariflar, limitlar, to'lov provayderi integratsiyasi, hisob-faktura.

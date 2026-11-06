@@ -118,6 +118,14 @@ o'giriladi; `scale` — o'qlar bo'yicha koeffitsient.
   PNG sifatida saqlash; **Standart (1280×720)** va **Yuqori (2560×1440)** rezolyutsiya.
   Renderer cheklovlari uchun xavfsiz yukori chegara qo'llanadi.
 - **GLB eksporti** saqlanadi va yangi material sozlamalari bilan mos ishlaydi.
+- **Eksport formatlari (6-bosqich yakuni)**: GLB, **glTF (.gltf)**, OBJ, STL, 3MF,
+  JSON va PNG. GLB va glTF bir xil mazmunni beradi (PBR materiallar, teksturalar,
+  transformlar, obyekt nomlari); `.gltf` — matnli va o‘zi yetarli (resurslar
+  `data:` URI sifatida ichida). OBJ/STL/3MF — geometriya; OBJ+MTL va tekstura
+  sidecar’lari **professional paketda** beriladi.
+- **Professional paket (6.1)**: bitta ZIP ichida GLB + OBJ/MTL + STL + 3MF,
+  teksturalar, preview rasmlar, `metadata.json`, `README.txt`, `checksums.txt` va
+  ixtiyoriy `LICENSE.txt`; paket qurilgandan keyin o‘zi qayta tekshiriladi.
 
 ### Muhim cheklovlar (Stage 6)
 
@@ -129,6 +137,10 @@ o'giriladi; `scale` — o'qlar bo'yicha koeffitsient.
 - **Yashirilgan obyektlar** GLB eksportdan chiqarib tashlanadi.
 - 3D ko'rinishda sudrab (drag) ko'chirish yo'q (raqamli boshqaruvlar ishlatiladi).
 - Yangi mebel turkumlari va tashqi 3D AI generatorlar yo'q.
+- **FBX eksporti yo'q.** Three.js FBX yozuvchisini bermaydi; mavjud JS
+  yozuvchilar yosh va DCC mosligini bu muhitda tekshirib bo'lmaydi. Sabab,
+  muqobil formatlar va qayta ko'rib chiqish shartlari:
+  [`docs/FBX_DECISION.md`](docs/FBX_DECISION.md).
 
 ### 6.2 — Model import (GLB, glTF, OBJ)
 
@@ -217,7 +229,7 @@ npm run test:import   # haqiqiy Chromium + WebGL: import → render → tanlash 
 - Xotira: `renderer.info.memory.geometries` boshlang'ich qiymatga qaytadi (6 → 6 → 6).
   Mobil qurilmalarda o'lchanmagan.
 
-## 7-bosqich imkoniyatlari (hisoblar, obuna va to'lovlar)## 7-bosqich imkoniyatlari (hisoblar, obuna va to'lovlar)
+## 7-bosqich imkoniyatlari (hisoblar, obuna va to'lovlar)
 
 Backend `backend/` katalogida: **FastAPI + SQLAlchemy 2 + Alembic**.
 
@@ -508,6 +520,31 @@ olish (ZIP)”** quyidagini yig'adi:
 - Cheklovlar: paket faqat GLB beradi (OBJ/STL materialni yo'qotadi); preview —
   brauzer ko'rinishi, fotosurat emas; litsenziya va sotuvchi maydonlari faqat
   foydalanuvchi kiritganda yoziladi; marketplace tekshiruvi o'tkazilmagan.
+
+#### v2 paket (6.1) — ko'p formatli
+
+`AssetPackageV2Panel` bitta ZIP ichida **GLB + OBJ/MTL + STL + 3MF** yig'adi:
+
+| Yo'l | Mazmuni |
+| --- | --- |
+| `models/model.glb` | to'liq PBR: materiallar, teksturalar, transformlar, nomlar |
+| `models/model.obj` + `models/model.mtl` | DCC tahriri uchun; `mtllib`, `usemtl`, `Kd`, `Ns` |
+| `textures/*.png` | MTL havola qilgan teksturalar (base color, normal) |
+| `models/model.stl`, `models/model.3mf` | print/slicer uchun, millimetrda |
+| `previews/*.png` | 6 rakurs, real viewport'dan |
+| `metadata.json` | `product`, `units`, har bir model uchun `unit`/`sha256`/statistika |
+| `README.txt` | tarkib, birliklar, cheklovlar, litsenziya holati |
+| `LICENSE.txt` | faqat foydalanuvchi matn kiritganda |
+| `checksums.txt` | har bir faylning SHA-256 qiymati |
+
+- **Litsenziya** endi tuzilgan maydonlar bilan: nom, SPDX, matn fayli,
+  `attributionRequired`, `commercialUseAllowed` va qisqa `terms`. Ko'rsatilmagan
+  shart "yo'q" deb o'qilmaydi — README'da "ko'rsatilmagan" deb yoziladi.
+- Litsenziya umuman kiritilmasa, README aniq fallback beradi: aktivlar uchun
+  foydalanish huquqi berilmagan va shartlar tasdiqlanmagan.
+- Paket qurilgandan **keyin o'zi qayta tekshiriladi** (`verifyAssetPackageV2`):
+  fayl ro'yxati, hajmlar, SHA-256, MTL havolalari va model statistikasi. Tekshiruv
+  o'tmasa, paket "tayyor" deb qaytarilmaydi.
 
 ### Tekshirish (A yakuni)
 
@@ -812,3 +849,5 @@ Bu bosqich **production deploy qilinmagan**; faqat tayyorgarlik va tekshiruv.
 - [`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md) — W12 xavfsizlik auditi.
 - [`docs/RELEASE_GATE.md`](docs/RELEASE_GATE.md) — release mezonlari va bloklovchilar.
 - [`docs/W12_TEST_REPORT.md`](docs/W12_TEST_REPORT.md) — test va migratsiya natijalari.
+- [`docs/FBX_DECISION.md`](docs/FBX_DECISION.md) — FBX bo‘yicha texnik baholash va
+  implementatsiya qilmaslik qarori (dalillar bilan).
