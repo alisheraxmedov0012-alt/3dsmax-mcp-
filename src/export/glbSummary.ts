@@ -44,18 +44,37 @@ interface GltfPrimitive {
   attributes?: Record<string, number>;
 }
 
-interface GltfJson {
+/**
+ * The parts of a glTF 2.0 document this module reads.
+ *
+ * Deliberately a narrow structural type rather than a full schema: both the
+ * packaging inspector and the importer only look at container facts, and neither
+ * should pretend to validate a whole glTF file.
+ */
+export interface GltfJson {
   asset?: { generator?: string; version?: string };
+  scene?: number;
+  scenes?: unknown[];
+  nodes?: Array<{ children?: number[]; mesh?: number }>;
   meshes?: Array<{ primitives?: GltfPrimitive[] }>;
   materials?: Array<{ name?: string }>;
-  textures?: unknown[];
+  textures?: Array<{ source?: number }>;
   images?: Array<{ bufferView?: number; mimeType?: string; uri?: string }>;
-  buffers?: Array<{ uri?: string }>;
-  accessors?: Array<{ count?: number }>;
-  bufferViews?: Array<{ byteOffset?: number; byteLength?: number }>;
+  buffers?: Array<{ uri?: string; byteLength?: number }>;
+  accessors?: Array<{
+    count?: number;
+    componentType?: number;
+    type?: string;
+    bufferView?: number;
+    byteOffset?: number;
+  }>;
+  bufferViews?: Array<{ buffer?: number; byteOffset?: number; byteLength?: number }>;
+  skins?: unknown[];
+  extensionsRequired?: string[];
+  extensionsUsed?: string[];
 }
 
-function failure(reason: string): GlbSummaryResult {
+function failure(reason: string): { ok: false; reason: string } {
   return { ok: false, reason };
 }
 
@@ -142,8 +161,30 @@ function summarizeImages(gltf: GltfJson, bin: Uint8Array | null): GlbImageSummar
   });
 }
 
-/** Parse a GLB buffer and report the facts a buyer or a test can verify. */
-export function summarizeGlb(data: ArrayBuffer): GlbSummaryResult {
+export interface GlbContainer {
+  version: number;
+  /** Total file size in bytes. */
+  bytes: number;
+  json: GltfJson;
+  /** JSON chunk length as stored in the file (padding included). */
+  jsonChunkBytes: number;
+  bin: Uint8Array | null;
+}
+
+export type GlbContainerResult =
+  | { ok: true; container: GlbContainer }
+  | { ok: false; reason: string };
+
+/**
+ * Parse and bounds-check the GLB container.
+ *
+ * This is the only GLB reader in the project: the packaging inspector
+ * (`summarizeGlb`) and the Phase 6.2 importer both build on it, so there is one
+ * definition of "a well-formed GLB container" and one set of failure reasons.
+ * It stops at the container: the JSON payload is decoded but not validated as a
+ * glTF document.
+ */
+export function parseGlbContainer(data: ArrayBuffer): GlbContainerResult {
   if (data.byteLength < 20) {
     return failure('GLB fayl sarlavhasi uchun juda kichik.');
   }
@@ -189,6 +230,20 @@ export function summarizeGlb(data: ArrayBuffer): GlbSummaryResult {
     return failure('GLB JSON chunk o‘qilmadi.');
   }
 
+  return {
+    ok: true,
+    container: { version, bytes: data.byteLength, json: gltf, jsonChunkBytes: json.length, bin },
+  };
+}
+
+/** Parse a GLB buffer and report the facts a buyer or a test can verify. */
+export function summarizeGlb(data: ArrayBuffer): GlbSummaryResult {
+  const parsed = parseGlbContainer(data);
+  if (!parsed.ok) {
+    return failure(parsed.reason);
+  }
+  const { version, bytes, json: gltf, bin } = parsed.container;
+
   const primitives = (gltf.meshes ?? []).reduce(
     (sum, mesh) => sum + (mesh.primitives?.length ?? 0),
     0,
@@ -198,7 +253,7 @@ export function summarizeGlb(data: ArrayBuffer): GlbSummaryResult {
     ok: true,
     summary: {
       version,
-      bytes: data.byteLength,
+      bytes,
       generator: gltf.asset?.generator ?? null,
       meshes: gltf.meshes?.length ?? 0,
       primitives,
