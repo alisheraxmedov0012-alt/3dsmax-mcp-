@@ -78,28 +78,65 @@ export interface QualityProfile {
   budgetSeverity: BudgetSeverity;
 }
 
+export type MeasurementCertainty = 'exact' | 'approximate' | 'not_verified';
+
 export interface TextureMetric {
   id: string;
   name: string;
   width: number;
   height: number;
   estimatedBytes: number;
+  payloadSource: 'exact' | 'estimated' | 'unavailable';
   format: string;
   missingImage: boolean;
 }
 
+export interface UvDensityMetric {
+  min: number;
+  max: number;
+  average: number;
+  certainty: MeasurementCertainty;
+  unit: 'texels/cm';
+}
+
+export interface UvDiagnostic {
+  geometryId: string;
+  meshNames: string[];
+  uvTriangles: number;
+  degenerateTriangles: number;
+  minU: number | null;
+  maxU: number | null;
+  minV: number | null;
+  maxV: number | null;
+  overlapCandidates: number;
+  overlapStatus: MeasurementCertainty;
+  overlapCapped: boolean;
+  texelDensity: UvDensityMetric | null;
+  notes: string[];
+}
+
 export interface QualityMetrics {
-  triangles: number;
-  vertices: number;
-  meshes: number;
-  objects: number;
+  /** Unique BufferGeometry metrics: storage/buffer complexity. */
   uniqueGeometries: number;
+  uniqueGeometryTriangles: number;
+  uniqueGeometryVertices: number;
+
+  /** Exported scene-instance metrics: rendering/scene complexity. */
+  meshNodes: number;
+  sceneTriangles: number;
+  sceneVertices: number;
+  objectGroups: number;
+  sceneNodes: number;
+  instancedMeshNodes: number;
+  instancedInstances: number;
+
   degenerateTriangles: number;
   invalidGeometries: number;
   nonFiniteVertices: number;
 
   textures: TextureMetric[];
   texturePayloadBytes: number;
+  texturePayloadCertainty: MeasurementCertainty;
   texturePixels: number;
   maxTextureWidth: number;
   maxTextureHeight: number;
@@ -108,17 +145,26 @@ export interface QualityMetrics {
   missingMaterialReferences: number;
   invalidTextureReferences: number;
   unsupportedMaterials: number;
+  invalidBaseColors: number;
+  invalidPbrMaterials: number;
+  invalidAlphaMaterials: number;
 
   uvMissingForTextured: number;
+  normalMappedWithoutUv: number;
   uvNonFinite: number;
   uvCountMismatch: number;
   uvMaxAbs: number;
+  uvDegenerateTriangles: number;
+  uvOverlapCandidates: number;
+  uvOverlapStatus: MeasurementCertainty;
+  uvTexelDensity: UvDensityMetric | null;
+  uvDiagnostics: UvDiagnostic[];
 
   missingNormals: number;
   nonFiniteNormals: number;
   invalidNormalLengths: number;
 
-  normalMappedMeshes: number;
+  normalMappedMeshNodes: number;
   missingTangents: number;
   invalidTangents: number;
 
@@ -134,6 +180,8 @@ export interface QualityCheck {
   limit: number | string | null;
   message: string;
   remediation: string;
+  /** Distinguishes exact measurements from estimates and unavailable diagnostics. */
+  certainty: MeasurementCertainty;
 }
 
 export interface QualitySummary {

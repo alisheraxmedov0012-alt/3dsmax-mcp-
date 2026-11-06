@@ -298,6 +298,10 @@ function componentDetail(name, component) {
       return component.summary
         ? `${component.budgetStatus}; ${component.summary.pass} pass, ${component.summary.warning} warning, ${component.summary.block} block`
         : component.budgetStatus ?? 'Measured.';
+    case 'goldenRegression':
+      return component.failures?.length
+        ? `${component.failures.length} regression(s): ${component.failures[0]}`
+        : `baseline v${component.baselineVersion ?? '?'}; ${component.notVerified?.length ?? 0} not verified`;
     default:
       return 'Passed.';
   }
@@ -315,6 +319,8 @@ function componentLabel(name) {
       return 'Blender import';
     case 'qualityBudget':
       return 'Quality budget';
+    case 'goldenRegression':
+      return 'Golden regression';
     default:
       return name;
   }
@@ -443,22 +449,112 @@ export function renderMarkdown(report) {
       lines.push('', budget.message);
     }
 
+    const metrics = budget.metrics ?? {};
+    lines.push(
+      '',
+      '### Metric summary',
+      '',
+      '| Metric | Value | Certainty |',
+      '| --- | --- | --- |',
+      `| Unique geometries | ${metrics.uniqueGeometries ?? 0} | exact |`,
+      `| Unique geometry triangles | ${metrics.uniqueGeometryTriangles ?? 0} | exact |`,
+      `| Unique geometry vertices | ${metrics.uniqueGeometryVertices ?? 0} | exact |`,
+      `| Mesh nodes | ${metrics.meshNodes ?? 0} | exact |`,
+      `| Scene triangles | ${metrics.sceneTriangles ?? 0} | exact |`,
+      `| Scene vertices | ${metrics.sceneVertices ?? 0} | exact |`,
+      `| Object groups | ${metrics.objectGroups ?? 0} | exact |`,
+      `| Scene nodes (pre-export root) | ${metrics.sceneNodes ?? 0} | exact |`,
+      `| Instanced mesh nodes / instances | ${metrics.instancedMeshNodes ?? 0} / ${metrics.instancedInstances ?? 0} | exact |`,
+      `| Texture payload | ${metrics.texturePayloadBytes ?? 0} bytes | ${metrics.texturePayloadCertainty ?? 'not_verified'} |`,
+      `| Texture pixels | ${metrics.texturePixels ?? 0} | exact |`,
+      `| UV degenerate triangles | ${metrics.uvDegenerateTriangles ?? 0} | exact |`,
+      `| UV overlap candidates | ${metrics.uvOverlapCandidates ?? 0} | ${metrics.uvOverlapStatus ?? 'not_verified'} |`,
+      `| Texel density | ${metrics.uvTexelDensity ? `${metrics.uvTexelDensity.min.toFixed(3)}–${metrics.uvTexelDensity.max.toFixed(3)} texels/cm` : 'NOT VERIFIED'} | ${metrics.uvTexelDensity?.certainty ?? 'not_verified'} |`,
+      `| Invalid base colours | ${metrics.invalidBaseColors ?? 0} | exact |`,
+      `| Invalid PBR ranges | ${metrics.invalidPbrMaterials ?? 0} | exact |`,
+      `| Invalid alpha configs | ${metrics.invalidAlphaMaterials ?? 0} | exact |`,
+      `| Normal maps without UV | ${metrics.normalMappedWithoutUv ?? 0} | exact |`,
+    );
+
+    const textures = metrics.textures ?? [];
+    if (textures.length > 0) {
+      lines.push(
+        '',
+        '### Texture diagnostics',
+        '',
+        '| Texture | Size | Format | Bytes | Source |',
+        '| --- | --- | --- | --- | --- |',
+      );
+      for (const texture of textures) {
+        lines.push(
+          `| ${mdCell(texture.name)} | ${texture.width}×${texture.height} | ${mdCell(texture.format)} | ${texture.estimatedBytes} | ${mdCell(texture.payloadSource)} |`,
+        );
+      }
+    }
+
+    const uvDiagnostics = metrics.uvDiagnostics ?? [];
+    if (uvDiagnostics.length > 0) {
+      lines.push(
+        '',
+        '### UV diagnostics',
+        '',
+        '| Mesh | UV triangles | Degenerate | Overlap | Overlap status | Texel density |',
+        '| --- | --- | --- | --- | --- | --- |',
+      );
+      for (const diagnostic of uvDiagnostics.slice(0, 20)) {
+        const density = diagnostic.texelDensity
+          ? `${diagnostic.texelDensity.min.toFixed(3)}–${diagnostic.texelDensity.max.toFixed(3)}`
+          : 'NOT VERIFIED';
+        lines.push(
+          `| ${mdCell(diagnostic.meshNames?.[0] ?? diagnostic.geometryId)} | ${diagnostic.uvTriangles} | ${diagnostic.degenerateTriangles} | ${diagnostic.overlapCandidates} | ${mdCell(diagnostic.overlapStatus)} | ${mdCell(density)} |`,
+        );
+      }
+    }
+
     const checks = budget.checks ?? [];
     lines.push(
       '',
       '### Budget checks',
       '',
-      '| Check | Status | Actual | Limit | Message |',
-      '| --- | --- | --- | --- | --- |',
+      '| Check | Status | Actual | Limit | Certainty | Message |',
+      '| --- | --- | --- | --- | --- | --- |',
     );
     if (checks.length === 0) {
-      lines.push('| None | PASS | — | — | — |');
+      lines.push('| None | PASS | — | — | exact | — |');
     } else {
       for (const entry of checks) {
         lines.push(
-          `| ${mdCell(entry.label)} | ${mdCell(entry.status)} | ${mdCell(entry.actual)} | ${mdCell(entry.limit)} | ${mdCell(entry.message)} |`,
+          `| ${mdCell(entry.label)} | ${mdCell(entry.status)} | ${mdCell(entry.actual)} | ${mdCell(entry.limit)} | ${mdCell(entry.certainty ?? 'exact')} | ${mdCell(entry.message)} |`,
         );
       }
+    }
+  }
+
+  const golden = report.components?.goldenRegression;
+  lines.push('', '## Golden regression', '');
+  if (!golden) {
+    lines.push('No data.');
+  } else if (golden.status === STATUS.NOT_VERIFIED) {
+    lines.push(`**${STATUS.NOT_VERIFIED}** — ${golden.reason ?? 'Baseline unavailable.'}`);
+  } else {
+    lines.push(`**${golden.status}** — baseline v${golden.baselineVersion ?? '?'}.`);
+    if (golden.failures?.length) {
+      lines.push('', '### Failures', '', ...listBlock(golden.failures));
+    }
+    if (golden.notVerified?.length) {
+      lines.push('', '### Not verified', '', ...listBlock(golden.notVerified));
+    }
+    lines.push(
+      '',
+      '### Metric comparison',
+      '',
+      '| Metric | Expected | Actual | Status |',
+      '| --- | --- | --- | --- |',
+    );
+    for (const entry of golden.checks ?? []) {
+      lines.push(
+        `| ${mdCell(entry.path)} | ${mdCell(entry.expected)} | ${mdCell(entry.actual ?? 'NOT VERIFIED')} | ${mdCell(entry.status)} |`,
+      );
     }
   }
 

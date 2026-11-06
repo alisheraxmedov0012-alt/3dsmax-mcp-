@@ -3,7 +3,14 @@ import { validateDegenerate } from '../../geometry/kernel/validation/validateDeg
 import { validateNormals } from '../../geometry/kernel/validation/validateNormals';
 import { validateUvGeometry } from '../../materials/uv';
 import { validateTangentAttribute } from '../tangents';
-import type { QualityMetrics, TextureMetric } from './types';
+import { analyzeUvQuality } from './uvDiagnostics';
+import type {
+  MeasurementCertainty,
+  QualityMetrics,
+  TextureMetric,
+  UvDensityMetric,
+  UvDiagnostic,
+} from './types';
 
 const TEXTURE_KEYS = [
   'map',
@@ -67,48 +74,174 @@ function textureFormat(texture: THREE.Texture): string {
   return 'unknown';
 }
 
-function textureBytes(texture: THREE.Texture, width: number, height: number): number {
+function textureBytes(
+  texture: THREE.Texture,
+  width: number,
+  height: number,
+): { bytes: number; source: 'exact' | 'estimated' | 'unavailable' } {
   const source = texture.source?.data as
     | { byteLength?: number; size?: number }
     | ArrayBuffer
     | Uint8Array
     | undefined;
-  if (source instanceof ArrayBuffer) return source.byteLength;
-  if (source instanceof Uint8Array) return source.byteLength;
+  if (source instanceof ArrayBuffer) return { bytes: source.byteLength, source: 'exact' };
+  if (source instanceof Uint8Array) return { bytes: source.byteLength, source: 'exact' };
   if (source && typeof source === 'object') {
-    if (typeof source.byteLength === 'number') return source.byteLength;
-    if (typeof source.size === 'number') return source.size;
+    if (typeof source.byteLength === 'number') return { bytes: source.byteLength, source: 'exact' };
+    if (typeof source.size === 'number') return { bytes: source.size, source: 'exact' };
   }
   const image = texture.image as { data?: { byteLength?: number } } | null | undefined;
-  if (image?.data && typeof image.data.byteLength === 'number') return image.data.byteLength;
-  return Math.max(0, width * height * 4);
+  if (image?.data && typeof image.data.byteLength === 'number') {
+    return { bytes: image.data.byteLength, source: 'estimated' };
+  }
+  if (width > 0 && height > 0) {
+    return { bytes: width * height * 4, source: 'estimated' };
+  }
+  return { bytes: 0, source: 'unavailable' };
+}
+
+function materialDiagnostics(material: THREE.Material): {
+  invalidBaseColor: boolean;
+  invalidPbr: boolean;
+  invalidAlpha: boolean;
+} {
+  const color = (material as THREE.MeshStandardMaterial).color;
+  const invalidBaseColor =
+    !(color instanceof THREE.Color) ||
+    ![color.r, color.g, color.b].every(
+      (value) => Number.isFinite(value) && value >= 0 && value <= 1,
+    );
+
+  let invalidPbr = false;
+  if (material instanceof THREE.MeshStandardMaterial) {
+    invalidPbr =
+      !Number.isFinite(material.metalness) ||
+      !Number.isFinite(material.roughness) ||
+      material.metalness < 0 ||
+      material.metalness > 1 ||
+      material.roughness < 0 ||
+      material.roughness > 1;
+  }
+
+  const opacity = material.opacity;
+  const alphaTest = (material as THREE.Material & { alphaTest?: number }).alphaTest ?? 0;
+  const invalidAlpha =
+    !Number.isFinite(opacity) ||
+    opacity < 0 ||
+    opacity > 1 ||
+    !Number.isFinite(alphaTest) ||
+    alphaTest < 0 ||
+    alphaTest > 1;
+
+  return { invalidBaseColor, invalidPbr, invalidAlpha };
+}
+
+function worldArea(geometry: THREE.BufferGeometry, matrix: THREE.Matrix4): number {
+  const position = geometry.getAttribute('position');
+  if (!position) return 0;
+  const index = geometry.getIndex();
+  const triangleCount = index ? index.count / 3 : position.count / 3;
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+  const ab = new THREE.Vector3();
+  const ac = new THREE.Vector3();
+  let area = 0;
+
+  for (let triangle = 0; triangle < triangleCount; triangle += 1) {
+    const ia = index ? index.getX(triangle * 3) : triangle * 3;
+    const ib = index ? index.getX(triangle * 3 + 1) : triangle * 3 + 1;
+    const ic = index ? index.getX(triangle * 3 + 2) : triangle * 3 + 2;
+    a.fromBufferAttribute(position, ia).applyMatrix4(matrix);
+    b.fromBufferAttribute(position, ib).applyMatrix4(matrix);
+    c.fromBufferAttribute(position, ic).applyMatrix4(matrix);
+    ab.subVectors(b, a);
+    ac.subVectors(c, a);
+    area += ab.cross(ac).length() / 2;
+  }
+  return area;
+}
+
+function aggregateDensity(values: number[]): UvDensityMetric | null {
+  if (values.length === 0) return null;
+  return {
+    min: Math.min(...values),
+    max: Math.max(...values),
+    average: values.reduce((sum, value) => sum + value, 0) / values.length,
+    certainty: 'approximate',
+    unit: 'texels/cm',
+  };
+}
+
+function textureCertainty(metrics: readonly TextureMetric[]): MeasurementCertainty {
+  if (metrics.some((texture) => texture.payloadSource === 'unavailable')) {
+    return 'not_verified';
+  }
+  if (metrics.some((texture) => texture.payloadSource === 'estimated')) {
+    return 'approximate';
+  }
+  return 'exact';
 }
 
 /**
  * Read-only measurement of a built export scene.
  *
- * Geometry facts come from the project's existing validators. Texture payload
- * bytes are an estimate (`width * height * 4`) when the runtime image only
- * exposes pixels; the exporter later re-checks the produced file's actual image
- * chunks.
+ * Unique geometry metrics describe the data that is stored once; scene metrics
+ * describe every visible mesh node, including repeated geometry and InstancedMesh
+ * counts. The primary complexity budget uses the scene totals.
  */
 export function collectQualityMetrics(root: THREE.Object3D): QualityMetrics {
+  root.updateMatrixWorld(true);
+
   const geometryByUuid = new Map<string, THREE.BufferGeometry>();
   const geometryFlags = new Map<string, { requiresUv: boolean; normalMapped: boolean }>();
+  const geometryNames = new Map<string, string[]>();
+  const geometryTexturePixels = new Map<string, number | null>();
+  const geometryWorldArea = new Map<string, number | null>();
+  const meshEntries: Array<{ geometryUuid: string; instances: number }> = [];
   const textureByUuid = new Map<string, THREE.Texture>();
   const materialByUuid = new Map<string, THREE.Material>();
   const unsupportedMaterialIds = new Set<string>();
   const invalidTextureIds = new Set<string>();
+  const invalidBaseColorIds = new Set<string>();
+  const invalidPbrIds = new Set<string>();
+  const invalidAlphaIds = new Set<string>();
 
-  let meshes = 0;
-  let normalMappedMeshes = 0;
+  let meshNodes = 0;
+  let normalMappedMeshNodes = 0;
+  let sceneNodes = 0;
+  let instancedMeshNodes = 0;
+  let instancedInstances = 0;
   let missingMaterialReferences = 0;
 
   root.traverseVisible((object) => {
+    if (object !== root) sceneNodes += 1;
     const mesh = object as THREE.Mesh;
     if (!mesh.isMesh || !mesh.geometry) return;
-    meshes += 1;
+    meshNodes += 1;
     geometryByUuid.set(mesh.geometry.uuid, mesh.geometry);
+
+    const names = geometryNames.get(mesh.geometry.uuid) ?? [];
+    if (mesh.name) names.push(mesh.name);
+    geometryNames.set(mesh.geometry.uuid, names);
+
+    const instanced = (mesh as THREE.InstancedMesh).isInstancedMesh === true;
+    const instances = instanced ? Math.max(1, (mesh as THREE.InstancedMesh).count) : 1;
+    if (instanced) {
+      instancedMeshNodes += 1;
+      instancedInstances += instances;
+    }
+    meshEntries.push({ geometryUuid: mesh.geometry.uuid, instances });
+
+    if (!geometryWorldArea.has(mesh.geometry.uuid)) {
+      const matrix = mesh.matrixWorld.clone();
+      if (instanced) {
+        const instanceMatrix = new THREE.Matrix4();
+        (mesh as THREE.InstancedMesh).getMatrixAt(0, instanceMatrix);
+        matrix.multiply(instanceMatrix);
+      }
+      geometryWorldArea.set(mesh.geometry.uuid, worldArea(mesh.geometry, matrix));
+    }
 
     const materials = materialsOf(mesh.material);
     if (materials.length === 0) {
@@ -125,9 +258,28 @@ export function collectQualityMetrics(root: THREE.Object3D): QualityMetrics {
         !(material instanceof THREE.MeshBasicMaterial)
       ) {
         unsupportedMaterialIds.add(material.uuid);
+      } else {
+        const diagnostics = materialDiagnostics(material);
+        if (diagnostics.invalidBaseColor) invalidBaseColorIds.add(material.uuid);
+        if (diagnostics.invalidPbr) invalidPbrIds.add(material.uuid);
+        if (diagnostics.invalidAlpha) invalidAlphaIds.add(material.uuid);
       }
+
       if (materialHasTexture(material)) requiresUv = true;
       if (materialHasNormalMap(material)) normalMapped = true;
+
+      const baseMap = textureOf(material, 'map');
+      if (baseMap) {
+        const { width, height } = imageSize(baseMap);
+        if (width > 0 && height > 0) {
+          const pixels = width * height;
+          const previous = geometryTexturePixels.get(mesh.geometry.uuid) ?? 0;
+          geometryTexturePixels.set(
+            mesh.geometry.uuid,
+            Math.max(previous ?? 0, pixels),
+          );
+        }
+      }
 
       for (const key of TEXTURE_KEYS) {
         const texture = textureOf(material, key);
@@ -140,7 +292,7 @@ export function collectQualityMetrics(root: THREE.Object3D): QualityMetrics {
       }
     }
 
-    if (normalMapped) normalMappedMeshes += 1;
+    if (normalMapped) normalMappedMeshNodes += 1;
     const flags = geometryFlags.get(mesh.geometry.uuid) ?? {
       requiresUv: false,
       normalMapped: false,
@@ -150,15 +302,22 @@ export function collectQualityMetrics(root: THREE.Object3D): QualityMetrics {
     geometryFlags.set(mesh.geometry.uuid, flags);
   });
 
-  let triangles = 0;
-  let vertices = 0;
+  let uniqueGeometryTriangles = 0;
+  let uniqueGeometryVertices = 0;
   let degenerateTriangles = 0;
   let invalidGeometries = 0;
   let nonFiniteVertices = 0;
   let uvMissingForTextured = 0;
+  let normalMappedWithoutUv = 0;
   let uvNonFinite = 0;
   let uvCountMismatch = 0;
   let uvMaxAbs = 0;
+  let uvDegenerateTriangles = 0;
+  let uvOverlapCandidates = 0;
+  let uvOverlapNotVerified = false;
+  const uvDiagnostics: UvDiagnostic[] = [];
+  const densityValues: number[] = [];
+  const geometryStats = new Map<string, { triangles: number; vertices: number }>();
   let missingNormals = 0;
   let nonFiniteNormals = 0;
   let invalidNormalLengths = 0;
@@ -169,13 +328,15 @@ export function collectQualityMetrics(root: THREE.Object3D): QualityMetrics {
   for (const [uuid, geometry] of geometryByUuid) {
     const flags = geometryFlags.get(uuid) ?? { requiresUv: false, normalMapped: false };
     const degenerate = validateDegenerate(geometry);
-    triangles += degenerate.triangleCount;
+    const position = geometry.getAttribute('position');
+    const vertices = position?.count ?? 0;
+    geometryStats.set(uuid, { triangles: degenerate.triangleCount, vertices });
+    uniqueGeometryTriangles += degenerate.triangleCount;
+    uniqueGeometryVertices += vertices;
     degenerateTriangles += degenerate.degenerateTriangles;
     nonFiniteVertices += degenerate.nonFiniteVertices;
     if (!degenerate.valid) invalidGeometries += 1;
 
-    const position = geometry.getAttribute('position');
-    if (position) vertices += position.count;
     for (const attribute of Object.values(geometry.attributes)) {
       const array = (attribute as { array?: { byteLength?: number } }).array;
       if (array && typeof array.byteLength === 'number') bufferBytes += array.byteLength;
@@ -191,6 +352,7 @@ export function collectQualityMetrics(root: THREE.Object3D): QualityMetrics {
     const uv = validateUvGeometry(geometry);
     if (!uv.hasUv) {
       if (flags.requiresUv) uvMissingForTextured += 1;
+      if (flags.normalMapped) normalMappedWithoutUv += 1;
     } else {
       uvNonFinite += uv.nonFiniteCount;
       if (uv.uvCount !== uv.positionCount) uvCountMismatch += 1;
@@ -203,6 +365,17 @@ export function collectQualityMetrics(root: THREE.Object3D): QualityMetrics {
           Math.abs(uv.maxV),
         );
       }
+
+      const diagnostic = analyzeUvQuality(geometry, {
+        meshNames: geometryNames.get(uuid) ?? [],
+        texturePixels: geometryTexturePixels.get(uuid) ?? null,
+        worldArea: geometryWorldArea.get(uuid) ?? null,
+      });
+      uvDiagnostics.push(diagnostic);
+      uvDegenerateTriangles += diagnostic.degenerateTriangles;
+      uvOverlapCandidates += diagnostic.overlapCandidates;
+      if (diagnostic.overlapStatus === 'not_verified') uvOverlapNotVerified = true;
+      if (diagnostic.texelDensity) densityValues.push(diagnostic.texelDensity.average);
     }
 
     if (flags.normalMapped) {
@@ -221,18 +394,29 @@ export function collectQualityMetrics(root: THREE.Object3D): QualityMetrics {
     }
   }
 
+  let sceneTriangles = 0;
+  let sceneVertices = 0;
+  for (const entry of meshEntries) {
+    const stats = geometryStats.get(entry.geometryUuid);
+    if (!stats) continue;
+    sceneTriangles += stats.triangles * entry.instances;
+    sceneVertices += stats.vertices * entry.instances;
+  }
+
   const textures: TextureMetric[] = [...textureByUuid.values()]
     .map((texture) => {
       const { width, height } = imageSize(texture);
+      const payload = textureBytes(texture, width, height);
       return {
         id: texture.uuid,
         name: texture.name || texture.uuid,
         width,
         height,
-        estimatedBytes: textureBytes(texture, width, height),
+        estimatedBytes: payload.bytes,
+        payloadSource: width <= 0 || height <= 0 ? 'unavailable' : payload.source,
         format: textureFormat(texture),
         missingImage: width <= 0 || height <= 0,
-      };
+      } satisfies TextureMetric;
     })
     .sort((left, right) => left.name.localeCompare(right.name));
 
@@ -249,16 +433,22 @@ export function collectQualityMetrics(root: THREE.Object3D): QualityMetrics {
   );
 
   return {
-    triangles,
-    vertices,
-    meshes,
-    objects: root.children.filter((child) => child.visible).length,
     uniqueGeometries: geometryByUuid.size,
+    uniqueGeometryTriangles,
+    uniqueGeometryVertices,
+    meshNodes,
+    sceneTriangles,
+    sceneVertices,
+    objectGroups: root.children.filter((child) => child.visible).length,
+    sceneNodes,
+    instancedMeshNodes,
+    instancedInstances,
     degenerateTriangles,
     invalidGeometries,
     nonFiniteVertices,
     textures,
     texturePayloadBytes,
+    texturePayloadCertainty: textureCertainty(textures),
     texturePixels,
     maxTextureWidth,
     maxTextureHeight,
@@ -266,14 +456,26 @@ export function collectQualityMetrics(root: THREE.Object3D): QualityMetrics {
     missingMaterialReferences,
     invalidTextureReferences: invalidTextureIds.size,
     unsupportedMaterials: unsupportedMaterialIds.size,
+    invalidBaseColors: invalidBaseColorIds.size,
+    invalidPbrMaterials: invalidPbrIds.size,
+    invalidAlphaMaterials: invalidAlphaIds.size,
     uvMissingForTextured,
+    normalMappedWithoutUv,
     uvNonFinite,
     uvCountMismatch,
     uvMaxAbs,
+    uvDegenerateTriangles,
+    uvOverlapCandidates,
+    uvOverlapStatus:
+      uvDiagnostics.length === 0 || uvOverlapNotVerified ? 'not_verified' : 'approximate',
+    uvTexelDensity: aggregateDensity(densityValues),
+    uvDiagnostics: uvDiagnostics.sort((left, right) =>
+      (left.meshNames[0] ?? '').localeCompare(right.meshNames[0] ?? ''),
+    ),
     missingNormals,
     nonFiniteNormals,
     invalidNormalLengths,
-    normalMappedMeshes,
+    normalMappedMeshNodes,
     missingTangents,
     invalidTangents,
     estimatedFileBytes: 12 + bufferBytes + texturePayloadBytes + jsonOverhead,

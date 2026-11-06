@@ -90,6 +90,65 @@ describe('quality profiles', () => {
   });
 });
 
+describe('instance-aware geometry metrics', () => {
+  it('counts one geometry once but every mesh node for the scene totals', () => {
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    const material = new THREE.MeshStandardMaterial();
+    const root = new THREE.Group();
+    for (let index = 0; index < 4; index += 1) {
+      root.add(new THREE.Mesh(geometry, material));
+    }
+
+    const metrics = metricsFor(root);
+
+    expect(metrics.uniqueGeometries).toBe(1);
+    expect(metrics.uniqueGeometryTriangles).toBe(12);
+    expect(metrics.uniqueGeometryVertices).toBe(24);
+    expect(metrics.meshNodes).toBe(4);
+    expect(metrics.sceneTriangles).toBe(48);
+    expect(metrics.sceneVertices).toBe(96);
+    expect(metrics.objectGroups).toBe(4);
+    expect(metrics.sceneNodes).toBe(4);
+    expect(metrics.instancedMeshNodes).toBe(0);
+    expect(metrics.instancedInstances).toBe(0);
+  });
+
+  it('accounts for InstancedMesh count in scene totals', () => {
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    const material = new THREE.MeshStandardMaterial();
+    const mesh = new THREE.InstancedMesh(geometry, material, 5);
+    const root = new THREE.Group();
+    root.add(mesh);
+
+    const metrics = metricsFor(root);
+
+    expect(metrics.uniqueGeometries).toBe(1);
+    expect(metrics.meshNodes).toBe(1);
+    expect(metrics.sceneTriangles).toBe(60);
+    expect(metrics.sceneVertices).toBe(120);
+    expect(metrics.instancedMeshNodes).toBe(1);
+    expect(metrics.instancedInstances).toBe(5);
+  });
+
+  it('uses scene totals for triangle and vertex budgets', () => {
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    const material = new THREE.MeshStandardMaterial();
+    const root = new THREE.Group();
+    for (let index = 0; index < 4; index += 1) {
+      root.add(new THREE.Mesh(geometry, material));
+    }
+    const profile = createCustomProfile(
+      { geometry: { maxTriangles: 12, maxVertices: 24 } },
+      'WARNING',
+    );
+    const result = evaluateQualityPreflight(metricsFor(root), profile, { format: 'glb' });
+    expect(check(result, 'geometry.triangles').actual).toBe(48);
+    expect(check(result, 'geometry.vertices').actual).toBe(96);
+    expect(check(result, 'geometry.triangles').status).toBe('WARNING');
+    expect(check(result, 'geometry.unique_triangles').actual).toBe(12);
+  });
+});
+
 describe('geometry budgets', () => {
   it('warns when the triangle budget is exceeded', () => {
     const { root } = boxMesh();
@@ -112,12 +171,12 @@ describe('geometry budgets', () => {
     const metrics = metricsFor(root);
     const pass = evaluateQualityPreflight(
       metrics,
-      createCustomProfile({ geometry: { maxVertices: metrics.vertices } }),
+      createCustomProfile({ geometry: { maxVertices: metrics.sceneVertices } }),
       { format: 'glb' },
     );
     const fail = evaluateQualityPreflight(
       metrics,
-      createCustomProfile({ geometry: { maxVertices: metrics.vertices - 1 } }, 'WARNING'),
+      createCustomProfile({ geometry: { maxVertices: metrics.sceneVertices - 1 } }, 'WARNING'),
       { format: 'glb' },
     );
     expect(check(pass, 'geometry.vertices').status).toBe('PASS');
@@ -337,6 +396,60 @@ describe('UV, normal, tangent and material checks', () => {
       format: 'glb',
     });
     expect(check(result, 'tangents.missing').status).toBe('BLOCK');
+  });
+
+  it('checks base colour, PBR ranges and alpha configuration', () => {
+    const { root, material } = boxMesh();
+    material.color.setRGB(2, 0, 0);
+    material.metalness = 2;
+    material.roughness = -1;
+    material.opacity = 2;
+
+    const metrics = metricsFor(root);
+    expect(metrics.invalidBaseColors).toBe(1);
+    expect(metrics.invalidPbrMaterials).toBe(1);
+    expect(metrics.invalidAlphaMaterials).toBe(1);
+
+    const result = evaluateQualityPreflight(metrics, QUALITY_PROFILES.standard, {
+      format: 'glb',
+    });
+    expect(check(result, 'materials.base_color').status).toBe('BLOCK');
+    expect(check(result, 'materials.pbr_ranges').status).toBe('BLOCK');
+    expect(check(result, 'materials.alpha').status).toBe('BLOCK');
+  });
+
+  it('blocks a normal map without UV coordinates', () => {
+    const { root, geometry, material } = boxMesh();
+    material.normalMap = textured(1, 1);
+    geometry.deleteAttribute('uv');
+    const metrics = metricsFor(root);
+    expect(metrics.normalMappedWithoutUv).toBe(1);
+    const result = evaluateQualityPreflight(metrics, QUALITY_PROFILES.standard, {
+      format: 'glb',
+    });
+    expect(check(result, 'materials.normal_map_uv').status).toBe('BLOCK');
+  });
+
+  it('marks estimated texture payloads instead of claiming exact measurements', () => {
+    const { root, material } = boxMesh();
+    material.map = textured(512, 512);
+    const estimated = metricsFor(root);
+    expect(estimated.texturePayloadCertainty).toBe('approximate');
+    expect(estimated.textures[0].payloadSource).toBe('estimated');
+
+    const exactTexture = new THREE.Texture();
+    exactTexture.image = {
+      width: 512,
+      height: 512,
+      byteLength: 1234,
+      getContext: () => null,
+    } as unknown as HTMLImageElement;
+    material.map = exactTexture;
+    const exact = metricsFor(root);
+    expect(exact.textures.find((texture) => texture.id === exactTexture.uuid)?.payloadSource).toBe(
+      'exact',
+    );
+    expect(exact.texturePayloadCertainty).toBe('exact');
   });
 
   it('blocks a missing material reference and an unsupported material', () => {

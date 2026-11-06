@@ -29,6 +29,8 @@ Options:
 --glb <path>    Validate an existing GLB instead of exporting a new one.
 --out <dir>     Report directory (default: qa-output).
 --no-blender    Skip Blender even when it is installed.
+--golden        Compare against the golden baseline (default for harness exports).
+--no-golden     Disable golden comparison.
 -h, --help      Show usage.
 ```
 
@@ -81,6 +83,14 @@ results and validator messages are both recorded without being suppressed.
 
 The harness never downloads anything during a run. The Khronos validator is an
 installed devDependency; Blender is only used if it is already present.
+
+## Golden regression
+
+The standard export is compared with
+`tools/qa/golden/quality-baseline.json`. Geometry, mesh, material and image
+counts are exact; GLB byte size has a 4 KiB / 2% tolerance. The baseline is
+versioned and must only be updated deliberately — see
+`tools/qa/golden/README.md`.
 
 ### Installing Blender
 

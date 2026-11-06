@@ -14,6 +14,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { exportGlb } from './export-glb.mjs';
+import { compareGolden, parseGlbMetrics } from './golden.mjs';
 import {
   buildReport,
   classifyBlender,
@@ -36,6 +37,8 @@ Options:
   --glb <path>    Validate an existing GLB instead of exporting a new one.
   --out <dir>     Report directory (default: qa-output).
   --no-blender    Skip Blender even when it is installed.
+  --golden        Compare against the golden baseline (default for harness exports).
+  --no-golden     Disable golden comparison.
   -h, --help      Show this help.
 
 Environment:
@@ -49,6 +52,7 @@ function parseArgs(argv) {
     glb: null,
     out: 'qa-output',
     noBlender: false,
+    golden: null,
     help: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
@@ -61,6 +65,10 @@ function parseArgs(argv) {
       index += 1;
     } else if (arg === '--no-blender') {
       args.noBlender = true;
+    } else if (arg === '--golden') {
+      args.golden = true;
+    } else if (arg === '--no-golden') {
+      args.golden = false;
     } else if (arg === '--help' || arg === '-h') {
       args.help = true;
     } else {
@@ -252,6 +260,11 @@ function limitationsFor(components) {
   if (components.qualityBudget?.status === STATUS.NOT_VERIFIED) {
     limitations.push(`Quality budget is NOT VERIFIED: ${components.qualityBudget.reason}`);
   }
+  if (components.goldenRegression?.status === STATUS.NOT_VERIFIED) {
+    limitations.push(
+      `Golden regression is NOT VERIFIED: ${components.goldenRegression.reason ?? 'unavailable'}`,
+    );
+  }
   return limitations;
 }
 
@@ -269,6 +282,15 @@ async function readQualityBudget(outDir) {
         error instanceof Error ? error.message : String(error)
       }`,
     };
+  }
+}
+
+async function readGoldenBaseline(root) {
+  const file = path.join(root, 'tools/qa/golden/quality-baseline.json');
+  try {
+    return JSON.parse(await fs.readFile(file, 'utf8'));
+  } catch {
+    return null;
   }
 }
 
@@ -347,11 +369,49 @@ async function main() {
   }
 
   const qualityBudget = classifyQualityBudget(await readQualityBudget(outDir));
+  const goldenEnabled = args.golden ?? !args.glb;
+  let goldenRegression;
+  if (!goldenEnabled) {
+    goldenRegression = {
+      status: STATUS.NOT_VERIFIED,
+      reason: 'Golden comparison disabled.',
+      baselineVersion: null,
+      checks: [],
+      failures: [],
+      notVerified: [],
+    };
+  } else {
+    const goldenBaseline = await readGoldenBaseline(repoRoot);
+    if (!goldenBaseline) {
+      goldenRegression = {
+        status: STATUS.NOT_VERIFIED,
+        reason: 'Golden baseline file is missing.',
+        baselineVersion: null,
+        checks: [],
+        failures: [],
+        notVerified: [],
+      };
+    } else {
+      goldenRegression = compareGolden(
+        {
+          glb: bytes ? parseGlbMetrics(bytes) : null,
+          budget: qualityBudget.metrics ?? null,
+          khronos:
+            khronos.status === STATUS.NOT_VERIFIED
+              ? null
+              : { errors: khronos.errors ?? null, warnings: khronos.warnings ?? null },
+          blender: blender.status === STATUS.PASS ? blender.metrics : null,
+        },
+        goldenBaseline,
+      );
+    }
+  }
   const components = {
     export: exportComponent,
     repoValidator,
     khronos,
     qualityBudget,
+    goldenRegression,
     blender,
   };
   const input = glbPath

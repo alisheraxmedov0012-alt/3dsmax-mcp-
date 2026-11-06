@@ -14,6 +14,7 @@ import {
   parseRepoValidatorOutput,
   renderMarkdown,
 } from './quality-lib.mjs';
+import { compareGolden } from './golden.mjs';
 
 const HASH = '8abc9b0d2109647a62451361066f83e1391b48a6fd7b789a0dd89631b698a4e0';
 
@@ -320,7 +321,7 @@ describe('quality budget harness integration', () => {
     const markdown = renderMarkdown(report);
     expect(markdown).toContain('## Quality budget');
     expect(markdown).toContain('profile `Standart`');
-    expect(markdown).toContain('| Uchburchaklar soni | WARNING | 10 | 1 |');
+    expect(markdown).toContain('| Uchburchaklar soni | WARNING | 10 | 1 | exact |');
     expect(markdown).toContain('File-size check used an estimate');
   });
 
@@ -329,5 +330,88 @@ describe('quality budget harness integration', () => {
     const parsed = JSON.parse(JSON.stringify(report));
     expect(parsed.components.qualityBudget.budgetStatus).toBe('WARNING');
     expect(parsed.components.qualityBudget.checks[0].id).toBe('geometry.triangles');
+  });
+});
+
+
+describe('golden regression comparison', () => {
+  const baseline = {
+    version: 1,
+    glb: {
+      bytes: 1000,
+      meshDefinitions: 64,
+      meshNodes: 67,
+      sceneNodes: 77,
+      primitives: 64,
+      nodeWeightedPrimitives: 67,
+      uniqueGeometryTriangles: 768,
+      uniqueGeometryVertices: 1536,
+      sceneTriangles: 804,
+      sceneVertices: 1608,
+      materials: 10,
+      images: 8,
+      textures: 8,
+      normalMappedMeshNodes: 35,
+      tangentCoveredNormalMappedMeshNodes: 35,
+      instancedMeshNodes: 0,
+      instancedInstances: 0,
+    },
+    budget: {
+      uniqueGeometries: 64,
+      uniqueGeometryTriangles: 768,
+      uniqueGeometryVertices: 1536,
+      meshNodes: 67,
+      sceneTriangles: 804,
+      sceneVertices: 1608,
+      objectGroups: 9,
+      sceneNodes: 77,
+      instancedMeshNodes: 0,
+      instancedInstances: 0,
+    },
+    khronos: { errors: 0, warnings: 0 },
+    blender: { objects: 77, meshes: 67, vertices: 1608, triangles: 804, materials: 10, images: 8, uvLayers: 67, zeroAreaPolygons: 0 },
+  };
+
+  it('passes within byte tolerance and exact geometry', () => {
+    const actual = JSON.parse(JSON.stringify(baseline));
+    actual.glb.bytes = 1500;
+    const result = compareGolden(actual, baseline);
+    expect(result.status).toBe(STATUS.PASS);
+    expect(result.failures).toEqual([]);
+  });
+
+  it('fails a meaningful geometry change', () => {
+    const actual = JSON.parse(JSON.stringify(baseline));
+    actual.glb.sceneTriangles = 840;
+    const result = compareGolden(actual, baseline);
+    expect(result.status).toBe(STATUS.FAIL);
+    expect(result.failures.join(' ')).toContain('glb.sceneTriangles');
+  });
+
+  it('fails a byte change beyond tolerance', () => {
+    const actual = JSON.parse(JSON.stringify(baseline));
+    actual.glb.bytes = 6000;
+    const result = compareGolden(actual, baseline);
+    expect(result.status).toBe(STATUS.FAIL);
+    expect(result.failures.join(' ')).toContain('glb.bytes');
+  });
+
+  it('marks unavailable budget/Blender measurements as not verified', () => {
+    const actual = JSON.parse(JSON.stringify(baseline));
+    delete actual.budget;
+    delete actual.blender;
+    const result = compareGolden(actual, baseline);
+    expect(result.status).toBe(STATUS.PASS);
+    expect(result.notVerified).toContain('budget.uniqueGeometries');
+    expect(result.notVerified).toContain('blender.meshes');
+  });
+
+  it('renders the golden section in Markdown', () => {
+    const report = makeReport({
+      goldenRegression: compareGolden(JSON.parse(JSON.stringify(baseline)), baseline),
+    });
+    const markdown = renderMarkdown(report);
+    expect(markdown).toContain('## Golden regression');
+    expect(markdown).toContain('| glb.sceneTriangles | 804 | 804 | PASS |');
   });
 });

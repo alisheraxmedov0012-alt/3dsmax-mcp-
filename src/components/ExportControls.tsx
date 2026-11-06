@@ -340,8 +340,8 @@ export function ExportControls({
               <ul className="image-ref__notes">
                 {[...blocking, ...warnings].slice(0, 6).map((entry) => (
                   <li key={entry.id}>
-                    <strong>{entry.status}</strong> {entry.label}: {entry.message}{' '}
-                    {entry.remediation}
+                    <strong>{entry.status}</strong> {entry.label} ({entry.certainty}):{' '}
+                    {entry.message} {entry.remediation}
                   </li>
                 ))}
                 {blocking.length === 0 && warnings.length === 0 && (

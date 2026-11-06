@@ -153,6 +153,7 @@ describe('quality profile UI', () => {
           limit: 1,
           message: 'Uchburchaklar limitdan oshdi.',
           remediation: 'Detallarni soddalashtiring.',
+          certainty: 'exact',
         },
       ],
       status,

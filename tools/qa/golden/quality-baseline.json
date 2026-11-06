@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "fixture": "tools/glb-harness/export.html — eight furniture types plus room",
+  "tolerances": {
+    "glbBytesAbsolute": 4096,
+    "glbBytesRelative": 0.02
+  },
+  "glb": {
+    "bytes": 297864,
+    "meshDefinitions": 64,
+    "meshNodes": 67,
+    "sceneNodes": 77,
+    "primitives": 64,
+    "nodeWeightedPrimitives": 67,
+    "uniqueGeometryTriangles": 768,
+    "uniqueGeometryVertices": 1536,
+    "sceneTriangles": 804,
+    "sceneVertices": 1608,
+    "materials": 10,
+    "images": 8,
+    "textures": 8,
+    "normalMappedMeshNodes": 35,
+    "tangentCoveredNormalMappedMeshNodes": 35,
+    "instancedMeshNodes": 0,
+    "instancedInstances": 0
+  },
+  "budget": {
+    "uniqueGeometries": 64,
+    "uniqueGeometryTriangles": 768,
+    "uniqueGeometryVertices": 1536,
+    "meshNodes": 67,
+    "sceneTriangles": 804,
+    "sceneVertices": 1608,
+    "objectGroups": 9,
+    "sceneNodes": 76,
+    "instancedMeshNodes": 0,
+    "instancedInstances": 0
+  },
+  "khronos": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "blender": {
+    "objects": 77,
+    "meshes": 67,
+    "vertices": 1608,
+    "triangles": 804,
+    "materials": 10,
+    "images": 8,
+    "uvLayers": 67,
+    "zeroAreaPolygons": 0
+  }
+}

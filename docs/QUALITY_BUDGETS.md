@@ -45,9 +45,39 @@ const result = preflightExportScene(sceneData, {
 actualTexturePayloadBytes })` is the pure evaluator. `collectQualityMetrics(scene)`
 is read-only and reuses the existing geometry, normal and UV validators.
 
-Each check has a stable `id`, `category`, `status`, `actual`, `limit`, `message`
-and `remediation`. The overall result also carries `summary` counts, profile
-information and a user-facing `message`.
+Each check has a stable `id`, `category`, `status`, `actual`, `limit`, `message`,
+`remediation` and `certainty` (`exact`, `approximate` or `not_verified`). The
+overall result also carries `summary` counts, profile information and a
+user-facing `message`.
+
+## Metric semantics
+
+Geometry metrics are split by scope:
+
+| Metric | Scope |
+| --- | --- |
+| `uniqueGeometryTriangles` / `uniqueGeometryVertices` | Each distinct `BufferGeometry` once; storage/buffer diagnostics |
+| `sceneTriangles` / `sceneVertices` | Every visible mesh node, multiplied by `InstancedMesh.count` |
+| `meshNodes` | Visible exported mesh nodes |
+| `objectGroups` | Visible top-level export groups (room plus scene objects) |
+| `sceneNodes` | Visible scene nodes before the synthetic metre-scale root |
+| `instancedMeshNodes` / `instancedInstances` | InstancedMesh nodes and their total instance count |
+
+`maxTriangles` and `maxVertices` are scene-instance budgets. Unique geometry
+values remain visible as diagnostics and for file/buffer complexity.
+
+## Diagnostics
+
+- UV: exact range/count/finite/degenerate checks, bounded approximate overlap
+  candidates, and approximate texel density when texture dimensions and
+  world-space area are available.
+- Textures: exact dimensions/pixels/formats, exact or estimated payload bytes,
+  and `NOT VERIFIED` when image data is unavailable.
+- Materials: base-colour, metallic/roughness, alpha/alphaTest, normal-map UV and
+  texture-reference diagnostics. All are read-only.
+- Golden regression: the standard harness output is compared with a versioned
+  baseline; geometry changes are exact failures and GLB size has a small
+  tolerance.
 
 ## Export integration
 

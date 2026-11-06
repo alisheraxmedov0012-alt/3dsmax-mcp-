@@ -3,6 +3,7 @@ import type { ExportFormatId } from '../exportFormats';
 import { buildExportScene, type BuildExportOptions } from '../sceneExport';
 import { collectQualityMetrics } from './metrics';
 import type {
+  MeasurementCertainty,
   QualityCheck,
   QualityCategory,
   QualityLimits,
@@ -22,6 +23,7 @@ interface CheckInput {
   limit: number | string | null;
   message: string;
   remediation: string;
+  certainty?: MeasurementCertainty;
 }
 
 export interface PreflightOptions {
@@ -33,7 +35,7 @@ export interface PreflightOptions {
 }
 
 function check(input: CheckInput): QualityCheck {
-  return input;
+  return { ...input, certainty: input.certainty ?? 'exact' };
 }
 
 function budgetStatus(exceeded: boolean, profile: QualityProfile): QualityStatus {
@@ -104,54 +106,54 @@ export function evaluateQualityPreflight(
   checks.push(
     check({
       id: 'geometry.triangles',
-      label: 'Uchburchaklar soni',
+      label: 'Sahna uchburchaklari (instance-aware)',
       category: 'geometry',
-      status: budgetStatus(metrics.triangles > limits.geometry.maxTriangles, profile),
-      actual: metrics.triangles,
+      status: budgetStatus(metrics.sceneTriangles > limits.geometry.maxTriangles, profile),
+      actual: metrics.sceneTriangles,
       limit: limits.geometry.maxTriangles,
       message:
-        metrics.triangles > limits.geometry.maxTriangles
-          ? `Uchburchaklar limitdan oshdi: ${metrics.triangles} > ${limits.geometry.maxTriangles}.`
-          : `Uchburchaklar limit ichida: ${metrics.triangles}.`,
+        metrics.sceneTriangles > limits.geometry.maxTriangles
+          ? `Sahna uchburchaklari limitdan oshdi: ${metrics.sceneTriangles} > ${limits.geometry.maxTriangles}.`
+          : `Sahna uchburchaklari limit ichida: ${metrics.sceneTriangles}.`,
       remediation: "Detallarni soddalashtiring yoki kattaroq limitli profil tanlang.",
     }),
     check({
       id: 'geometry.vertices',
-      label: 'Vertexlar soni',
+      label: 'Sahna vertexlari (instance-aware)',
       category: 'geometry',
-      status: budgetStatus(metrics.vertices > limits.geometry.maxVertices, profile),
-      actual: metrics.vertices,
+      status: budgetStatus(metrics.sceneVertices > limits.geometry.maxVertices, profile),
+      actual: metrics.sceneVertices,
       limit: limits.geometry.maxVertices,
       message:
-        metrics.vertices > limits.geometry.maxVertices
-          ? `Vertexlar limitdan oshdi: ${metrics.vertices} > ${limits.geometry.maxVertices}.`
-          : `Vertexlar limit ichida: ${metrics.vertices}.`,
+        metrics.sceneVertices > limits.geometry.maxVertices
+          ? `Sahna vertexlari limitdan oshdi: ${metrics.sceneVertices} > ${limits.geometry.maxVertices}.`
+          : `Sahna vertexlari limit ichida: ${metrics.sceneVertices}.`,
       remediation: "Geometriyani yengillashtiring yoki kattaroq limitli profil tanlang.",
     }),
     check({
       id: 'geometry.meshes',
-      label: 'Mesh obyektlari',
+      label: "Mesh node'lari",
       category: 'geometry',
-      status: budgetStatus(metrics.meshes > limits.geometry.maxMeshes, profile),
-      actual: metrics.meshes,
+      status: budgetStatus(metrics.meshNodes > limits.geometry.maxMeshes, profile),
+      actual: metrics.meshNodes,
       limit: limits.geometry.maxMeshes,
       message:
-        metrics.meshes > limits.geometry.maxMeshes
-          ? `Mesh soni limitdan oshdi: ${metrics.meshes} > ${limits.geometry.maxMeshes}.`
-          : `Mesh soni limit ichida: ${metrics.meshes}.`,
+        metrics.meshNodes > limits.geometry.maxMeshes
+          ? `Mesh node soni limitdan oshdi: ${metrics.meshNodes} > ${limits.geometry.maxMeshes}.`
+          : `Mesh node soni limit ichida: ${metrics.meshNodes}.`,
       remediation: "Detallarni birlashtiring yoki kattaroq limitli profil tanlang.",
     }),
     check({
       id: 'geometry.objects',
-      label: 'Sahna obyektlari',
+      label: 'Eksport object guruhlari',
       category: 'geometry',
-      status: budgetStatus(metrics.objects > limits.geometry.maxObjects, profile),
-      actual: metrics.objects,
+      status: budgetStatus(metrics.objectGroups > limits.geometry.maxObjects, profile),
+      actual: metrics.objectGroups,
       limit: limits.geometry.maxObjects,
       message:
-        metrics.objects > limits.geometry.maxObjects
-          ? `Obyektlar soni limitdan oshdi: ${metrics.objects} > ${limits.geometry.maxObjects}.`
-          : `Obyektlar soni limit ichida: ${metrics.objects}.`,
+        metrics.objectGroups > limits.geometry.maxObjects
+          ? `Object guruhlari limitdan oshdi: ${metrics.objectGroups} > ${limits.geometry.maxObjects}.`
+          : `Object guruhlari limit ichida: ${metrics.objectGroups}.`,
       remediation: "Ortiqcha obyektlarni olib tashlang yoki kattaroq profil tanlang.",
     }),
     check({
@@ -193,6 +195,39 @@ export function evaluateQualityPreflight(
           : "Barcha vertex koordinatalari chekli.",
       remediation: "NaN/Infinity koordinatalarni tuzating; eksport ular bilan xavfli.",
     }),
+    check({
+      id: 'geometry.unique_triangles',
+      label: 'Unique geometry uchburchaklari',
+      category: 'geometry',
+      status: 'PASS',
+      actual: metrics.uniqueGeometryTriangles,
+      limit: null,
+      message: `Diagnostika: ${metrics.uniqueGeometryTriangles} unique geometry uchburchagi; asosiy budjet scene total bo‘yicha.`,
+      remediation: "Bu ko‘rsatkich storage/buffer diagnostikasi uchun; scene budgetni o‘zgartirmaydi.",
+    }),
+    check({
+      id: 'geometry.unique_vertices',
+      label: 'Unique geometry vertexlari',
+      category: 'geometry',
+      status: 'PASS',
+      actual: metrics.uniqueGeometryVertices,
+      limit: null,
+      message: `Diagnostika: ${metrics.uniqueGeometryVertices} unique geometry vertexi; asosiy budjet scene total bo‘yicha.`,
+      remediation: "Bu ko‘rsatkich storage/buffer diagnostikasi uchun; scene budgetni o‘zgartirmaydi.",
+    }),
+    check({
+      id: 'geometry.instancing',
+      label: 'Instanced mesh nodelari',
+      category: 'geometry',
+      status: 'PASS',
+      actual: `${metrics.instancedMeshNodes} node / ${metrics.instancedInstances} instance`,
+      limit: null,
+      message:
+        metrics.instancedInstances > 0
+          ? "InstancedMesh scene totalida instance count bilan hisoblandi."
+          : "InstancedMesh ishlatilmaydi.",
+      remediation: "Instancing o‘zgarishlarida scene triangle/vertex totalini qayta tekshiring.",
+    }),
   );
 
   checks.push(
@@ -213,6 +248,7 @@ export function evaluateQualityPreflight(
               fileIsEstimated ? " (taxminiy)" : ''
             }.`,
       remediation: "Tekstura yoki geometriyani yengillashtiring, yoki kattaroq profil tanlang.",
+      certainty: fileIsEstimated ? 'approximate' : 'exact',
     }),
     check({
       id: 'file.texture_payload',
@@ -231,16 +267,25 @@ export function evaluateQualityPreflight(
               textureIsEstimated ? " (taxminiy)" : ''
             }.`,
       remediation: "Katta teksturalarni kichraytiring yoki kattaroq profil tanlang.",
+      certainty: textureIsEstimated ? 'approximate' : 'exact',
     }),
   );
 
   const textures = metrics.textures;
   const maxWidth = metrics.maxTextureWidth;
   const maxHeight = metrics.maxTextureHeight;
-  const maxIndividual = textures.reduce(
-    (max, texture) => Math.max(max, texture.estimatedBytes),
-    0,
+  const largestTexture = textures.reduce<(typeof textures)[number] | null>(
+    (max, texture) =>
+      max === null || texture.estimatedBytes > max.estimatedBytes ? texture : max,
+    null,
   );
+  const maxIndividual = largestTexture?.estimatedBytes ?? 0;
+  const individualCertainty: MeasurementCertainty =
+    largestTexture?.payloadSource === 'exact'
+      ? 'exact'
+      : largestTexture?.payloadSource === 'unavailable'
+        ? 'not_verified'
+        : 'approximate';
   const formats = [...new Set(textures.map((texture) => texture.format))];
   const unsupportedFormats = formats.filter((formatName) => !limits.textures.allowedFormats.includes(formatName));
 
@@ -288,14 +333,22 @@ export function evaluateQualityPreflight(
       id: 'textures.individual_bytes',
       label: "Bitta tekstura hajmi",
       category: 'textures',
-      status: budgetStatus(maxIndividual > limits.textures.maxIndividualBytes, profile),
+      status:
+        individualCertainty !== 'exact' && maxIndividual > limits.textures.maxIndividualBytes
+          ? 'WARNING'
+          : budgetStatus(maxIndividual > limits.textures.maxIndividualBytes, profile),
       actual: maxIndividual,
       limit: limits.textures.maxIndividualBytes,
       message:
         maxIndividual > limits.textures.maxIndividualBytes
-          ? `Bitta tekstura hajmi limitdan oshdi: ${maxIndividual} > ${limits.textures.maxIndividualBytes} bayt.`
-          : `Bitta tekstura hajmi limit ichida: ${maxIndividual} bayt.`,
+          ? `Bitta tekstura hajmi limitdan oshdi: ${maxIndividual} > ${limits.textures.maxIndividualBytes} bayt${
+              individualCertainty === 'exact' ? '' : ' (taxminiy)'
+            }.`
+          : `Bitta tekstura hajmi limit ichida: ${maxIndividual} bayt${
+              individualCertainty === 'exact' ? '' : ' (taxminiy)'
+            }.`,
       remediation: "Eng katta teksturani kichraytiring yoki siqilgan formatdan foydalaning.",
+      certainty: individualCertainty,
     }),
     check({
       id: 'textures.formats',
@@ -389,6 +442,48 @@ export function evaluateQualityPreflight(
           : `UV absolut qiymati limit ichida: ${metrics.uvMaxAbs}.`,
       remediation: "UV masshtabini kamaytiring yoki kattaroq profil tanlang.",
     }),
+    check({
+      id: 'uv.degenerate',
+      label: 'Degenerativ UV uchburchaklari',
+      category: 'uv',
+      status: metrics.uvDegenerateTriangles > 0 ? 'BLOCK' : 'PASS',
+      actual: metrics.uvDegenerateTriangles,
+      limit: 0,
+      message:
+        metrics.uvDegenerateTriangles > 0
+          ? `${metrics.uvDegenerateTriangles} UV uchburchagining maydoni nolga teng.`
+          : "Degenerativ UV uchburchak yo‘q.",
+      remediation: "UV koordinatalarini qayta tekshiring; nol maydonli UV islandlarini tuzating.",
+    }),
+    check({
+      id: 'uv.overlap',
+      label: 'UV overlap (taxminiy)',
+      category: 'uv',
+      status: 'PASS',
+      actual: metrics.uvOverlapCandidates,
+      limit: null,
+      message:
+        metrics.uvOverlapStatus === 'not_verified'
+          ? 'UV overlap to‘liq tekshirilmadi; natija NOT VERIFIED.'
+          : `Taxminiy overlap candidate: ${metrics.uvOverlapCandidates}. Tiled/procedural UV’larda takroriy maydon qonuniy bo‘lishi mumkin.`,
+      remediation: "Agar kutilmagan overlap bo‘lsa, UV islandlarini tekshiring; bu avtomatik bloklanmaydi.",
+      certainty: metrics.uvOverlapStatus,
+    }),
+    check({
+      id: 'uv.texel_density',
+      label: 'Texel density (taxminiy)',
+      category: 'uv',
+      status: 'PASS',
+      actual: metrics.uvTexelDensity
+        ? `${metrics.uvTexelDensity.min.toFixed(3)}–${metrics.uvTexelDensity.max.toFixed(3)} texels/cm`
+        : 'NOT VERIFIED',
+      limit: null,
+      message: metrics.uvTexelDensity
+        ? `Texel density taxminiy: min ${metrics.uvTexelDensity.min.toFixed(3)}, max ${metrics.uvTexelDensity.max.toFixed(3)} texels/cm.`
+        : 'Texel density NOT VERIFIED: tekstura o‘lchami yoki world-space yuza yetarli emas.',
+      remediation: "Aniqroq natija uchun tekstura o‘lchami va UV maydonini tekshiring.",
+      certainty: metrics.uvTexelDensity?.certainty ?? 'not_verified',
+    }),
   );
 
   checks.push(
@@ -452,7 +547,7 @@ export function evaluateQualityPreflight(
       message:
         metrics.missingTangents > 0
           ? `${metrics.missingTangents} normal-mapped geometriya uchun tangent yaratib bo‘lmaydi.`
-          : metrics.normalMappedMeshes > 0
+          : metrics.normalMappedMeshNodes > 0
             ? "Tangentlar mavjud yoki eksportda avtomatik yaratiladi."
             : "Normal map ishlatilmaydi; tangent talab qilinmaydi.",
       remediation: "Geometriyani indexed qiling va position/normal/UV atributlarini ta’minlang.",
@@ -508,10 +603,83 @@ export function evaluateQualityPreflight(
           : "Material turlari qo‘llab-quvvatlanadi.",
       remediation: "MeshStandardMaterial yoki MeshBasicMaterial ishlatilsin.",
     }),
+    check({
+      id: 'materials.base_color',
+      label: 'Material base color',
+      category: 'materials',
+      status: metrics.invalidBaseColors > 0 ? 'BLOCK' : 'PASS',
+      actual: metrics.invalidBaseColors,
+      limit: 0,
+      message:
+        metrics.invalidBaseColors > 0
+          ? `${metrics.invalidBaseColors} materialda noto‘g‘ri base color qiymati bor.`
+          : "Base color qiymatlari chekli va 0–1 oralig‘ida.",
+      remediation: "Material rangini 0–1 sRGB komponentlariga keltiring.",
+    }),
+    check({
+      id: 'materials.pbr_ranges',
+      label: 'Metallik va roughness',
+      category: 'materials',
+      status: metrics.invalidPbrMaterials > 0 ? 'BLOCK' : 'PASS',
+      actual: metrics.invalidPbrMaterials,
+      limit: 0,
+      message:
+        metrics.invalidPbrMaterials > 0
+          ? `${metrics.invalidPbrMaterials} materialda metallik yoki roughness 0–1dan tashqarida.`
+          : "Metallik va roughness 0–1 oralig‘ida.",
+      remediation: "PBR qiymatlarini 0–1 oralig‘iga keltiring.",
+    }),
+    check({
+      id: 'materials.alpha',
+      label: 'Alpha va shaffoflik',
+      category: 'materials',
+      status: metrics.invalidAlphaMaterials > 0 ? 'BLOCK' : 'PASS',
+      actual: metrics.invalidAlphaMaterials,
+      limit: 0,
+      message:
+        metrics.invalidAlphaMaterials > 0
+          ? `${metrics.invalidAlphaMaterials} materialda opacity yoki alphaTest noto‘g‘ri.`
+          : "Opacity va alphaTest sozlamalari to‘g‘ri.",
+      remediation: "Opacity/alphaTest qiymatlarini 0–1 oralig‘ida belgilang.",
+    }),
+    check({
+      id: 'materials.normal_map_uv',
+      label: 'Normal map uchun UV',
+      category: 'materials',
+      status: metrics.normalMappedWithoutUv > 0 ? 'BLOCK' : 'PASS',
+      actual: metrics.normalMappedWithoutUv,
+      limit: 0,
+      message:
+        metrics.normalMappedWithoutUv > 0
+          ? `${metrics.normalMappedWithoutUv} normal-mapped geometriyada UV yo‘q.`
+          : "Normal-mapped geometriyalarda UV mavjud.",
+      remediation: "UV qo‘shing yoki normal mapni olib tashlang.",
+    }),
+    check({
+      id: 'materials.texture_refs',
+      label: 'Material tekstura havolalari',
+      category: 'materials',
+      status: metrics.invalidTextureReferences > 0 ? 'BLOCK' : 'PASS',
+      actual: metrics.invalidTextureReferences,
+      limit: 0,
+      message:
+        metrics.invalidTextureReferences > 0
+          ? `${metrics.invalidTextureReferences} material teksturasi rasmga ega emas.`
+          : "Material tekstura havolalari rasmga ega.",
+      remediation: "Tekstura faylini qayta yuklang yoki havolani olib tashlang.",
+    }),
   );
 
   const summary = summaryOf(checks);
   const status = overallStatus(summary);
+  const resultMetrics =
+    options.actualTexturePayloadBytes === undefined
+      ? metrics
+      : {
+          ...metrics,
+          texturePayloadBytes: options.actualTexturePayloadBytes,
+          texturePayloadCertainty: 'exact' as const,
+        };
 
   return {
     profile: {
@@ -524,7 +692,7 @@ export function evaluateQualityPreflight(
     checks,
     status,
     summary,
-    metrics,
+    metrics: resultMetrics,
     message: overallMessage(status, summary),
     estimated,
   };
