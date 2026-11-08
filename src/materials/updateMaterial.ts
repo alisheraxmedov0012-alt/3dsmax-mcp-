@@ -14,6 +14,7 @@ import {
   type MaterialSettingsInput,
 } from './types';
 import { getProceduralState, syncProceduralTextures } from './buildMaterial';
+import { DEFAULT_TEXTURE_SIZE } from './textures';
 import { getSlotMaterialInfo } from './materialRuntimeMetadata';
 import type { ObjectMaterial } from '../scene/types';
 
@@ -71,9 +72,20 @@ export function applyMaterialSettings(
   const maps = object.material.maps;
   let needsUpdate = false;
 
-  const kind = textureKindFor(preset.type);
-  syncProceduralTextures(target, kind, settings.textureScale);
+  const stateBefore = getProceduralState(target);
+  // Premium products bake albedo and ORM into 2K maps. Keep that resolution
+  // when projecting settings onto an already-built premium material; the editor
+  // path would otherwise regenerate the 128 px viewer set and drop the ORM.
+  const premiumMaps = object.material.premiumTextures === true && preset.premiumMaps === true;
+  const kind = premiumMaps
+    ? (preset.textureKind ?? textureKindFor(preset.type))
+    : textureKindFor(preset.type);
+  const size = premiumMaps
+    ? (preset.textureSize ?? stateBefore?.size ?? DEFAULT_TEXTURE_SIZE)
+    : DEFAULT_TEXTURE_SIZE;
+  syncProceduralTextures(target, kind, settings.textureScale, size);
   const state = getProceduralState(target);
+  const ormMap = state?.textures?.ormMap ?? null;
 
   // A bitmap always wins over the procedural fallback. Without one, restore the
   // procedural texture (or remove the slot) so deleting a map is immediate.
@@ -83,12 +95,19 @@ export function applyMaterialSettings(
   if (!maps?.normal) {
     needsUpdate = setMapIfChanged(target, 'normalMap', state?.textures?.normalMap ?? null) || needsUpdate;
   }
+  if (!maps?.roughness && !maps?.orm) {
+    needsUpdate = setMapIfChanged(target, 'roughnessMap', ormMap) || needsUpdate;
+  }
+  if (!maps?.metalness && !maps?.orm) {
+    needsUpdate = setMapIfChanged(target, 'metalnessMap', ormMap) || needsUpdate;
+  }
 
   const baseColor =
     object.material.baseColor ??
     (slot?.scope === 'slot' ? slot.color : undefined) ??
     object.params.color;
-  setColorIfChanged(target.color, maps?.baseColor ? '#ffffff' : baseColor);
+  // A premium map already carries the albedo; tinting it would double-darken.
+  setColorIfChanged(target.color, maps?.baseColor || premiumMaps ? '#ffffff' : baseColor);
 
   setNumberIfChanged(target, 'metalness', settings.metalness);
   setNumberIfChanged(target, 'roughness', settings.roughness);
@@ -106,13 +125,13 @@ export function applyMaterialSettings(
     needsUpdate = true;
   }
 
-  if (!maps?.roughness && !maps?.orm && target.roughnessMap) {
+  if (!maps?.roughness && !maps?.orm && !ormMap && target.roughnessMap) {
     needsUpdate = setMapIfChanged(target, 'roughnessMap', null) || needsUpdate;
   }
-  if (!maps?.metalness && target.metalnessMap && !maps?.orm) {
+  if (!maps?.metalness && !maps?.orm && !ormMap && target.metalnessMap) {
     needsUpdate = setMapIfChanged(target, 'metalnessMap', null) || needsUpdate;
   }
-  if (!maps?.ao && !maps?.orm && target.aoMap) {
+  if (!maps?.ao && !maps?.orm && !ormMap && target.aoMap) {
     needsUpdate = setMapIfChanged(target, 'aoMap', null) || needsUpdate;
   }
   if (!maps?.emissive) {

@@ -5,6 +5,7 @@ import {
   cachedTextureCount,
   createProceduralTextures,
   heightToNormal,
+  oakSurfaceSample,
   patternHeight,
   textureKindFor,
 } from './textures';
@@ -151,5 +152,120 @@ describe('shared texture cache bounds', () => {
 
     handles.forEach((handle) => handle.dispose());
     expect(cachedTextureCount()).toBe(0);
+  });
+});
+
+/** Canvas stub that keeps the pixels written to each canvas. */
+function recordingCanvasStub() {
+  const createImageData = (w: number, h: number) => ({
+    width: w,
+    height: h,
+    data: new Uint8ClampedArray(w * h * 4),
+  });
+  const createElement = () => {
+    const canvas = {
+      width: 0,
+      height: 0,
+      image: null as ReturnType<typeof createImageData> | null,
+      getContext: () => ({
+        createImageData,
+        putImageData: (image: ReturnType<typeof createImageData>) => {
+          canvas.image = image;
+        },
+      }),
+    };
+    return canvas;
+  };
+  vi.stubGlobal('document', { createElement });
+}
+
+describe('premium oak surface', () => {
+  it('is warm, quiet and free of near-black grain', () => {
+    const samples = 64;
+    let minR = 255;
+    let maxR = 0;
+    let sumR = 0;
+    let sumG = 0;
+    let sumB = 0;
+    let sumL = 0;
+    let sumL2 = 0;
+    for (let y = 0; y < samples; y += 1) {
+      for (let x = 0; x < samples; x += 1) {
+        const [r, g, b] = oakSurfaceSample((x + 0.5) / samples, (y + 0.5) / samples).color;
+        minR = Math.min(minR, r);
+        maxR = Math.max(maxR, r);
+        sumR += r;
+        sumG += g;
+        sumB += b;
+        const l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        sumL += l;
+        sumL2 += l * l;
+      }
+    }
+    const count = samples * samples;
+    const meanR = sumR / count;
+    const meanG = sumG / count;
+    const meanB = sumB / count;
+    const meanL = sumL / count;
+    const stdL = Math.sqrt(sumL2 / count - meanL * meanL);
+
+    expect(meanR).toBeGreaterThan(meanG);
+    expect(meanG).toBeGreaterThan(meanB);
+    expect(meanR - meanB).toBeGreaterThan(50);
+    expect(meanL).toBeGreaterThan(125);
+    expect(meanL).toBeLessThan(155);
+    // No painted black stripes: the darkest base colour stays clearly warm.
+    expect(minR).toBeGreaterThan(140);
+    expect(maxR).toBeLessThan(215);
+    // Subtle tone variation, not a high-contrast stripe pattern.
+    expect(stdL).toBeGreaterThan(2);
+    expect(stdL).toBeLessThan(12);
+  });
+
+  it('runs the fibres along U (the desk length)', () => {
+    const samples = 64;
+    let alongU = 0;
+    let acrossV = 0;
+    for (let y = 0; y < samples; y += 1) {
+      for (let x = 0; x < samples; x += 1) {
+        const u = (x + 0.5) / samples;
+        const v = (y + 0.5) / samples;
+        const height = patternHeight('oak', u, v);
+        const nextU = patternHeight('oak', u + 1 / samples, v);
+        const nextV = patternHeight('oak', u, v + 1 / samples);
+        alongU += Math.abs(nextU - height);
+        acrossV += Math.abs(nextV - height);
+      }
+    }
+    expect(acrossV).toBeGreaterThan(alongU * 1.6);
+  });
+
+  it('tiles seamlessly on both axes', () => {
+    for (let i = 0; i < 16; i += 1) {
+      const t = (i + 0.5) / 16;
+      expect(patternHeight('oak', 0, t)).toBeCloseTo(patternHeight('oak', 1, t), 10);
+      expect(patternHeight('oak', t, 0)).toBeCloseTo(patternHeight('oak', t, 1), 10);
+    }
+  });
+
+  it('writes a dielectric ORM map and plausible roughness', () => {
+    recordingCanvasStub();
+    const textures = createProceduralTextures('oak', 0.77, 64);
+    expect(textures).not.toBeNull();
+    const pixels = textures?.sources?.orm as unknown as {
+      image: { data: Uint8ClampedArray } | null;
+    };
+    expect(pixels.image).not.toBeNull();
+    const data = pixels.image?.data ?? new Uint8ClampedArray();
+    let roughnessSum = 0;
+    for (let i = 0; i < 64 * 64; i += 1) {
+      expect(data[i * 4]).toBe(0); // AO is not authored.
+      expect(data[i * 4 + 2]).toBe(0); // oak is a dielectric.
+      roughnessSum += data[i * 4 + 1];
+    }
+    const meanRoughness = roughnessSum / (64 * 64) / 255;
+    expect(meanRoughness).toBeGreaterThan(0.5);
+    expect(meanRoughness).toBeLessThan(0.6);
+    textures?.dispose();
   });
 });

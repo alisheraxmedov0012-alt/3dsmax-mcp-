@@ -1,7 +1,11 @@
 # FBX — texnik baholash va qaror
 
-> Holat: **Phase 6 doirasida FBX eksporti implementatsiya qilinmaydi.**
-> Bu hujjat qarorning asosini va qayta ko'rib chiqish shartlarini yozib qo'yadi.
+> Holat: **Phase 8B.3 da FBX Blender 4.5.9 LTS orqali yetkaziladi.**
+> Bu — mavjud GLB/OBJ/STL/3MF shartnomasiga qo'shimcha format. 3ds Max va Maya
+> importi hali **NOT VERIFIED**; 2-DCC sharti saqlanadi.
+>
+> Phase 6 dagi "FBX hozir implementatsiya qilinmaydi" qarori tarixiy kontekst
+> sifatida quyida saqlanadi; amaldagi holat 6-bo'limda.
 
 ## 1. Nima tekshirildi
 
@@ -74,4 +78,37 @@ FBX faqat quyidagilar bajarilsa ko'rib chiqiladi:
 - eksport paketga **qo'shimcha** format sifatida qo'shilsa (mavjud GLB/OBJ/STL/3MF
   shartnomasi o'zgarmasa).
 
-Shu shartlar bajarilmaguncha FBX "bor" deb ko'rsatilmaydi.
+Shu shartlar to'liq bajarilmaguncha FBX faqat **Blender-verified** deb
+ko'rsatiladi; 3ds Max/Maya tekshirilmaguncha "barcha DCC'da tekshirilgan"
+deyilmaydi.
+
+## 6. Phase 8B.3 yangilanishi (2026-11-06)
+
+FBX endi alohida JS yozuvchi bilan emas, **Blender 4.5.9 LTS** orqali
+yetkaziladi. Bu 3-bo'limdagi asosiy texnik xavflarni (birliklar, o'qlar,
+material slotlari, tekstura yo'llari) haqiqiy DCC import/eksporti bilan
+tekshirish imkonini berdi.
+
+| Tekshiruv | Natija |
+| --- | --- |
+| Blender versiyasi | 4.5.9 LTS (rasmiy arxiv SHA-256 tekshirilgan) |
+| Import → eksport → qayta import | PASS |
+| Meshes / triangles | 24 / 4 696 |
+| Bounding box | 160 × 80 × 75 cm |
+| Material nomlari | 4 ta, o'zgarmagan |
+| UV layers / zero-area | 24 / 0 |
+| Birlik | FBX: santimetr (`UnitScaleFactor = 1.0`) |
+| Teksturalar | 8 ta embed (BaseColor har material uchun takrorlangan + Normal) |
+| Roughness / metalness | **Xaritalar yo'q**; doimiy qiymatlar: oak 0 / 0.533, steel 0.97 / 0.340 |
+
+Cheklovlar:
+
+- Faqat bitta DCC — Blender — tekshirilgan. **3ds Max va Maya NOT VERIFIED.**
+  Shu sababli 5-bo'limdagi 2-DCC sharti saqlanadi.
+- FBX Blender'ning Phong davri kanallariga tushadi: BaseColor va Normal
+  saqlanadi, ORM xaritasi yo'qoladi. Bu yashirilmaydi va
+  `docs/PHASE8B_BLENDER_EXPORT.md` da qayd etilgan.
+- FBX "to'liq PBR" deb e'lon qilinmaydi; u qo'shimcha DCC formati.
+
+Batafsil natijalar, fayl hash'lari va parity jadvali:
+`docs/PHASE8B_BLENDER_EXPORT.md`.

@@ -85,17 +85,22 @@ export interface ProductDefinition {
 /** Product lighting: neutral studio preset, light background, high quality. */
 export function createProductSettings(): SceneData['settings'] {
   const preset = LIGHTING_PRESET_CONFIGS.neutralProduct;
+  // The premium maps carry a true mid-tone oak albedo; the shared studio preset
+  // was calibrated for a much darker tinted fallback and clips the tabletop.
+  // Tone mapping stays off so the `#f4f4f6` backdrop and the exported material
+  // colours stay literal.
+  const lightScale = 0.55;
   const lights: LightSettings = {
-    ambientIntensity: preset.ambientIntensity,
+    ambientIntensity: preset.ambientIntensity * lightScale,
     ambientColor: preset.ambientColor,
     keyEnabled: true,
-    keyIntensity: preset.keyIntensity,
+    keyIntensity: preset.keyIntensity * lightScale,
     keyColor: preset.keyColor,
     fillEnabled: true,
-    fillIntensity: preset.fillIntensity,
+    fillIntensity: preset.fillIntensity * lightScale,
     fillColor: preset.fillColor,
     rimEnabled: preset.rimEnabled,
-    rimIntensity: preset.rimIntensity,
+    rimIntensity: preset.rimIntensity * lightScale,
     rimColor: preset.rimColor,
     shadowsEnabled: preset.shadowsEnabled,
     shadowBias: preset.shadowBias,
@@ -110,7 +115,7 @@ export function createProductSettings(): SceneData['settings'] {
     lightingPreset: 'neutralProduct',
     qualityPreset: 'high',
     environmentEnabled: preset.environmentEnabled,
-    environmentIntensity: preset.environmentIntensity,
+    environmentIntensity: preset.environmentIntensity * lightScale,
   };
 }
 

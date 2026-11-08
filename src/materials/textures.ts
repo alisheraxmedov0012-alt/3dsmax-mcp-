@@ -68,28 +68,137 @@ function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
+function smoothstep(edge0: number, edge1: number, value: number): number {
+  const t = clamp01((value - edge0) / (edge1 - edge0));
+  return t * t * (3 - 2 * t);
+}
+
+/** Wrap an integer cell index so the noise tiles at its period. */
+function wrapCell(value: number, period: number): number {
+  const wrapped = value % period;
+  return wrapped < 0 ? wrapped + period : wrapped;
+}
+
+/** Deterministic tileable value noise in 0..1. */
+function periodicNoise(
+  x: number,
+  y: number,
+  periodX: number,
+  periodY: number,
+): number {
+  const xi = Math.floor(x);
+  const yi = Math.floor(y);
+  const xf = x - xi;
+  const yf = y - yi;
+  const hashCell = (cx: number, cy: number): number =>
+    hash(wrapCell(cx, periodX), wrapCell(cy, periodY));
+  const a = hashCell(xi, yi);
+  const b = hashCell(xi + 1, yi);
+  const c = hashCell(xi, yi + 1);
+  const d = hashCell(xi + 1, yi + 1);
+  const u = xf * xf * (3 - 2 * xf);
+  const v = yf * yf * (3 - 2 * yf);
+  return a * (1 - u) * (1 - v) + b * u * (1 - v) + c * (1 - u) * v + d * u * v;
+}
+
+/** Tileable multi-octave value noise in 0..1. */
+function periodicFbm(
+  x: number,
+  y: number,
+  octaves: number,
+  periodX: number,
+  periodY: number,
+): number {
+  let sum = 0;
+  let amplitude = 0.5;
+  let frequency = 1;
+  let normalizer = 0;
+  for (let octave = 0; octave < octaves; octave += 1) {
+    sum +=
+      periodicNoise(x * frequency, y * frequency, periodX * frequency, periodY * frequency) *
+      amplitude;
+    normalizer += amplitude;
+    amplitude *= 0.5;
+    frequency *= 2;
+  }
+  return normalizer === 0 ? 0 : sum / normalizer;
+}
+
 interface OakSample {
   readonly height: number;
   readonly ring: number;
-  readonly fiber: number;
+  readonly fibre: number;
   readonly broad: number;
   readonly pore: number;
+  readonly late: number;
+  readonly tooth: number;
 }
 
 /**
- * Oak height/colour field. The grain runs along U (the long axis of the desk):
- * fibres change quickly across V and slowly along U, and the growth rings are
- * noise-warped bands across V. Deliberately no plain sine wave, so the result
- * does not read as a repeating procedural stripe.
+ * Oak surface field. Grain runs along U (the desk length): fibres change
+ * quickly across V and slowly along U. Growth rings are a low-contrast,
+ * domain-warped tone rather than a hard sinusoidal band, and pores are sparse
+ * elongated dashes. All octaves are tileable, so the 50 cm UV tile has no seam.
  */
 function oakSample(u: number, v: number): OakSample {
-  const broad = fbm(u * 1.7, v * 7.5, 3);
-  const fiber = fbm(u * 3.2, v * 120, 3);
-  const fine = smoothNoise(u * 420, v * 900);
-  const ring = 0.5 + 0.5 * Math.sin((v * 17 + broad * 2.6) * Math.PI * 2);
-  const pore = fine > 0.78 ? (fine - 0.78) / 0.22 : 0;
-  const height = 0.5 + 0.16 * (fiber - 0.5) + 0.1 * (ring - 0.5) - 0.18 * pore;
-  return { height, ring, fiber, broad, pore };
+  const warp = periodicFbm(u * 2, v * 2, 3, 2, 2);
+  const broad = periodicFbm(u, v * 2, 3, 1, 2);
+  const medium = periodicFbm(u * 2, v * 48, 4, 2, 48);
+  const fine = periodicFbm(u * 3, v * 180, 3, 3, 180);
+  const tooth = periodicNoise(u * 360, v * 900, 360, 900);
+  // Pores are short dashes: ~8 mm along U, ~0.3 mm across V at the 50 cm tile.
+  const poreField = periodicNoise(u * 60, v * 1800, 60, 1800);
+
+  // Seven soft rings per 50 cm tile (≈7 cm apart). The amplitude stays low so
+  // the result reads as quarter-sawn oak, not as painted waves.
+  const ring = 0.5 + 0.5 * Math.sin((v * 7 + warp * 1.1 + medium * 0.35) * Math.PI * 2);
+  const late = smoothstep(0.8, 0.99, ring);
+  const pore = smoothstep(0.88, 0.99, poreField);
+  const fibre = 0.55 * medium + 0.3 * fine + 0.15 * tooth;
+  const height =
+    0.5 + 0.06 * (fibre - 0.5) + 0.012 * (ring - 0.5) - 0.008 * late - 0.1 * pore;
+  return { height, ring, fibre, broad, pore, late, tooth };
+}
+
+export interface OakSurfaceSample {
+  /** Height in 0..1, shared by the Normal map and `patternHeight`. */
+  readonly height: number;
+  /** sRGB base colour in 0..255. */
+  readonly color: readonly [number, number, number];
+  /** Linear roughness in 0..1. */
+  readonly roughness: number;
+  /** 0..1 pore mask; kept for tests and diagnostics. */
+  readonly pore: number;
+}
+
+/** Pure oak base-colour/roughness sample; the texture builder uses this. */
+export function oakSurfaceSample(u: number, v: number): OakSurfaceSample {
+  const sample = oakSample(u, v);
+  const tone = clamp01(
+    0.5 +
+      0.45 * (sample.broad - 0.5) +
+      0.4 * (sample.fibre - 0.5) +
+      0.15 * (sample.tooth - 0.5) -
+      0.06 * sample.late -
+      0.3 * sample.pore,
+  );
+  const tint = sample.broad - 0.5;
+  return {
+    height: sample.height,
+    color: [
+      clampByte(156 + 42 * tone + 3 * tint),
+      clampByte(116 + 33 * tone + 1.5 * tint),
+      clampByte(80 + 24 * tone),
+    ],
+    roughness: clamp01(
+      0.53 +
+        0.025 * (0.5 - sample.fibre) +
+        0.015 * (0.5 - sample.tooth) +
+        0.08 * sample.pore +
+        0.01 * sample.late,
+    ),
+    pore: sample.pore,
+  };
 }
 
 interface SatinSample {
@@ -326,24 +435,12 @@ function buildPremiumTextures(
       let roughness: number;
       let metalness: number;
       if (kind === 'oak') {
-        const sample = oakSample(u, v);
+        const sample = oakSurfaceSample(u, v);
         heights[index] = sample.height;
-        const t = clamp01(
-          0.32 +
-            0.34 * sample.ring +
-            0.2 * sample.fiber +
-            0.08 * sample.broad -
-            0.25 * sample.pore,
-        );
-        baseRgb[dst] = clampByte(128 + 72 * t + 4 * sample.ring);
-        baseRgb[dst + 1] = clampByte(84 + 66 * t);
-        baseRgb[dst + 2] = clampByte(46 + 48 * t);
-        roughness = clamp01(
-          0.52 +
-            0.06 * (0.5 - sample.fiber) +
-            0.03 * (0.5 - sample.ring) +
-            0.03 * sample.pore,
-        );
+        baseRgb[dst] = sample.color[0];
+        baseRgb[dst + 1] = sample.color[1];
+        baseRgb[dst + 2] = sample.color[2];
+        roughness = sample.roughness;
         // Oak is a dielectric; keep metalness at zero in the ORM blue channel.
         metalness = 0;
       } else {
@@ -375,7 +472,7 @@ function buildPremiumTextures(
     normal.ctx,
     size,
     size,
-    heightToNormal(heights, size, size, kind === 'oak' ? 2.4 : 0.8),
+    heightToNormal(heights, size, size, kind === 'oak' ? 1.3 : 0.8),
   );
   fillFromHeight(orm.ctx, size, size, ormRgb);
 
