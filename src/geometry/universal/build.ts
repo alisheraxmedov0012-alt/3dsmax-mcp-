@@ -11,9 +11,25 @@ import type { MaterialSettingsInput } from '../../materials/types';
 import { uvOrientationForPart } from '../../materials/uv';
 import { PartBuilder } from '../furniture/parts';
 import { furnitureDefinitions } from './registry';
-import { FurniturePlanError, type FurniturePlan } from './types';
+import {
+  FurniturePlanError,
+  type FurniturePlan,
+  type FurnitureSlot,
+} from './types';
 
 const DEG_TO_RAD = Math.PI / 180;
+
+/**
+ * The minimal definition shape the plan builder reads.
+ *
+ * Kept structural so the category-neutral contract can reuse the exact same
+ * materialisation path without the builder knowing about domains.
+ */
+export interface PlanBuildDefinition {
+  readonly id: string;
+  readonly slots: readonly FurnitureSlot[];
+  readonly groupName?: string;
+}
 
 export interface BuiltPlanFurniture {
   readonly group: THREE.Group;
@@ -38,7 +54,21 @@ export function buildPlan(
       `Definition "${plan.definitionId}" topilmadi.`,
     );
   }
+  return buildPlanWithDefinition(plan, definition, options);
+}
 
+/**
+ * Materialises a plan against an already-resolved definition.
+ *
+ * Split out for the category-neutral contract, which resolves its definition
+ * from the generic registry. Furniture callers keep using `buildPlan` above, so
+ * the lookup and the error behaviour on that path are unchanged.
+ */
+export function buildPlanWithDefinition(
+  plan: FurniturePlan,
+  definition: PlanBuildDefinition,
+  options: BuildPlanOptions = {},
+): BuiltPlanFurniture {
   const slots = new Map(definition.slots.map((slot) => [slot.id, slot]));
   const builders = new Map<string, PartBuilder>();
 

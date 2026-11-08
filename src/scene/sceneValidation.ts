@@ -13,7 +13,8 @@ import {
   type FurnitureType,
   type ParamNormalization,
 } from '../geometry/furniture';
-import { getFurnitureDefinition } from '../geometry/universal/registry';
+import { getParametricDefinition } from '../geometry/parametric/registry';
+import { FURNITURE_DOMAIN } from '../geometry/parametric/types';
 import { checkSpecBuildable } from './configurator/buildability';
 import { validateSceneSettings } from './sceneSettings';
 import { MATERIAL_PRESET_IDS } from '../materials/presets';
@@ -464,19 +465,27 @@ type UniversalObjectCheck =
   | {
       readonly kind: 'universal';
       readonly definitionId: string;
-      readonly family: FurnitureType;
+      readonly domain: string;
+      /**
+       * Present only for the furniture domain. A generic object keeps a legacy
+       * furniture projection in `type`, which this value never overrides.
+       */
+      readonly family: FurnitureType | undefined;
       readonly label: string;
       readonly spec: SceneSpec;
     };
 
 /**
- * Stage 3.0 — reads the universal fields of a stored object.
+ * Stage 3.0 / 9A.1 — reads the universal fields of a stored object.
  *
  * `definitionId` and `spec` are a pair: absent together (legacy object) or
  * present together (universal object). Anything else is `invalid` and the object
  * is dropped by the caller. A universal object is only accepted when the
  * definition exists and the spec produces a valid plan, so a persisted object can
  * never reach the viewer with geometry that cannot be built.
+ *
+ * The generic registry also exposes the built-in furniture definitions, so this
+ * lookup covers both a furniture object and a future category.
  */
 function checkUniversalObjectFields(value: Record<string, unknown>): UniversalObjectCheck {
   const rawDefinitionId = value.definitionId;
@@ -495,7 +504,7 @@ function checkUniversalObjectFields(value: Record<string, unknown>): UniversalOb
   if (definitionId === '' || definitionId.length > MAX_DEFINITION_ID_LENGTH) {
     return { kind: 'invalid' };
   }
-  const definition = getFurnitureDefinition(definitionId);
+  const definition = getParametricDefinition(definitionId);
   if (!definition) {
     return { kind: 'invalid' };
   }
@@ -514,7 +523,11 @@ function checkUniversalObjectFields(value: Record<string, unknown>): UniversalOb
   return {
     kind: 'universal',
     definitionId: definition.id,
-    family: definition.family,
+    domain: definition.domain,
+    family:
+      definition.domain === FURNITURE_DOMAIN && isFurnitureType(definition.family)
+        ? definition.family
+        : undefined,
     label: definition.label,
     spec: buildable.spec,
   };
@@ -588,11 +601,13 @@ function validateSceneObjectDetailed(
   let normalized: string[] = [];
 
   if (universal.kind === 'universal') {
-    // The definition owns the family, so a stale stored `type` cannot disagree
-    // with the geometry. `params` is only the legacy projection: a bad or
-    // missing value falls back to the family defaults instead of dropping a
-    // piece that is fully described by its spec.
-    type = universal.family;
+    // The furniture definition owns its family, so a stale stored `type` cannot
+    // disagree with the geometry. A generic object has no furniture family; its
+    // stored `type` is the legacy projection and is kept only when it is a real
+    // furniture type, otherwise the table defaults are used. In both cases
+    // `params` is the legacy projection: a bad or missing value falls back
+    // instead of dropping a piece that is fully described by its spec.
+    type = universal.family ?? (isFurnitureType(value.type) ? value.type : 'table');
     params =
       validateFurnitureParamsDetailed(type, value.params)?.params ?? createFurnitureParams(type);
     nameFallback = universal.label;
@@ -629,8 +644,14 @@ function validateSceneObjectDetailed(
     // the package then reports the explicit "not specified" state.
     ...normalizeHardware(value.hardware),
     // Omitted entirely for legacy objects so their stored JSON shape is unchanged.
+    // `domain` is written only for a foreign category, keeping furniture objects
+    // byte-identical to their pre-9A.1 form.
     ...(universal.kind === 'universal'
-      ? { definitionId: universal.definitionId, spec: universal.spec }
+      ? {
+          definitionId: universal.definitionId,
+          spec: universal.spec,
+          ...(universal.domain !== FURNITURE_DOMAIN ? { domain: universal.domain } : {}),
+        }
       : {}),
   };
 

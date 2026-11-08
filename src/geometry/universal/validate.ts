@@ -15,10 +15,21 @@ import {
 import type {
   FurniturePlanDraft,
   PlanIssue,
+  PlanLimits,
   PlanPart,
   PlanValidationResult,
-  RegisteredFurnitureDefinition,
 } from './types';
+
+/**
+ * The minimal definition shape plan validation reads.
+ *
+ * Structural on purpose: the category-neutral contract validates through this
+ * same function, while furniture callers keep passing their full definition.
+ */
+export interface PlanValidationDefinition {
+  readonly limits: PlanLimits;
+  readonly slots: readonly { readonly id: string }[];
+}
 
 function finiteTuple(value: Vec3Tuple): boolean {
   return value.length === 3 && value.every((item) => Number.isFinite(item));
@@ -81,7 +92,7 @@ function checkManufacturing(part: PlanPart): PlanIssue[] {
 
 export function validatePlanDraft(
   draft: FurniturePlanDraft,
-  definition: RegisteredFurnitureDefinition,
+  definition: PlanValidationDefinition,
 ): PlanValidationResult {
   const errors: PlanIssue[] = [];
 

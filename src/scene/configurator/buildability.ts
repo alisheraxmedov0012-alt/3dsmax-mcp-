@@ -11,6 +11,7 @@
  * the cache for every later object with the same key.
  */
 import { tryCreateFurniturePlan } from '../../geometry/universal/plan';
+import { tryCreateParametricPlan } from '../../geometry/parametric/plan';
 import type { PlanIssue } from '../../geometry/universal/types';
 import { normalizeSceneSpec, type SceneSpec } from '../types';
 
@@ -30,9 +31,29 @@ export function checkSpecBuildable(definitionId: string, spec: SceneSpec): SpecB
   }
 
   const created = tryCreateFurniturePlan(definitionId, spec);
-  let result: SpecBuildabilityResult;
+  let planSpec: Readonly<object> | undefined;
+  let issues: readonly PlanIssue[] = [];
   if (created.ok) {
-    const canonical = normalizeSceneSpec(created.plan.spec);
+    planSpec = created.plan.spec;
+  } else if (created.issues.every((entry) => entry.code === 'unknown_definition')) {
+    // 9A.1: give a generic (non-furniture) definition the same full pipeline.
+    // Furniture ids never reach this branch because the furniture registry
+    // already resolved them above.
+    const generic = tryCreateParametricPlan(definitionId, spec);
+    if (generic.ok) {
+      planSpec = generic.plan.spec;
+    } else {
+      issues = generic.issues;
+    }
+  } else {
+    issues = created.issues;
+  }
+
+  let result: SpecBuildabilityResult;
+  if (planSpec === undefined) {
+    result = { ok: false, issues };
+  } else {
+    const canonical = normalizeSceneSpec(planSpec);
     result = canonical
       ? { ok: true, spec: Object.freeze(canonical) }
       : {
@@ -44,8 +65,6 @@ export function checkSpecBuildable(definitionId: string, spec: SceneSpec): SpecB
             },
           ],
         };
-  } else {
-    result = { ok: false, issues: created.issues };
   }
 
   if (cache.size >= MAX_CACHE_ENTRIES) {

@@ -1,14 +1,16 @@
 import * as THREE from 'three';
 import type { MaterialSettingsInput } from '../materials/types';
 import { buildFurniture } from '../geometry/furniture';
-import { buildPlan } from '../geometry/universal/build';
+import { buildPlanWithDefinition } from '../geometry/universal/build';
 import { createFurniturePlan } from '../geometry/universal/plan';
-import { requireFurnitureDefinition } from '../geometry/universal/registry';
+import { furnitureDefinitions } from '../geometry/universal/registry';
 import {
   FurniturePlanError,
   type FurniturePlan,
   type FurnitureSlot,
 } from '../geometry/universal/types';
+import { createParametricPlan } from '../geometry/parametric/plan';
+import { requireParametricDefinition } from '../geometry/parametric/registry';
 import {
   IMPORTED_OBJECT_TYPE,
   isImportedSceneObject,
@@ -172,15 +174,21 @@ function buildUniversalSceneObject(object: SceneObject): BuiltSceneObject {
     );
   }
 
-  const plan = createFurniturePlan(definitionId, spec);
-  const definition = requireFurnitureDefinition(plan.definitionId);
+  // The generic registry falls back to the furniture registry, so a built-in
+  // furniture object keeps the exact `createFurniturePlan` path; anything that
+  // only exists in the generic registry gets the same validation and budgets
+  // through `createParametricPlan`.
+  const definition = requireParametricDefinition(definitionId);
+  const plan = furnitureDefinitions.has(definitionId)
+    ? createFurniturePlan(definitionId, spec)
+    : createParametricPlan(definitionId, spec);
 
   const materialOverrides: Record<string, MaterialSettingsInput> = {};
   for (const slot of definition.slots) {
     materialOverrides[slot.id] = slotMaterialOverride(object.material, slot);
   }
 
-  const built = buildPlan(plan, { materialOverrides });
+  const built = buildPlanWithDefinition(plan, definition, { materialOverrides });
   built.group.name = `object:${object.id}`;
   built.group.userData.sceneObjectId = object.id;
   built.group.userData.definitionId = plan.definitionId;

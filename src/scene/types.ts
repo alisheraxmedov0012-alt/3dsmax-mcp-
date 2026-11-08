@@ -2,9 +2,12 @@ import { TABLE_DEFAULTS } from '../geometry/tableParams';
 import {
   FURNITURE_DEFAULT_NAMES,
   createFurnitureParams,
+  isFurnitureType,
   type FurnitureParams,
   type FurnitureType,
 } from '../geometry/furniture/types';
+import { FURNITURE_DOMAIN, type ParametricDomain } from '../geometry/parametric/types';
+
 import type { MaterialPresetId } from '../materials/types';
 import type { MaterialAssetMaps } from '../materials/asset';
 import type { SheetMaterialEntry } from '../manufacturing/sheetMaterial';
@@ -278,6 +281,13 @@ export interface SceneObject {
   /** Stage 3.0: validated, canonical spec for `definitionId`. */
   spec?: SceneSpec;
   /**
+   * Phase 9A.1: category/domain of a generic parametric object (e.g. `furniture`,
+   * a future `electronics`). Omitted for furniture and legacy objects, so their
+   * stored JSON shape is unchanged. `type` stays the legacy projection that the
+   * furniture-only panels read; geometry always comes from `definitionId`.
+   */
+  domain?: ParametricDomain;
+  /**
    * Phase 6.2: explicit kind marker. Always `'imported'` for imported objects and
    * omitted entirely for parametric ones, so legacy scene JSON round-trips
    * unchanged. `type` remains the discriminator the compiler narrows on.
@@ -294,6 +304,8 @@ export interface SceneObject {
 /** A scene object whose geometry is built from furniture parameters or a spec. */
 export interface FurnitureSceneObject extends SceneObject {
   type: FurnitureType;
+  /** Furniture objects never carry a foreign domain. */
+  domain?: typeof FURNITURE_DOMAIN;
   imported?: undefined;
 }
 
@@ -316,9 +328,18 @@ export function isImportedSceneObject(object: SceneObject): object is ImportedSc
   return object.type === IMPORTED_OBJECT_TYPE && object.imported !== undefined;
 }
 
-/** Phase 6.2 — narrows to a parametric object, for every furniture-only path. */
+/**
+ * Phase 6.2 / 9A.1 — narrows to a parametric furniture object.
+ *
+ * A generic object from another domain may also use a furniture type as its
+ * legacy projection, so the domain must agree: a foreign domain is not furniture
+ * for the furniture-only panels, BOM, drawing or parameter editors.
+ */
 export function isFurnitureSceneObject(object: SceneObject): object is FurnitureSceneObject {
-  return object.type !== IMPORTED_OBJECT_TYPE;
+  return (
+    isFurnitureType(object.type) &&
+    (object.domain === undefined || object.domain === FURNITURE_DOMAIN)
+  );
 }
 
 export interface ObjectMaterial {
@@ -436,13 +457,23 @@ export const OBJECT_NAME_MAX_LENGTH = 60;
 
 export const TABLE_OBJECT_DEFAULT_NAME = 'Stol';
 
+/**
+ * Overrides accepted by the furniture factories.
+ *
+ * `domain` is excluded: only a generic definition decides the category, and a
+ * furniture factory must never accept a foreign domain.
+ */
+export type FurnitureSceneObjectOverrides = Partial<
+  Omit<SceneObject, 'id' | 'type' | 'kind' | 'imported' | 'domain'>
+>;
+
 export function createRoomConfig(partial?: Partial<RoomConfig>): RoomConfig {
   return { ...ROOM_DEFAULTS, ...partial };
 }
 
 export function createTableSceneObject(
   id: string,
-  overrides: Partial<Omit<SceneObject, 'id' | 'type' | 'kind' | 'imported'>> = {},
+  overrides: FurnitureSceneObjectOverrides = {},
 ): FurnitureSceneObject {
   return {
     id,
@@ -462,7 +493,7 @@ export function createTableSceneObject(
 export function createFurnitureSceneObject(
   type: FurnitureType,
   id: string,
-  overrides: Partial<Omit<SceneObject, 'id' | 'type' | 'kind' | 'imported'>> = {},
+  overrides: FurnitureSceneObjectOverrides = {},
 ): FurnitureSceneObject {
   return {
     id,
@@ -494,7 +525,7 @@ export function createUniversalSceneObject(
   definitionId: string,
   id: string,
   spec: unknown = undefined,
-  overrides: Partial<Omit<SceneObject, 'id' | 'type' | 'kind' | 'imported'>> = {},
+  overrides: FurnitureSceneObjectOverrides = {},
 ): SceneObject {
   const definition = requireFurnitureDefinition(definitionId);
   const parsed = definition.parseSpec(spec === undefined ? definition.defaults : spec);
