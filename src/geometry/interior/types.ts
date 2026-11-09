@@ -81,6 +81,90 @@ export interface RoomOpeningSpec {
 }
 
 /**
+ * Material slots the built-in room definition exposes. Kept here (not only in
+ * `roomDefinition`) so the spec parser can validate `RoomSpec.materials`
+ * without importing the definition module.
+ */
+export const ROOM_MATERIAL_SLOT_IDS = [
+  'floor',
+  'wall',
+  'ceiling',
+  'baseboard',
+  'crown-molding',
+  'door-frame',
+  'door-leaf',
+  'door-hardware',
+  'window-frame',
+  'window-glass',
+  'window-sill',
+] as const;
+
+export type RoomMaterialSlotId = (typeof ROOM_MATERIAL_SLOT_IDS)[number];
+
+/**
+ * One slot's material parameters, stored with the room.
+ *
+ * These are the same channels `MaterialSettingsInput` already understands plus
+ * the physical tile size. A slot may set only `materialId` and inherit the rest
+ * from that preset, or override individual channels.
+ */
+export interface RoomSlotMaterialSpec {
+  readonly materialId?: string;
+  readonly baseColor?: string;
+  readonly metalness?: number;
+  readonly roughness?: number;
+  readonly opacity?: number;
+  readonly textureScale?: number;
+  readonly normalStrength?: number;
+  readonly emissiveIntensity?: number;
+  readonly aoIntensity?: number;
+  readonly emissiveColor?: string;
+  /** Real-world size of one texture tile, in centimetres. */
+  readonly physicalTileCm?: number;
+  readonly premiumTextures?: boolean;
+}
+
+/** Per-slot material parameters stored in a `RoomSpec`. */
+export type RoomMaterialsSpec = Readonly<
+  Partial<Record<RoomMaterialSlotId, RoomSlotMaterialSpec>>
+>;
+
+/** Trim cross-section shape. Detailed moulding profiles are a later phase. */
+export const TRIM_PROFILES = ['square', 'beveled', 'stepped'] as const;
+export type TrimProfile = (typeof TRIM_PROFILES)[number];
+
+/** Fully-resolved baseboard parameters. */
+export interface RoomBaseboardSpec {
+  readonly enabled: boolean;
+  readonly heightCm: number;
+  readonly thicknessCm: number;
+  readonly profile: TrimProfile;
+  readonly materialSlot: RoomMaterialSlotId;
+  /** Optional real-world tile override in centimetres. */
+  readonly tileCm?: number;
+}
+
+/** Fully-resolved crown-moulding parameters. */
+export interface RoomCrownMoldingSpec {
+  readonly enabled: boolean;
+  readonly heightCm: number;
+  readonly projectionCm: number;
+  readonly profile: TrimProfile;
+  readonly materialSlot: RoomMaterialSlotId;
+  readonly tileCm?: number;
+}
+
+/**
+ * Decorative trim stored with the room. Both members are optional so a spec
+ * may configure one trim without restating the other; the parser fills every
+ * supplied block to a complete, validated config.
+ */
+export interface RoomTrimSpec {
+  readonly baseboard?: RoomBaseboardSpec;
+  readonly crownMolding?: RoomCrownMoldingSpec;
+}
+
+/**
  * Stored room parameters. Everything here is a JSON scalar; geometry, meshes
  * and derived extents live in `RoomPlan` instead.
  *
@@ -99,6 +183,26 @@ export interface RoomSpec {
   readonly roomType: RoomType;
   /** Optional so pre-9A.2.3 specs round-trip without a new key. */
   readonly openings?: readonly RoomOpeningSpec[];
+  /** Optional so pre-9A.2.5 specs round-trip without a new key. */
+  readonly materials?: RoomMaterialsSpec;
+  /** Optional so pre-9A.2.6 specs round-trip without a new key. */
+  readonly trim?: RoomTrimSpec;
+}
+
+export type TrimType = 'baseboard' | 'crown-molding';
+
+/** Metadata attached to each generated trim part (inside `PlanPart.metadata`). */
+export interface RoomTrimPartMetadata {
+  readonly wallId: RoomSide;
+  readonly trimType: TrimType;
+  /** Segment bounds in wall-run centimetres (0 = wall start). */
+  readonly segmentStartCm: number;
+  readonly segmentEndCm: number;
+  readonly profile: TrimProfile;
+  readonly heightCm: number;
+  readonly materialSlot: RoomMaterialSlotId;
+  readonly thicknessCm?: number;
+  readonly projectionCm?: number;
 }
 
 export type RoomBoundaryKind = 'rectangle' | 'polygon';

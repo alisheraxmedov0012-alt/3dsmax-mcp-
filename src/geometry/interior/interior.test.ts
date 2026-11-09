@@ -406,8 +406,8 @@ describe('RoomDefinition and registry', () => {
     expect(parametric.fields.length).toBe(8);
     expect(parametric.slots).toBe(ROOM_SLOTS);
     expect(parametric.parseSpec({})).toEqual({ ok: true, spec: DEFAULT_ROOM_SPEC });
-    expect(parametric.solve(DEFAULT_ROOM_SPEC as RoomSpec).parts).toHaveLength(5);
-    expect(solveRoomParts(DEFAULT_ROOM_SPEC as RoomSpec).parts).toHaveLength(5);
+    expect(parametric.solve(DEFAULT_ROOM_SPEC as RoomSpec).parts).toHaveLength(9);
+    expect(solveRoomParts(DEFAULT_ROOM_SPEC as RoomSpec).parts).toHaveLength(9);
     expect(solveRoomMetadata(DEFAULT_ROOM_SPEC as RoomSpec).floor.partId).toBe(
       'room-floor',
     );
@@ -475,6 +475,10 @@ describe('RoomPlan', () => {
       'room-wall-east',
       'room-wall-south',
       'room-wall-west',
+      'room-baseboard-north-1',
+      'room-baseboard-east-1',
+      'room-baseboard-south-1',
+      'room-baseboard-west-1',
     ]);
     expect(plan.walls.map((wall) => wall.side)).toEqual([
       'north',
@@ -528,7 +532,7 @@ describe('RoomPlan', () => {
       ROOM_STANDARD_DEFINITION_ID,
       specWith({ showCeiling: true }),
     );
-    expect(plan.parametric.parts).toHaveLength(6);
+    expect(plan.parametric.parts).toHaveLength(14);
     expect(plan.ceiling).toEqual({
       partId: 'room-ceiling',
       widthCm: 408,
@@ -637,12 +641,18 @@ describe('RoomPlan', () => {
     );
     const built = buildPlanWithDefinition(plan.parametric, definition.parametric);
     try {
-      expect(built.materialSlots).toEqual(['floor', 'wall', 'ceiling']);
+      expect(built.materialSlots).toEqual([
+        'floor',
+        'wall',
+        'ceiling',
+        'baseboard',
+        'crown-molding',
+      ]);
       let meshes = 0;
       built.group.traverse((object) => {
         if ((object as { isMesh?: boolean }).isMesh) meshes += 1;
       });
-      expect(meshes).toBe(6);
+      expect(meshes).toBe(14);
     } finally {
       built.dispose();
     }

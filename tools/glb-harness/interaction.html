@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Room interaction smoke harness</title>
+    <style>
+      body { margin: 0; background: #101014; color: #cfe; font: 12px/1.4 monospace; }
+      #stage { width: 800px; height: 600px; position: relative; }
+      #out { white-space: pre-wrap; padding: 8px; }
+    </style>
+  </head>
+  <body>
+    <div id="stage"></div>
+    <pre id="out">starting…</pre>
+    <script type="module">
+      const out = document.getElementById('out');
+      const results = { steps: [] };
+      const step = (name, value) => results.steps.push({ name, value });
+
+      async function main() {
+        try {
+          const { SceneViewer } = await import('@repo/src/viewer/SceneViewer.ts');
+          const { createRoomInstance } = await import('@repo/src/scene/roomInstance.ts');
+          const { ROOM_STANDARD_DEFINITION_ID } = await import(
+            '@repo/src/geometry/interior/roomDefinition.ts'
+          );
+          const { DEFAULT_ROOM_SPEC } = await import('@repo/src/geometry/interior/roomSpec.ts');
+          const { createDefaultSettings } = await import('@repo/src/scene/sceneSettings.ts');
+          const { ROOM_DEFAULTS, SCENE_SCHEMA_VERSION, createTableSceneObject } = await import(
+            '@repo/src/scene/types.ts'
+          );
+          const { roomSelectionId } = await import('@repo/src/viewer/selection.ts');
+
+          const container = document.getElementById('stage');
+          let selected = null;
+          let transformed = null;
+          let transformCalls = 0;
+          const viewer = new SceneViewer(container, {
+            onSelect: (id) => { selected = id; },
+            onTransform: (id, patch) => { transformCalls += 1; transformed = { id, patch }; },
+          });
+
+          const visibleRoom = createRoomInstance(ROOM_STANDARD_DEFINITION_ID, 'room-a', {
+            ...DEFAULT_ROOM_SPEC,
+            showCeiling: true,
+          });
+          const hiddenRoom = {
+            ...createRoomInstance(ROOM_STANDARD_DEFINITION_ID, 'room-hidden', {
+              ...DEFAULT_ROOM_SPEC,
+              showCeiling: false,
+            }),
+            position: { x: 900, y: 0, z: 0 },
+            visible: false,
+          };
+          const secondRoom = {
+            ...createRoomInstance(ROOM_STANDARD_DEFINITION_ID, 'room-b', {
+              ...DEFAULT_ROOM_SPEC,
+              showCeiling: false,
+            }),
+            position: { x: 900, y: 0, z: 0 },
+          };
+          const data = {
+            schemaVersion: SCENE_SCHEMA_VERSION,
+            room: { ...ROOM_DEFAULTS },
+            objects: [createTableSceneObject('table-1')],
+            settings: createDefaultSettings(),
+            rooms: [visibleRoom, hiddenRoom],
+          };
+
+          viewer.setScene(data, roomSelectionId('room-a'));
+          viewer.setTransformMode('translate');
+          await new Promise((resolve) => setTimeout(resolve, 250));
+
+          const controls = viewer.transformControls;
+          const helper = controls ? controls.getHelper() : null;
+          step('gizmoAttached', controls?.object?.name ?? null);
+          step('gizmoVisible', helper?.visible ?? null);
+          step('targetKind', viewer.transformTarget?.kind ?? null);
+          step('pickCenter', viewer.pick(400, 300));
+
+          const group = viewer.rooms.get('room-a')?.group;
+          if (group) {
+            group.position.set(123, 0, -45);
+            group.rotation.y = Math.PI / 6;
+            group.scale.set(2, 1, 1);
+          }
+          controls?.dispatchEvent({ type: 'objectChange' });
+          step('callbackBeforeRelease', transformed);
+          controls?.dispatchEvent({ type: 'mouseUp' });
+          step('transformCallback', transformed);
+          step('transformCallsAfterRelease', transformCalls);
+          controls?.dispatchEvent({ type: 'mouseUp' });
+          step('transformCallsAfterSecondRelease', transformCalls);
+
+          viewer.setTransformMode('select');
+          step('gizmoHiddenInSelect', helper?.visible ?? null);
+
+          viewer.setScene(data, 'table-1');
+          viewer.setTransformMode('translate');
+          step('objectTargetKind', viewer.transformTarget?.kind ?? null);
+          step('objectGizmoAttached', viewer.transformControls?.object?.name ?? null);
+
+          viewer.setScene(data, roomSelectionId('room-hidden'));
+          viewer.setTransformMode('translate');
+          step('hiddenTarget', viewer.transformTarget);
+          step('hiddenGizmoVisible', viewer.transformControls?.getHelper().visible ?? null);
+
+          const focusData = {
+            ...data,
+            rooms: [visibleRoom, secondRoom, hiddenRoom],
+          };
+          viewer.setScene(focusData, roomSelectionId('room-a'));
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          step('focusRoomA', viewer.focusSelection(roomSelectionId('room-a')));
+          step('focusRoomATargetX', Math.round(viewer.controls.target.x));
+          step('focusRoomB', viewer.focusSelection(roomSelectionId('room-b')));
+          step('focusRoomBTargetX', Math.round(viewer.controls.target.x));
+          step('focusHidden', viewer.focusSelection(roomSelectionId('room-hidden')));
+
+          step('selected', selected);
+          viewer.dispose();
+          results.ok = true;
+        } catch (error) {
+          results.ok = false;
+          results.error = error && error.stack ? error.stack : String(error);
+        }
+        out.textContent = 'INTERACTION_JSON:' + JSON.stringify(results);
+        console.log(out.textContent);
+      }
+
+      await main();
+    </script>
+  </body>
+</html>

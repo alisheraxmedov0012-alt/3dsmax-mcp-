@@ -41,6 +41,11 @@ export interface BuiltPlanFurniture {
 
 export interface BuildPlanOptions {
   readonly materialOverrides?: Readonly<Record<string, MaterialSettingsInput>>;
+  /**
+   * Per-slot physical UV tile, in centimetres. Only the interior builder passes
+   * this; furniture builds leave it undefined and keep the 50 cm tile.
+   */
+  readonly uvTileOverrides?: Readonly<Record<string, number>>;
 }
 
 export function buildPlan(
@@ -95,6 +100,7 @@ export function buildPlanWithDefinition(
       builders.set(slot.id, builder);
     }
 
+    const uvTileCm = options.uvTileOverrides?.[slot.id] ?? part.uvTileCm;
     builder.addGeometry(
       part.id,
       part.geometry,
@@ -107,6 +113,7 @@ export function buildPlanWithDefinition(
       {
         uv: part.uv ?? 'auto',
         uvOrientation: uvOrientationForPart(part.type),
+        ...(uvTileCm === undefined ? {} : { uvTileCm }),
       },
     );
   }

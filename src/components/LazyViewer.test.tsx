@@ -19,7 +19,9 @@ const viewerProps = {
   resetToken: 0,
   cameraPreset: 'product' as const,
   cameraPresetToken: 0,
+  transformMode: 'select' as const,
   onSelect: () => {},
+  onTransform: () => {},
   onReady: () => {},
 };
 

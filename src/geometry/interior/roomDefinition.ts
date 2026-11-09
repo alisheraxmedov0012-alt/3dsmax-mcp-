@@ -26,7 +26,10 @@ import {
   parseRoomSpec,
 } from './roomSpec';
 import { createRoomLayout, solveRoomMetadata } from './roomPlan';
+import { resolveRoomMaterials } from './roomMaterials';
+import { buildTrimParts } from './roomTrim';
 import { buildOpeningAssembly } from './openingComponents';
+import { DEFAULT_UV_TILE_CM } from '../../materials/types';
 
 export const ROOM_STANDARD_DEFINITION_ID = 'room.standard';
 
@@ -102,6 +105,22 @@ export const ROOM_SLOTS: readonly ParametricSlot[] = [
     materialId: 'default',
     groupName: 'room-ceiling-group',
     materialName: 'Room_Ceiling',
+  },
+  {
+    id: 'baseboard',
+    label: 'Plintus',
+    color: '#f2f3f5',
+    materialId: 'baseboard-white',
+    groupName: 'room-baseboard-group',
+    materialName: 'Room_Baseboard',
+  },
+  {
+    id: 'crown-molding',
+    label: 'Karniz',
+    color: '#f7f6f3',
+    materialId: 'crown-white',
+    groupName: 'room-crown-molding-group',
+    materialName: 'Room_Crown_Molding',
   },
 ];
 
@@ -197,22 +216,35 @@ function wallPart(wall: RoomWallLayout): PlanPart {
     position: wall.position,
     rotation: wall.rotation,
     materialSlot: wall.materialSlot,
-    uv: wall.geometryKind === 'extrude' ? 'box' : 'physical-box',
+    uv: wall.geometryKind === 'extrude' ? 'surface' : 'physical-box',
   };
 }
 
 /** Solve the generic 9A.1 geometry draft for a validated room spec. */
 export function solveRoomParts(spec: RoomSpec): ParametricPlanDraft {
   const layout = createRoomLayout(spec);
-  const parts: PlanPart[] = [boxPart(layout.floor)];
+  const { tiles } = resolveRoomMaterials(ROOM_SLOTS, spec);
+  // Parts without an explicit physical tile keep the historical plan shape and
+  // the 50 cm default, so pre-9A.2.5 rooms materialise identically.
+  const withTile = (part: PlanPart): PlanPart => {
+    const tile = tiles[part.materialSlot];
+    return tile === undefined || tile === DEFAULT_UV_TILE_CM ? part : { ...part, uvTileCm: tile };
+  };
+
+  const parts: PlanPart[] = [withTile(boxPart(layout.floor))];
   for (const wall of layout.walls) {
-    parts.push(wallPart(wall));
+    parts.push(withTile(wallPart(wall)));
     for (const opening of wall.openings) {
-      parts.push(...buildOpeningAssembly(wall, opening).parts);
+      for (const part of buildOpeningAssembly(wall, opening).parts) {
+        parts.push(withTile(part));
+      }
     }
   }
   if (layout.ceiling) {
-    parts.push(boxPart(layout.ceiling));
+    parts.push(withTile(boxPart(layout.ceiling)));
+  }
+  for (const part of buildTrimParts(spec, layout)) {
+    parts.push(withTile(part));
   }
   return {
     parts,

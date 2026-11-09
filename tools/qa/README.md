@@ -115,6 +115,73 @@ It prints one `QA_BLENDER_JSON:` line with objects, meshes, triangle/vertex
 counts, materials, images, UV layers, missing normals, zero-area polygons and the
 world-space bounding box.
 
+## Interior parity harness (Phase 9A.2.8)
+
+The interior harness reuses the same browser export path, then adds a Blender
+parity and visual pass for the opt-in room fixtures.
+
+```bash
+npm run test:interior
+```
+
+Options:
+
+```text
+--out <dir>       Report directory (default: qa-output/interior-parity).
+--no-blender      Skip Blender; parity and renders are NOT VERIFIED.
+--no-render       Run metric/ray parity without Cycles renders.
+--fixtures <ids>  Comma-separated fixture ids (room-only, furniture-room, multi-room, hidden-room).
+```
+
+Fixtures and their expected bounds, trim counts, material tiles and opening rays
+live in `src/qa/interiorFixtures.ts` and are asserted by
+`src/qa/interiorFixtures.test.ts`. The browser page is
+`tools/glb-harness/rooms.html`; the Blender script is
+`tools/qa/interior-blender.py`.
+
+Output:
+
+```text
+qa-output/interior-parity/
+  interior/<fixture>.glb          # exported by the real browser pipeline
+  interior/<fixture>.blender.json # Blender metrics, checks, ray casts
+  interior-report.json
+  interior-report.md
+  renders/<fixture>/*.png         # overview, front, side, top, opening, trim, furniture
+```
+
+The Blender pass measures mesh/vertex/triangle counts, bounds, materials, images,
+UV finiteness/mirroring, derived texel density, room transforms, trim counts and
+casts wall-only rays through the door and window openings. GLB counts and Blender
+counts must agree exactly. A missing Blender binary is recorded as `NOT VERIFIED`
+and never as `PASS`.
+
+For this phase the portable Blender 4.5.9 LTS Linux build was verified against
+the official SHA-256 before use:
+
+```bash
+curl -LO https://download.blender.org/release/Blender4.5/blender-4.5.9-linux-x64.tar.xz
+curl -LO https://download.blender.org/release/Blender4.5/blender-4.5.9.sha256
+grep 'linux-x64.tar.xz' blender-4.5.9.sha256 | sha256sum -c -
+tar -xf blender-4.5.9-linux-x64.tar.xz -C /tmp
+BLENDER=/tmp/blender-4.5.9-linux-x64/blender npm run test:interior
+```
+
+## Interaction smoke (Phase 9A.2.9)
+
+The viewer interaction path runs in a real headless Chromium with WebGL:
+
+```bash
+npm run test:interaction
+```
+
+`tools/glb-harness/interaction.html` loads the real `SceneViewer`, selects an
+opt-in room, switches to the move gizmo, commits a simulated drag, then checks
+the furniture and hidden-room branches. Results are written to
+`qa-output/interaction-smoke.json`. This is a smoke test, not a replacement for
+the pure unit tests in `src/viewer/selection.test.ts` and
+`src/viewer/transformCommit.test.ts`.
+
 ## CI
 
 The harness is not wired into the existing CI jobs. It needs Chromium, Python and

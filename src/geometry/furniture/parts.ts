@@ -183,7 +183,7 @@ export class PartBuilder {
       }
     }
     if (
-      uv === 'box' &&
+      (uv === 'box' || uv === 'surface') &&
       recipe.kind !== 'box' &&
       recipe.kind !== 'roundedBox' &&
       recipe.kind !== 'extrude' &&
@@ -191,7 +191,7 @@ export class PartBuilder {
     ) {
       throw new GeometryKernelError(
         'unsupported_recipe',
-        'box UV faqat box, roundedBox, extrude yoki custom recipe uchun qo‘llanadi.',
+        `${uv} UV faqat box, roundedBox, extrude yoki custom recipe uchun qo‘llanadi.`,
       );
     }
     if (
@@ -209,11 +209,11 @@ export class PartBuilder {
 
     const geometry = createGeometry(recipe, geometryOptions);
     if (uv === 'physical-box' && recipe.kind === 'box') {
-      const applied = applyPhysicalBoxUvs(geometry, [
-        recipe.width,
-        recipe.height,
-        recipe.depth,
-      ]);
+      const applied = applyPhysicalBoxUvs(
+        geometry,
+        [recipe.width, recipe.height, recipe.depth],
+        uvTileCm,
+      );
       if (!applied) {
         geometry.dispose();
         throw new GeometryKernelError(

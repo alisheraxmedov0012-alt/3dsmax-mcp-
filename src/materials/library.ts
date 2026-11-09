@@ -60,7 +60,7 @@ export function materialAssetFromPreset(preset: MaterialPreset): MaterialAsset {
       aoIntensity: 1,
     },
     maps,
-    uv: { mode: 'physical-box', tileCm: DEFAULT_UV_TILE_CM },
+    uv: { mode: 'physical-box', tileCm: preset.physicalTileCm ?? DEFAULT_UV_TILE_CM },
     license: { kind: 'built-in', source: '3D Studio AI procedural preset' },
   };
 }

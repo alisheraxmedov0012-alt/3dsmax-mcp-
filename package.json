@@ -14,6 +14,8 @@
     "test:glb": "node tools/glb-harness/roundtrip.mjs",
     "test:import": "node tools/glb-harness/import.mjs",
     "test:quality": "node tools/qa/quality-harness.mjs",
+    "test:interior": "node tools/qa/interior-parity.mjs",
+    "test:interaction": "node tools/qa/interaction-smoke.mjs",
     "product:desk": "node tools/product/build.mjs"
   },
   "dependencies": {

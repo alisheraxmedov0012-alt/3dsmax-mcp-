@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Interior parity export harness</title>
+    <style>
+      body { background: #101014; color: #cfe; font: 13px/1.5 monospace; padding: 12px; }
+      pre { white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <pre id="out">starting…</pre>
+    <script type="module">
+      // Phase 9A.2.8: export every interior QA fixture through the shipped
+      // scene export pipeline in a real browser (real 2D canvas + WebGL).
+      const out = document.getElementById('out');
+      const lines = [];
+      const note = (line) => {
+        lines.push(line);
+        out.textContent = lines.join('\n');
+        console.log(line);
+      };
+
+      async function postBinary(path, arrayBuffer) {
+        const response = await fetch(path, {
+          method: 'POST',
+          headers: { 'content-type': 'application/octet-stream' },
+          body: arrayBuffer,
+        });
+        if (!response.ok) throw new Error(`POST ${path} -> ${response.status}`);
+      }
+
+      async function postJson(path, value) {
+        const response = await fetch(path, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(value),
+        });
+        if (!response.ok) throw new Error(`POST ${path} -> ${response.status}`);
+      }
+
+      async function main() {
+        try {
+          const { INTERIOR_FIXTURES } = await import(
+            '@repo/src/qa/interiorFixtures.ts'
+          );
+          const { exportSceneToGlb } = await import('@repo/src/export/sceneExport.ts');
+
+          const manifest = [];
+          for (const fixture of INTERIOR_FIXTURES) {
+            const started = performance.now();
+            const glb = await exportSceneToGlb(fixture.scene);
+            const ms = Math.round(performance.now() - started);
+            await postBinary(`/artefakt/interior/${fixture.id}.glb`, glb);
+            manifest.push({
+              id: fixture.id,
+              label: fixture.label,
+              expectations: fixture.expectations,
+              bytes: glb.byteLength,
+              exportMs: ms,
+            });
+            note(`fixture=${fixture.id} bytes=${glb.byteLength} ms=${ms}`);
+          }
+          await postJson('/artefakt/interior/manifest.json', manifest);
+          note(`INTERIOR_FIXTURES_DONE count=${manifest.length}`);
+        } catch (error) {
+          note('ERROR=' + (error && error.stack ? error.stack : String(error)));
+        }
+      }
+
+      await main();
+    </script>
+  </body>
+</html>

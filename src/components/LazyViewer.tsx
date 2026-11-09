@@ -21,7 +21,8 @@
 import { Component, Suspense, lazy, type ReactNode } from 'react';
 import type { SceneData } from '../scene/types';
 import type { CameraPreset } from '../scene/sceneSettings';
-import type { SceneViewer } from '../viewer/SceneViewer';
+import type { SceneViewer, ViewerTransformMode } from '../viewer/SceneViewer';
+import type { TransformPatch } from '../viewer/transformCommit';
 
 const ViewerCanvas = lazy(() =>
   import('./ViewerCanvas').then((module) => ({ default: module.ViewerCanvas })),
@@ -33,7 +34,9 @@ interface LazyViewerProps {
   resetToken: number;
   cameraPreset: CameraPreset;
   cameraPresetToken: number;
+  transformMode: ViewerTransformMode;
   onSelect: (id: string | null) => void;
+  onTransform: (id: string, patch: TransformPatch) => void;
   onReady: (viewer: SceneViewer | null) => void;
 }
 

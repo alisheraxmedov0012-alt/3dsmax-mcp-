@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { buildRoom } from '../geometry/buildRoom';
 import {
@@ -7,7 +8,28 @@ import {
   buildSceneObject,
   sceneObjectGeometryKey,
 } from '../scene/buildSceneObject';
-import { ROOM_OBJECT_ID, isImportedSceneObject, type SceneData, type SceneObject } from '../scene/types';
+import {
+  buildRoomEntry,
+  disposeRoomEntries,
+  includeLegacyRoom,
+  type BuiltRoomEntry,
+} from '../scene/roomScene';
+import { roomInstanceGeometryKey } from '../scene/roomInstance';
+import { mergeBounds, objectBounds } from './sceneBounds';
+import {
+  pickSelectionFromHits,
+  resolveSelectionTarget,
+  roomSelectionId,
+  ROOM_SELECTION_PREFIX,
+  type SceneHit,
+  type SelectionTarget,
+} from './selection';
+import {
+  constrainGizmoScale,
+  transformPatchFromObject,
+  type TransformPatch,
+} from './transformCommit';
+import { ROOM_OBJECT_ID, isImportedSceneObject, type RoomInstance, type SceneData, type SceneObject } from '../scene/types';
 import { importedModelStore } from '../import/importedModelStore';
 import type { CameraPreset, SceneSettings } from '../scene/sceneSettings';
 import { applyTextureMapToGroup } from '../materials/applyTextureMaps';
@@ -79,8 +101,15 @@ const SHADOW_MAP_KIND: Record<ShadowMapKind, THREE.ShadowMapType> = {
   vsm: THREE.VSMShadowMap,
 };
 
+export type ViewerTransformMode = 'select' | 'translate' | 'rotate' | 'scale';
+
 export interface SceneViewerOptions {
   onSelect?: (id: string | null) => void;
+  /**
+   * Called once after a gizmo drag ends, with the selected id and its canonical
+   * scene transform. The viewer never mutates SceneData itself.
+   */
+  onTransform?: (id: string, patch: TransformPatch) => void;
   /** Fired when the WebGL context is lost; the viewer cannot render until restored. */
   onContextLost?: () => void;
   onContextRestored?: () => void;
@@ -132,6 +161,10 @@ interface ObjectEntry {
   mapLoader: ObjectTextureMapLoader;
 }
 
+interface RoomViewerEntry extends BuiltRoomEntry {
+  readonly key: string;
+}
+
 const CLICK_MOVE_THRESHOLD_PX = 6;
 
 /**
@@ -151,6 +184,7 @@ export class SceneViewer {
   private readonly resizeObserver: ResizeObserver;
   private readonly raycaster = new THREE.Raycaster();
   private readonly onSelect?: (id: string | null) => void;
+  private readonly onTransform?: (id: string, patch: TransformPatch) => void;
 
   private readonly background = new THREE.Color('#1b1f24');
   private readonly environment: EnvironmentManager;
@@ -161,10 +195,15 @@ export class SceneViewer {
   private readonly rimLight: THREE.DirectionalLight;
 
   private room: { group: THREE.Group; dispose: () => void; key: string } | null = null;
+  private readonly rooms = new Map<string, RoomViewerEntry>();
   private readonly objects = new Map<string, ObjectEntry>();
   private selectionHelper: THREE.BoxHelper | null = null;
   /** Instance currently outlined; identity decides update vs recreate. */
   private selectionHelperTarget: THREE.Object3D | null = null;
+  private transformControls: TransformControls | null = null;
+  private transformMode: ViewerTransformMode = 'select';
+  private transformTarget: SelectionTarget | null = null;
+  private gizmoChanged = false;
 
   private data: SceneData | null = null;
   private selectedId: string | null = null;
@@ -189,6 +228,7 @@ export class SceneViewer {
   constructor(container: HTMLElement, options: SceneViewerOptions = {}) {
     this.container = container;
     this.onSelect = options.onSelect;
+    this.onTransform = options.onTransform;
     this.onContextLost = options.onContextLost;
     this.onContextRestored = options.onContextRestored;
 
@@ -307,29 +347,43 @@ export class SceneViewer {
 
     this.applySettings(data.settings);
 
-    const roomKey = [
-      data.room.widthCm,
-      data.room.lengthCm,
-      data.room.heightCm,
-      data.room.showCeiling === true,
-      data.settings.roomMaterials.floorColor,
-      data.settings.roomMaterials.wallColor,
-      data.settings.roomMaterials.ceilingColor,
-      // Openings only affect markers; fold them into the key so toggling them
-      // rebuilds the room without a separate code path.
-      JSON.stringify(data.room.openings ?? []),
-    ].join(':');
-
-    if (!this.room || this.room.key !== roomKey) {
+    const rooms = data.rooms ?? [];
+    // An opt-in room supersedes the legacy scene room; a legacy-only scene keeps
+    // its exact previous behaviour.
+    if (!includeLegacyRoom(rooms)) {
       if (this.room) {
         this.scene.remove(this.room.group);
         this.room.dispose();
+        this.room = null;
       }
-      const built = buildRoom(data.room, data.settings.roomMaterials);
-      built.group.userData.sceneObjectId = ROOM_OBJECT_ID;
-      this.scene.add(built.group);
-      this.room = { group: built.group, dispose: built.dispose, key: roomKey };
+    } else {
+      const roomKey = [
+        data.room.widthCm,
+        data.room.lengthCm,
+        data.room.heightCm,
+        data.room.showCeiling === true,
+        data.settings.roomMaterials.floorColor,
+        data.settings.roomMaterials.wallColor,
+        data.settings.roomMaterials.ceilingColor,
+        // Openings only affect markers; fold them into the key so toggling them
+        // rebuilds the room without a separate code path.
+        JSON.stringify(data.room.openings ?? []),
+      ].join(':');
+
+      if (!this.room || this.room.key !== roomKey) {
+        if (this.room) {
+          this.scene.remove(this.room.group);
+          this.room.dispose();
+        }
+        const built = buildRoom(data.room, data.settings.roomMaterials);
+        built.group.userData.sceneObjectId = ROOM_OBJECT_ID;
+        this.scene.add(built.group);
+        this.room = { group: built.group, dispose: built.dispose, key: roomKey };
+      }
     }
+
+    const roomsBefore = this.rooms.size;
+    this.syncRooms(rooms);
 
     const nextIds = new Set(data.objects.map((object) => object.id));
 
@@ -362,15 +416,61 @@ export class SceneViewer {
     if (!this.hasFramedOnce) {
       this.resetView();
       this.hasFramedOnce = true;
+    } else if (this.rooms.size > 0 && roomsBefore === 0) {
+      // The first opt-in room changes what the scene contains, so give the user
+      // a view that actually includes it.
+      this.resetView();
     }
 
     this.updateSelectionHelper();
+    this.updateTransformGizmo();
     this.refreshCameraLimits();
     this.updateLightRig();
     this.updateShadowFrustum();
     this.refreshShadowCatcher();
     this.updateShadowInvalidation();
     this.controls.update();
+  }
+
+  /**
+   * Add, update and remove opt-in rooms incrementally.
+   *
+   * A transform/visibility change reuses the built group; only a spec or
+   * material change rebuilds geometry. A room that fails validation is skipped
+   * so one bad record cannot blank the viewer.
+   */
+  private syncRooms(rooms: readonly RoomInstance[]): void {
+    const nextIds = new Set(rooms.map((room) => room.id));
+    for (const [id, entry] of this.rooms) {
+      if (!nextIds.has(id)) {
+        this.disposeRoomEntry(entry);
+        this.rooms.delete(id);
+      }
+    }
+
+    for (const room of rooms) {
+      const key = roomInstanceGeometryKey(room);
+      const existing = this.rooms.get(room.id);
+      if (existing) {
+        if (existing.key === key) {
+          applyObjectTransform(existing.group, room);
+          continue;
+        }
+        this.disposeRoomEntry(existing);
+        this.rooms.delete(room.id);
+      }
+      const result = buildRoomEntry(room);
+      if (!result.ok) {
+        continue;
+      }
+      this.scene.add(result.entry.group);
+      this.rooms.set(room.id, { ...result.entry, key });
+    }
+  }
+
+  private disposeRoomEntry(entry: RoomViewerEntry): void {
+    this.scene.remove(entry.group);
+    entry.dispose();
   }
 
   private createObjectEntry(object: SceneObject, geometryKey: string): ObjectEntry {
@@ -627,19 +727,18 @@ export class SceneViewer {
     this.rimLight.target.updateMatrixWorld();
   }
 
-  /** World-space bounds of the room, used when no furniture is selected. */
+  /** World-space bounds of every room (legacy and opt-in), used when nothing is selected. */
   private roomBounds(): BoundsBox | null {
-    if (!this.room) {
-      return null;
+    const bounds: Array<BoundsBox | null> = [];
+    // The legacy room kept its previous framing even when hidden, so include it
+    // unconditionally to avoid a behaviour change on old scenes.
+    if (this.room) {
+      bounds.push(objectBounds(this.room.group, true));
     }
-    const box = new THREE.Box3().setFromObject(this.room.group);
-    if (box.isEmpty()) {
-      return null;
+    for (const entry of this.rooms.values()) {
+      bounds.push(objectBounds(entry.group));
     }
-    return {
-      min: { x: box.min.x, y: box.min.y, z: box.min.z },
-      max: { x: box.max.x, y: box.max.y, z: box.max.z },
-    };
+    return mergeBounds(bounds);
   }
 
   /** Fit the directional light's orthographic shadow camera to the active bounds. */
@@ -673,10 +772,19 @@ export class SceneViewer {
     shadowCamera.updateProjectionMatrix();
   }
 
-  /** The catcher is only needed when the room floor is hidden (product shots). */
+  /** The catcher is only needed when every room floor is hidden (product shots). */
   private refreshShadowCatcher(): void {
-    const roomHidden = this.room !== null && this.room.group.visible === false;
-    this.shadowCatcher.update(this.selectedObjectBounds(), roomHidden);
+    const hasAnyRoom = this.room !== null || this.rooms.size > 0;
+    if (!hasAnyRoom) {
+      this.shadowCatcher.update(this.selectedObjectBounds(), false);
+      return;
+    }
+    const legacyVisible = this.room !== null && this.room.group.visible;
+    const anyRoomVisible = [...this.rooms.values()].some((entry) => entry.group.visible);
+    this.shadowCatcher.update(
+      this.selectedObjectBounds(),
+      !legacyVisible && !anyRoomVisible,
+    );
   }
 
   /**
@@ -688,9 +796,22 @@ export class SceneViewer {
     if (!this.data) {
       return;
     }
+    const roomsKey =
+      this.rooms.size === 0
+        ? null
+        : JSON.stringify(
+            [...this.rooms.values()].map((entry) => [
+              entry.roomId,
+              entry.key,
+              entry.group.position.toArray(),
+              entry.group.rotation.toArray(),
+              entry.group.scale.toArray(),
+              entry.group.visible,
+            ]),
+          );
     const key = buildShadowKey(
       this.data,
-      this.room?.key ?? null,
+      roomsKey ? `${this.room?.key ?? ''}|${roomsKey}` : (this.room?.key ?? null),
       this.selectedId,
       this.keyLight.shadow.mapSize.x,
     );
@@ -757,6 +878,33 @@ export class SceneViewer {
       this.camera.far = DEFAULT_CAMERA_FAR;
       this.camera.updateProjectionMatrix();
     }
+
+    if (this.rooms.size > 0) {
+      const framingBounds = this.roomBounds();
+      if (framingBounds && isValidBounds(framingBounds)) {
+        const framing = computeObjectFraming(
+          framingBounds,
+          this.data?.settings.cameraPreset ?? 'product',
+          this.camera.aspect,
+        );
+        const currentDistance = this.camera.position.distanceTo(this.controls.target);
+        const planes = computeCameraPlanes(
+          Math.max(currentDistance, framing.distance),
+          framing.radius,
+        );
+        if (this.camera.near !== planes.near || this.camera.far !== planes.far) {
+          this.camera.near = planes.near;
+          this.camera.far = planes.far;
+          this.camera.updateProjectionMatrix();
+        }
+        this.setOrbitDistanceLimits(
+          computeOrbitDistanceLimits(framing.distance, framing.radius),
+          true,
+        );
+        return;
+      }
+    }
+
     this.setOrbitDistanceLimits(
       {
         minDistance: DEFAULT_ORBIT_MIN_DISTANCE,
@@ -793,6 +941,18 @@ export class SceneViewer {
       return;
     }
 
+    const roomFramingBounds = this.rooms.size > 0 ? this.roomBounds() : null;
+    if (roomFramingBounds && isValidBounds(roomFramingBounds)) {
+      const framing = computeObjectFraming(roomFramingBounds, preset, aspect);
+      this.setOrbitDistanceLimits(
+        computeOrbitDistanceLimits(framing.distance, framing.radius),
+      );
+      applyFramingToCamera(this.camera, this.controls, framing, {
+        updateControls: options.updateControls,
+      });
+      return;
+    }
+
     const framing = {
       ...computePresetFraming(this.data.room, preset),
       near: DEFAULT_CAMERA_NEAR,
@@ -816,6 +976,17 @@ export class SceneViewer {
     if (bounds && isValidBounds(bounds)) {
       this.frameTo('product');
       return;
+    }
+    if (this.rooms.size > 0) {
+      const roomBounds = this.roomBounds();
+      if (roomBounds && isValidBounds(roomBounds)) {
+        const framing = computeObjectFraming(roomBounds, 'iso', this.camera.aspect);
+        this.setOrbitDistanceLimits(
+          computeOrbitDistanceLimits(framing.distance, framing.radius),
+        );
+        applyFramingToCamera(this.camera, this.controls, framing);
+        return;
+      }
     }
     const framing = {
       ...computeRoomFraming(this.data.room),
@@ -850,6 +1021,142 @@ export class SceneViewer {
       computeOrbitDistanceLimits(framing.distance, framing.radius),
     );
     applyFramingToCamera(this.camera, this.controls, framing);
+  }
+
+  /** Switch the interaction mode; only a selected, visible target gets a gizmo. */
+  setTransformMode(mode: ViewerTransformMode): void {
+    if (this.transformMode !== mode) {
+      this.transformMode = mode;
+    }
+    this.updateTransformGizmo();
+  }
+
+  /** True while a gizmo drag owns the pointer; shortcuts must not interrupt it. */
+  isTransforming(): boolean {
+    return this.transformControls?.dragging === true;
+  }
+
+  /**
+   * Frame one hierarchy item from its own bounds. Hidden, invalid and the
+   * config-driven legacy room are handled explicitly; multi-room scenes focus
+   * only the requested room, not the union.
+   */
+  focusSelection(selectionId?: string | null): boolean {
+    const target = resolveSelectionTarget(
+      selectionId ?? this.selectedId,
+      this.room?.group ?? null,
+      this.rooms,
+      this.objects,
+    );
+    if (!target || !this.data) {
+      return false;
+    }
+    if (target.kind === 'legacy-room') {
+      const framing = {
+        ...computeRoomFraming(this.data.room),
+        near: DEFAULT_CAMERA_NEAR,
+        far: DEFAULT_CAMERA_FAR,
+      };
+      this.setOrbitDistanceLimits({
+        minDistance: DEFAULT_ORBIT_MIN_DISTANCE,
+        maxDistance: DEFAULT_ORBIT_MAX_DISTANCE,
+      });
+      applyFramingToCamera(this.camera, this.controls, framing);
+      return true;
+    }
+
+    const bounds = objectBounds(target.group);
+    if (!bounds || !isValidBounds(bounds)) {
+      return false;
+    }
+    const framing = computeObjectFraming(bounds, 'product', this.camera.aspect);
+    this.setOrbitDistanceLimits(
+      computeOrbitDistanceLimits(framing.distance, framing.radius),
+    );
+    applyFramingToCamera(this.camera, this.controls, framing);
+    return true;
+  }
+
+  private ensureTransformControls(): TransformControls {
+    if (this.transformControls) {
+      return this.transformControls;
+    }
+    const controls = new TransformControls(this.camera, this.renderer.domElement);
+    controls.setSize(0.9);
+    controls.setSpace('world');
+    controls.addEventListener('dragging-changed', (event) => {
+      const dragging = Boolean((event as { value?: unknown }).value);
+      // A gizmo drag owns the pointer; orbiting would fight it for the same move.
+      this.controls.enabled = !dragging;
+    });
+    controls.addEventListener('objectChange', () => {
+      this.gizmoChanged = true;
+      this.onGizmoObjectChange();
+    });
+    controls.addEventListener('mouseUp', () => {
+      this.commitGizmoTransform();
+    });
+    const helper = controls.getHelper();
+    helper.visible = false;
+    this.scene.add(helper);
+    this.transformControls = controls;
+    return controls;
+  }
+
+  private updateTransformGizmo(): void {
+    const mode = this.transformMode;
+    const target = resolveSelectionTarget(
+      this.selectedId,
+      this.room?.group ?? null,
+      this.rooms,
+      this.objects,
+    );
+    if (
+      !target ||
+      target.kind === 'legacy-room' ||
+      !target.group.visible ||
+      mode === 'select'
+    ) {
+      this.transformTarget = null;
+      if (this.transformControls) {
+        this.transformControls.detach();
+        this.transformControls.getHelper().visible = false;
+      }
+      return;
+    }
+
+    const controls = this.ensureTransformControls();
+    controls.setMode(mode);
+    if (this.transformTarget?.group !== target.group) {
+      controls.attach(target.group);
+    }
+    controls.getHelper().visible = true;
+    this.transformTarget = target;
+  }
+
+  /** Clamp the live gizmo scale and keep the outline following the group. */
+  private onGizmoObjectChange(): void {
+    const target = this.transformTarget;
+    if (!target) {
+      return;
+    }
+    constrainGizmoScale(target.group);
+    this.selectionHelper?.setFromObject(target.group);
+  }
+
+  /**
+   * Persist one drag once. Pointer moves never dispatch: the app receives a
+   * single canonical transform at pointer release, so history and unsaved-state
+   * bookkeeping see one action, not one per frame.
+   */
+  private commitGizmoTransform(): void {
+    const target = this.transformTarget;
+    if (!target || !this.gizmoChanged || !this.onTransform) {
+      this.gizmoChanged = false;
+      return;
+    }
+    this.gizmoChanged = false;
+    this.onTransform(target.selectionId, transformPatchFromObject(target.group));
   }
 
   /**
@@ -979,7 +1286,12 @@ export class SceneViewer {
     this.beginCapture();
     const rendererState = captureRendererState(this.renderer);
     const prevRoomVisible = this.room?.group.visible ?? null;
+    const prevRoomVisibilities = new Map<string, boolean>();
+    for (const [id, entry] of this.rooms) {
+      prevRoomVisibilities.set(id, entry.group.visible);
+    }
     const prevSelectionVisible = this.selectionHelper?.visible ?? null;
+    const prevGizmoVisible = this.transformControls?.getHelper().visible ?? null;
     const prevBackground = this.scene.background;
     const temporaryTargets: THREE.WebGLRenderTarget[] = [];
     let restoreQuality: (() => void) | null = null;
@@ -988,8 +1300,16 @@ export class SceneViewer {
       if (options.includeRoom === false && this.room) {
         this.room.group.visible = false;
       }
+      if (options.includeRoom === false) {
+        for (const entry of this.rooms.values()) {
+          entry.group.visible = false;
+        }
+      }
       if (options.hideSelection !== false && this.selectionHelper) {
         this.selectionHelper.visible = false;
+      }
+      if (options.hideSelection !== false && this.transformControls) {
+        this.transformControls.getHelper().visible = false;
       }
       if (transparent) {
         this.scene.background = null;
@@ -1117,8 +1437,17 @@ export class SceneViewer {
         if (this.room && prevRoomVisible !== null) {
           this.room.group.visible = prevRoomVisible;
         }
+        for (const entry of this.rooms.values()) {
+          const visible = prevRoomVisibilities.get(entry.roomId);
+          if (visible !== undefined) {
+            entry.group.visible = visible;
+          }
+        }
         if (this.selectionHelper && prevSelectionVisible !== null) {
           this.selectionHelper.visible = prevSelectionVisible;
+        }
+        if (this.transformControls && prevGizmoVisible !== null) {
+          this.transformControls.getHelper().visible = prevGizmoVisible;
         }
         this.scene.background = prevBackground;
         for (const target of temporaryTargets) {
@@ -1199,15 +1528,26 @@ export class SceneViewer {
     const startTarget = this.controls.target.clone();
     const startAspect = this.camera.aspect;
     const startRoomVisible = this.room?.group.visible ?? null;
+    const startRoomVisibilities = new Map<string, boolean>();
+    for (const [id, entry] of this.rooms) {
+      startRoomVisibilities.set(id, entry.group.visible);
+    }
     const startSelectionVisible = this.selectionHelper?.visible ?? null;
+    const startGizmoVisible = this.transformControls?.getHelper().visible ?? null;
     const results: Array<{ id: ProductPreviewId; filename: string; bytes: Uint8Array }> = [];
 
     try {
       if (this.room) {
         this.room.group.visible = false;
       }
+      for (const entry of this.rooms.values()) {
+        entry.group.visible = false;
+      }
       if (this.selectionHelper) {
         this.selectionHelper.visible = false;
+      }
+      if (this.transformControls) {
+        this.transformControls.getHelper().visible = false;
       }
       this.refreshShadowCatcher();
       const captured = await capturePreviewViews(PRODUCT_PREVIEW_VIEWS, async (view) => {
@@ -1230,8 +1570,17 @@ export class SceneViewer {
       if (this.room && startRoomVisible !== null) {
         this.room.group.visible = startRoomVisible;
       }
+      for (const entry of this.rooms.values()) {
+        const visible = startRoomVisibilities.get(entry.roomId);
+        if (visible !== undefined) {
+          entry.group.visible = visible;
+        }
+      }
       if (this.selectionHelper && startSelectionVisible !== null) {
         this.selectionHelper.visible = startSelectionVisible;
+      }
+      if (this.transformControls && startGizmoVisible !== null) {
+        this.transformControls.getHelper().visible = startGizmoVisible;
       }
       this.refreshShadowCatcher();
       this.camera.position.copy(startPosition);
@@ -1256,18 +1605,13 @@ export class SceneViewer {
   }
 
   private updateSelectionHelper(): void {
-    let target: THREE.Object3D | null = null;
-    if (this.selectedId && this.data) {
-      if (this.selectedId === ROOM_OBJECT_ID) {
-        target = this.room?.group ?? null;
-      } else {
-        const entry = this.objects.get(this.selectedId);
-        const object = this.data.objects.find((item) => item.id === this.selectedId);
-        if (entry && object?.visible) {
-          target = entry.group;
-        }
-      }
-    }
+    const target =
+      resolveSelectionTarget(
+        this.selectedId,
+        this.room?.group ?? null,
+        this.rooms,
+        this.objects,
+      )?.group ?? null;
 
     const action = selectionHelperAction(this.selectionHelperTarget, target);
     if (action === 'none') {
@@ -1295,6 +1639,11 @@ export class SceneViewer {
   }
 
   private onPointerDown(event: PointerEvent): void {
+    // A click on a gizmo axis belongs to TransformControls, not to selection.
+    if (this.transformControls?.axis || this.transformControls?.dragging) {
+      this.pointerDown = null;
+      return;
+    }
     this.pointerDown = { x: event.clientX, y: event.clientY };
   }
 
@@ -1324,15 +1673,43 @@ export class SceneViewer {
 
     const roots: THREE.Object3D[] = [];
     if (this.room) roots.push(this.room.group);
-    for (const entry of this.objects.values()) roots.push(entry.group);
+    for (const entry of this.rooms.values()) {
+      if (entry.group.visible) roots.push(entry.group);
+    }
+    for (const entry of this.objects.values()) {
+      if (entry.group.visible) roots.push(entry.group);
+    }
 
     const hits = this.raycaster.intersectObjects(roots, true);
     if (hits.length === 0) {
       return null;
     }
 
-    let node: THREE.Object3D | null = hits[0].object;
+    const sceneHits: SceneHit[] = [];
+    for (const hit of hits) {
+      const selectionId = this.selectionIdForNode(hit.object);
+      if (!selectionId) {
+        continue;
+      }
+      sceneHits.push({
+        selectionId,
+        kind:
+          selectionId === ROOM_OBJECT_ID || selectionId.startsWith(ROOM_SELECTION_PREFIX)
+            ? 'room'
+            : 'object',
+        distance: hit.distance,
+      });
+    }
+    return pickSelectionFromHits(sceneHits);
+  }
+
+  /** Walk up from a hit mesh to the selectable group that owns it. */
+  private selectionIdForNode(start: THREE.Object3D): string | null {
+    let node: THREE.Object3D | null = start;
     while (node) {
+      if (typeof node.userData.roomInstanceId === 'string') {
+        return roomSelectionId(node.userData.roomInstanceId);
+      }
       if (typeof node.userData.sceneObjectId === 'string') {
         return node.userData.sceneObjectId;
       }
@@ -1402,11 +1779,22 @@ export class SceneViewer {
 
     this.disposeSelectionHelper();
 
+    if (this.transformControls) {
+      this.transformControls.detach();
+      this.transformControls.getHelper().removeFromParent();
+      this.transformControls.dispose();
+      this.transformControls = null;
+      this.transformTarget = null;
+    }
+
     if (this.room) {
       this.scene.remove(this.room.group);
       this.room.dispose();
       this.room = null;
     }
+
+    disposeRoomEntries([...this.rooms.values()]);
+    this.rooms.clear();
 
     for (const [id, entry] of this.objects) {
       this.disposeObjectEntry(entry);

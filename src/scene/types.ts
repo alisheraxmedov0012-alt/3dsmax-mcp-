@@ -427,31 +427,85 @@ export interface SceneData {
 }
 
 /**
- * Stage 3.4 — one applied spec change, as the history stack records it.
+ * Stage 3.4 / Phase 9A.2.10 — one applied spec change.
  *
  * Only applied changes are stored (a preview or a rejected edit never is), and
  * both sides are canonical specs, so undo/redo restores an exact configuration
- * instead of re-deriving one.
+ * instead of re-deriving one. `kind` is optional so entries created before the
+ * universal command stack still type-check.
  */
 export interface SpecHistoryEntry {
+  readonly kind?: 'spec';
   readonly objectId: string;
   readonly before: SceneSpec;
   readonly after: SceneSpec;
 }
 
-export interface SpecHistory {
-  readonly past: readonly SpecHistoryEntry[];
-  readonly future: readonly SpecHistoryEntry[];
+/** Position/rotation/scale in the scene convention (cm, degrees, unitless). */
+export interface TransformSnapshot {
+  readonly position: Vec3;
+  readonly rotation: Vec3;
+  readonly scale: Vec3;
 }
+
+/**
+ * Phase 9A.2.10 — one completed transform command.
+ *
+ * Entity type is explicit rather than inferred from the id, so imported models
+ * and future object categories can join the same history without changing the
+ * stack. A gizmo drag produces exactly one entry: the viewer dispatches only on
+ * pointer release.
+ */
+export interface TransformHistoryEntry {
+  readonly kind: 'transform';
+  readonly entityType: 'object' | 'room';
+  readonly entityId: string;
+  readonly before: TransformSnapshot;
+  readonly after: TransformSnapshot;
+}
+
+/** Phase 9A.2.11 — one visibility toggle. */
+export interface VisibilityHistoryEntry {
+  readonly kind: 'visibility';
+  readonly entityType: 'object' | 'room';
+  readonly entityId: string;
+  readonly before: boolean;
+  readonly after: boolean;
+}
+
+/** Phase 9A.2.11 — one accepted display-name change. */
+export interface RenameHistoryEntry {
+  readonly kind: 'rename';
+  readonly entityType: 'object' | 'room';
+  readonly entityId: string;
+  readonly before: string;
+  readonly after: string;
+}
+
+export type SceneHistoryEntry =
+  | SpecHistoryEntry
+  | TransformHistoryEntry
+  | VisibilityHistoryEntry
+  | RenameHistoryEntry;
+
+/** Single ordered stack for specs and transforms. */
+export interface SpecHistory {
+  readonly past: readonly SceneHistoryEntry[];
+  readonly future: readonly SceneHistoryEntry[];
+}
+
+/** Preferred name for new code; `SpecHistory` stays as a compatibility alias. */
+export type SceneHistory = SpecHistory;
 
 /** Bounded so a long editing session cannot grow without limit. */
 export const MAX_SPEC_HISTORY = 50;
+export const MAX_SCENE_HISTORY = MAX_SPEC_HISTORY;
 
 /** Runtime scene state: persisted data plus transient selection and history. */
 export interface SceneState {
   data: SceneData;
   selectedId: string | null;
-  /** Undo/redo stack for spec edits; runtime-only, never serialized. */
+  /** Undo/redo stack for specs and transforms; runtime-only, never serialized. */
   history?: SpecHistory;
 }
 

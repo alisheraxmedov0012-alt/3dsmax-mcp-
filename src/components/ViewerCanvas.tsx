@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SceneData } from '../scene/types';
 import type { CameraPreset } from '../scene/sceneSettings';
-import { SceneViewer } from '../viewer/SceneViewer';
+import { SceneViewer, type ViewerTransformMode } from '../viewer/SceneViewer';
+import type { TransformPatch } from '../viewer/transformCommit';
 
 interface ViewerCanvasProps {
   scene: SceneData;
@@ -9,7 +10,9 @@ interface ViewerCanvasProps {
   resetToken: number;
   cameraPreset: CameraPreset;
   cameraPresetToken: number;
+  transformMode: ViewerTransformMode;
   onSelect: (id: string | null) => void;
+  onTransform: (id: string, patch: TransformPatch) => void;
   onReady: (viewer: SceneViewer | null) => void;
 }
 
@@ -19,15 +22,19 @@ export function ViewerCanvas({
   resetToken,
   cameraPreset,
   cameraPresetToken,
+  transformMode,
   onSelect,
+  onTransform,
   onReady,
 }: ViewerCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<SceneViewer | null>(null);
   const [contextLost, setContextLost] = useState(false);
   const onSelectRef = useRef(onSelect);
+  const onTransformRef = useRef(onTransform);
   const onReadyRef = useRef(onReady);
   onSelectRef.current = onSelect;
+  onTransformRef.current = onTransform;
   onReadyRef.current = onReady;
 
   useEffect(() => {
@@ -38,6 +45,7 @@ export function ViewerCanvas({
 
     const viewer = new SceneViewer(container, {
       onSelect: (id) => onSelectRef.current(id),
+      onTransform: (id, patch) => onTransformRef.current(id, patch),
       onContextLost: () => setContextLost(true),
       onContextRestored: () => setContextLost(false),
     });
@@ -53,7 +61,8 @@ export function ViewerCanvas({
 
   useEffect(() => {
     viewerRef.current?.setScene(scene, selectedId);
-  }, [scene, selectedId]);
+    viewerRef.current?.setTransformMode(transformMode);
+  }, [scene, selectedId, transformMode]);
 
   useEffect(() => {
     if (resetToken > 0) {

@@ -314,6 +314,7 @@ describe('opening component plan integration', () => {
         'window-frame',
         'window-glass',
         'window-sill',
+        'baseboard',
       ]);
     } finally {
       built.dispose();

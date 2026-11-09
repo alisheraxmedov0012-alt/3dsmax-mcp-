@@ -6,16 +6,33 @@
  * their defaults; present fields must be finite and in range.
  */
 import { ROOM_DEFAULTS, ROOM_LIMITS, type NumericRange } from '../../scene/types';
+import { MATERIAL_PRESET_IDS } from '../../materials/presets';
+import { PBR_LIMITS } from '../../materials/types';
 import type { DefinitionField } from '../universal/types';
 import {
+  DEFAULT_BASEBOARD,
+  DEFAULT_CROWN_MOLDING,
+  BASEBOARD_LIMITS,
+  CROWN_MOLDING_LIMITS,
+  resolveRoomTrim,
+} from './roomTrim';
+import {
+  ROOM_MATERIAL_SLOT_IDS,
   ROOM_SIDES,
+  TRIM_PROFILES,
   type DoorOpeningConfig,
+  type RoomBaseboardSpec,
+  type RoomCrownMoldingSpec,
+  type RoomMaterialsSpec,
   type RoomOpeningSpec,
   type RoomOpeningType,
   type RoomSide,
+  type RoomSlotMaterialSpec,
   type RoomSpec,
   type RoomSpecParseResult,
+  type RoomTrimSpec,
   type RoomType,
+  type TrimProfile,
   type WindowOpeningConfig,
 } from './types';
 
@@ -147,6 +164,8 @@ const ROOM_SPEC_KEYS = new Set<string>([
   'showCeiling',
   'roomType',
   'openings',
+  'materials',
+  'trim',
 ]);
 
 export const ROOM_SPEC_FIELDS: readonly DefinitionField[] = [
@@ -204,6 +223,461 @@ function readNumber(
     return fallback;
   }
   return raw;
+}
+
+const ROOM_MATERIAL_KEYS = new Set<string>([
+  'materialId',
+  'baseColor',
+  'metalness',
+  'roughness',
+  'opacity',
+  'textureScale',
+  'normalStrength',
+  'emissiveIntensity',
+  'aoIntensity',
+  'emissiveColor',
+  'physicalTileCm',
+  'premiumTextures',
+]);
+
+const ROOM_MATERIAL_RANGES: Readonly<Record<string, NumericRange>> = {
+  metalness: PBR_LIMITS.metalness,
+  roughness: PBR_LIMITS.roughness,
+  opacity: PBR_LIMITS.opacity,
+  textureScale: PBR_LIMITS.textureScale,
+  normalStrength: PBR_LIMITS.normalStrength,
+  emissiveIntensity: PBR_LIMITS.emissiveIntensity,
+  aoIntensity: PBR_LIMITS.aoIntensity,
+  physicalTileCm: PBR_LIMITS.physicalTileCm,
+};
+
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+function readMaterialNumber(
+  record: Record<string, unknown>,
+  key: string,
+  path: string,
+  range: NumericRange,
+  errors: string[],
+): number | undefined {
+  const raw = record[key];
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+    errors.push(`${path}.${key}: chekli son bo'lishi kerak.`);
+    return undefined;
+  }
+  if (raw < range.min || raw > range.max) {
+    errors.push(`${path}.${key}: ${range.min}–${range.max} oralig'ida bo'lishi kerak.`);
+    return undefined;
+  }
+  return raw;
+}
+
+function readMaterialColor(
+  record: Record<string, unknown>,
+  key: string,
+  path: string,
+  errors: string[],
+): string | undefined {
+  const raw = record[key];
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (typeof raw !== 'string' || !HEX_COLOR.test(raw.trim())) {
+    errors.push(`${path}.${key}: #rrggbb ko'rinishidagi rang bo'lishi kerak.`);
+    return undefined;
+  }
+  return raw.trim().toLowerCase();
+}
+
+/**
+ * Parse the optional per-slot material block.
+ *
+ * Slot ids, channel names and every numeric range are validated here, so a
+ * stored room can only carry parameters the builder actually understands.
+ * Unknown slots/fields are rejected instead of being silently ignored.
+ */
+export function parseRoomMaterials(
+  raw: unknown,
+  errors: string[],
+): RoomMaterialsSpec | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!isRecord(raw)) {
+    errors.push('materials: obyekt bo‘lishi kerak.');
+    return undefined;
+  }
+
+  const knownSlots: ReadonlySet<string> = new Set(ROOM_MATERIAL_SLOT_IDS);
+  const bySlot: Record<string, RoomSlotMaterialSpec> = {};
+
+  // Canonical slot order, not JSON insertion order, keeps the parse result
+  // deterministic for the same input regardless of key order.
+  for (const slotId of ROOM_MATERIAL_SLOT_IDS) {
+    if (!(slotId in raw)) {
+      continue;
+    }
+    const path = `materials.${slotId}`;
+    const value = raw[slotId];
+    if (!isRecord(value)) {
+      errors.push(`${path}: obyekt bo‘lishi kerak.`);
+      continue;
+    }
+    for (const key of Object.keys(value)) {
+      if (!ROOM_MATERIAL_KEYS.has(key)) {
+        errors.push(`${path}.${key}: noma'lum maydon.`);
+      }
+    }
+
+    const material: {
+      -readonly [K in keyof RoomSlotMaterialSpec]: RoomSlotMaterialSpec[K];
+    } = {};
+    const rawId = value.materialId;
+    if (rawId !== undefined) {
+      if (typeof rawId !== 'string' || !MATERIAL_PRESET_IDS.has(rawId)) {
+        errors.push(`${path}.materialId: noma'lum material preseti.`);
+      } else {
+        material.materialId = rawId;
+      }
+    }
+    const baseColor = readMaterialColor(value, 'baseColor', path, errors);
+    if (baseColor !== undefined) material.baseColor = baseColor;
+    const emissiveColor = readMaterialColor(value, 'emissiveColor', path, errors);
+    if (emissiveColor !== undefined) material.emissiveColor = emissiveColor;
+
+    for (const [key, range] of Object.entries(ROOM_MATERIAL_RANGES)) {
+      const number = readMaterialNumber(value, key, path, range, errors);
+      if (number !== undefined) {
+        (material as Record<string, unknown>)[key] = number;
+      }
+    }
+
+    const rawPremium = value.premiumTextures;
+    if (rawPremium !== undefined) {
+      if (typeof rawPremium !== 'boolean') {
+        errors.push(`${path}.premiumTextures: boolean bo'lishi kerak.`);
+      } else {
+        material.premiumTextures = rawPremium;
+      }
+    }
+
+    if (Object.keys(material).length > 0) {
+      bySlot[slotId] = Object.freeze({ ...material });
+    }
+  }
+
+  for (const key of Object.keys(raw)) {
+    if (!knownSlots.has(key)) {
+      errors.push(`materials.${key}: noma'lum material slot.`);
+    }
+  }
+
+  return Object.keys(bySlot).length > 0
+    ? Object.freeze(bySlot as RoomMaterialsSpec)
+    : undefined;
+}
+
+const TRIM_KEYS = new Set<string>(['baseboard', 'crownMolding']);
+const BASEBOARD_KEYS = new Set<string>([
+  'enabled',
+  'heightCm',
+  'thicknessCm',
+  'profile',
+  'materialSlot',
+  'tileCm',
+]);
+const CROWN_MOLDING_KEYS = new Set<string>([
+  'enabled',
+  'heightCm',
+  'projectionCm',
+  'profile',
+  'materialSlot',
+  'tileCm',
+]);
+
+const MATERIAL_SLOT_IDS: ReadonlySet<string> = new Set(ROOM_MATERIAL_SLOT_IDS);
+const TRIM_PROFILE_IDS: ReadonlySet<string> = new Set(TRIM_PROFILES);
+
+function readTrimNumber(
+  record: Record<string, unknown>,
+  key: string,
+  path: string,
+  range: NumericRange,
+  fallback: number,
+  errors: string[],
+): number {
+  const raw = record[key];
+  if (raw === undefined) {
+    return fallback;
+  }
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+    errors.push(`${path}.${key}: chekli son bo'lishi kerak.`);
+    return fallback;
+  }
+  if (raw < range.min || raw > range.max) {
+    errors.push(`${path}.${key}: ${range.min}–${range.max} oralig'ida bo'lishi kerak.`);
+    return fallback;
+  }
+  return raw;
+}
+
+function readTrimBoolean(
+  record: Record<string, unknown>,
+  key: string,
+  path: string,
+  fallback: boolean,
+  errors: string[],
+): boolean {
+  const raw = record[key];
+  if (raw === undefined) {
+    return fallback;
+  }
+  if (typeof raw !== 'boolean') {
+    errors.push(`${path}.${key}: boolean bo'lishi kerak.`);
+    return fallback;
+  }
+  return raw;
+}
+
+function readTrimProfile(
+  record: Record<string, unknown>,
+  path: string,
+  fallback: TrimProfile,
+  errors: string[],
+): TrimProfile {
+  const raw = record.profile;
+  if (raw === undefined) {
+    return fallback;
+  }
+  if (typeof raw !== 'string' || !TRIM_PROFILE_IDS.has(raw)) {
+    errors.push(`${path}.profile: ${TRIM_PROFILES.join(', ')} dan biri bo'lishi kerak.`);
+    return fallback;
+  }
+  return raw as TrimProfile;
+}
+
+function readTrimMaterialSlot(
+  record: Record<string, unknown>,
+  path: string,
+  fallback: string,
+  errors: string[],
+): string {
+  const raw = record.materialSlot;
+  if (raw === undefined) {
+    return fallback;
+  }
+  if (typeof raw !== 'string' || !MATERIAL_SLOT_IDS.has(raw)) {
+    errors.push(`${path}.materialSlot: noma'lum material slot.`);
+    return fallback;
+  }
+  return raw;
+}
+
+function readTrimTile(
+  record: Record<string, unknown>,
+  path: string,
+  errors: string[],
+): number | undefined {
+  const raw = record.tileCm;
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (
+    typeof raw !== 'number' ||
+    !Number.isFinite(raw) ||
+    raw < PBR_LIMITS.physicalTileCm.min ||
+    raw > PBR_LIMITS.physicalTileCm.max
+  ) {
+    errors.push(
+      `${path}.tileCm: ${PBR_LIMITS.physicalTileCm.min}–${PBR_LIMITS.physicalTileCm.max} oralig'ida bo'lishi kerak.`,
+    );
+    return undefined;
+  }
+  return raw;
+}
+
+/**
+ * Parse the optional trim block into complete, canonical configs.
+ *
+ * Supplied blocks are filled with the documented defaults, so the stored spec
+ * never contains half a config. Every dimension is validated against the room
+ * it belongs to, which is why the room extents are passed in.
+ */
+export function parseRoomTrim(
+  raw: unknown,
+  room: { readonly widthCm: number; readonly lengthCm: number; readonly heightCm: number },
+  errors: string[],
+): RoomTrimSpec | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!isRecord(raw)) {
+    errors.push('trim: obyekt bo‘lishi kerak.');
+    return undefined;
+  }
+  for (const key of Object.keys(raw)) {
+    if (!TRIM_KEYS.has(key)) {
+      errors.push(`trim.${key}: noma'lum maydon.`);
+    }
+  }
+
+  const baseboardRaw = raw.baseboard;
+  const crownRaw = raw.crownMolding;
+  let baseboard: RoomBaseboardSpec | undefined;
+  let crownMolding: RoomCrownMoldingSpec | undefined;
+
+  if (baseboardRaw !== undefined) {
+    if (!isRecord(baseboardRaw)) {
+      errors.push('trim.baseboard: obyekt bo‘lishi kerak.');
+    } else {
+      for (const key of Object.keys(baseboardRaw)) {
+        if (!BASEBOARD_KEYS.has(key)) {
+          errors.push(`trim.baseboard.${key}: noma'lum maydon.`);
+        }
+      }
+      const enabled = readTrimBoolean(
+        baseboardRaw,
+        'enabled',
+        'trim.baseboard',
+        DEFAULT_BASEBOARD.enabled,
+        errors,
+      );
+      const heightCm = readTrimNumber(
+        baseboardRaw,
+        'heightCm',
+        'trim.baseboard',
+        BASEBOARD_LIMITS.heightCm,
+        DEFAULT_BASEBOARD.heightCm,
+        errors,
+      );
+      const thicknessCm = readTrimNumber(
+        baseboardRaw,
+        'thicknessCm',
+        'trim.baseboard',
+        BASEBOARD_LIMITS.thicknessCm,
+        DEFAULT_BASEBOARD.thicknessCm,
+        errors,
+      );
+      const profile = readTrimProfile(
+        baseboardRaw,
+        'trim.baseboard',
+        DEFAULT_BASEBOARD.profile,
+        errors,
+      );
+      const materialSlot = readTrimMaterialSlot(
+        baseboardRaw,
+        'trim.baseboard',
+        DEFAULT_BASEBOARD.materialSlot,
+        errors,
+      );
+      const tileCm = readTrimTile(baseboardRaw, 'trim.baseboard', errors);
+
+      if (heightCm >= room.heightCm) {
+        errors.push('trim.baseboard.heightCm: xona balandligidan kichik bo‘lishi kerak.');
+      }
+      if (thicknessCm * 2 >= Math.min(room.widthCm, room.lengthCm)) {
+        errors.push('trim.baseboard.thicknessCm: xona o‘lchamiga sig‘maydi.');
+      }
+
+      baseboard = Object.freeze({
+        enabled,
+        heightCm,
+        thicknessCm,
+        profile,
+        materialSlot: materialSlot as RoomBaseboardSpec['materialSlot'],
+        ...(tileCm !== undefined ? { tileCm } : {}),
+      });
+    }
+  }
+
+  if (crownRaw !== undefined) {
+    if (!isRecord(crownRaw)) {
+      errors.push('trim.crownMolding: obyekt bo‘lishi kerak.');
+    } else {
+      for (const key of Object.keys(crownRaw)) {
+        if (!CROWN_MOLDING_KEYS.has(key)) {
+          errors.push(`trim.crownMolding.${key}: noma'lum maydon.`);
+        }
+      }
+      const enabled = readTrimBoolean(
+        crownRaw,
+        'enabled',
+        'trim.crownMolding',
+        DEFAULT_CROWN_MOLDING.enabled,
+        errors,
+      );
+      const heightCm = readTrimNumber(
+        crownRaw,
+        'heightCm',
+        'trim.crownMolding',
+        CROWN_MOLDING_LIMITS.heightCm,
+        DEFAULT_CROWN_MOLDING.heightCm,
+        errors,
+      );
+      const projectionCm = readTrimNumber(
+        crownRaw,
+        'projectionCm',
+        'trim.crownMolding',
+        CROWN_MOLDING_LIMITS.projectionCm,
+        DEFAULT_CROWN_MOLDING.projectionCm,
+        errors,
+      );
+      const profile = readTrimProfile(
+        crownRaw,
+        'trim.crownMolding',
+        DEFAULT_CROWN_MOLDING.profile,
+        errors,
+      );
+      const materialSlot = readTrimMaterialSlot(
+        crownRaw,
+        'trim.crownMolding',
+        DEFAULT_CROWN_MOLDING.materialSlot,
+        errors,
+      );
+      const tileCm = readTrimTile(crownRaw, 'trim.crownMolding', errors);
+
+      if (heightCm >= room.heightCm) {
+        errors.push('trim.crownMolding.heightCm: xona balandligidan kichik bo‘lishi kerak.');
+      }
+      if (projectionCm * 2 >= Math.min(room.widthCm, room.lengthCm)) {
+        errors.push('trim.crownMolding.projectionCm: xona o‘lchamiga sig‘maydi.');
+      }
+
+      crownMolding = Object.freeze({
+        enabled,
+        heightCm,
+        projectionCm,
+        profile,
+        materialSlot: materialSlot as RoomCrownMoldingSpec['materialSlot'],
+        ...(tileCm !== undefined ? { tileCm } : {}),
+      });
+    }
+  }
+
+  if (errors.length === 0) {
+    const effective = resolveRoomTrim({
+      ...(baseboard !== undefined ? { baseboard } : {}),
+      ...(crownMolding !== undefined ? { crownMolding } : {}),
+    });
+    if (
+      effective.baseboard.enabled &&
+      effective.crownMolding.enabled &&
+      effective.baseboard.heightCm + effective.crownMolding.heightCm >= room.heightCm
+    ) {
+      errors.push('trim: baseboard va crown balandliklari xona balandligiga sig‘maydi.');
+    }
+  }
+
+  if (!baseboard && !crownMolding) {
+    return undefined;
+  }
+  return Object.freeze({
+    ...(baseboard !== undefined ? { baseboard } : {}),
+    ...(crownMolding !== undefined ? { crownMolding } : {}),
+  });
 }
 
 const OPENING_KEYS = new Set<string>([
@@ -873,6 +1347,13 @@ export function parseRoomSpec(input: unknown): RoomSpecParseResult {
     );
   }
 
+  const materials = parseRoomMaterials(input.materials, errors);
+  const trim = parseRoomTrim(
+    input.trim,
+    { widthCm, lengthCm, heightCm },
+    errors,
+  );
+
   if (errors.length > 0) {
     return { ok: false, errors };
   }
@@ -889,6 +1370,8 @@ export function parseRoomSpec(input: unknown): RoomSpecParseResult {
       showCeiling,
       roomType,
       ...(openings !== undefined ? { openings } : {}),
+      ...(materials !== undefined ? { materials } : {}),
+      ...(trim !== undefined ? { trim } : {}),
     },
   };
 }

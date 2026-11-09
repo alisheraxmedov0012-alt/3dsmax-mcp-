@@ -81,6 +81,8 @@ export const PARAMETRIC_PART_TYPES = [
   'ceiling',
   'opening',
   'trim',
+  'baseboard',
+  'crown-molding',
   'column',
   'door-frame',
   'door-leaf',
@@ -115,6 +117,11 @@ export interface PlanPart {
   readonly metadata?: Readonly<Record<string, unknown>>;
   /** Optional UV policy carried over from the component (e.g. `box`). */
   readonly uv?: ComponentUvMode;
+  /**
+   * Physical texture tile for the UV mapper, in centimetres. Omitted parts keep
+   * the global default, so furniture UVs are unchanged.
+   */
+  readonly uvTileCm?: number;
 }
 
 export interface FurniturePlanDraft {

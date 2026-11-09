@@ -16,6 +16,7 @@ import { AiBudgetPanel } from './components/AiBudgetPanel';
 import { AiEditPanel } from './components/AiEditPanel';
 import { AiFurniturePanel } from './components/AiFurniturePanel';
 import { ConfiguratorPanel } from './components/ConfiguratorPanel';
+import { HistoryControls } from './components/HistoryControls';
 import { ObjectPanel } from './components/ObjectPanel';
 import { ProjectsPanel, type ProjectsStatus } from './components/ProjectsPanel';
 import { RenderExportPanel, type RenderProgress, type RenderStatus } from './components/RenderExportPanel';
@@ -95,7 +96,10 @@ import {
   type SceneSpec,
   type Vec3,
 } from './scene/types';
-import type { SceneViewer } from './viewer/SceneViewer';
+import type { SceneViewer, ViewerTransformMode } from './viewer/SceneViewer';
+import { parseRoomSelectionId } from './viewer/selection';
+import { resolveHistoryShortcut } from './viewer/historyShortcuts';
+import type { TransformPatch } from './viewer/transformCommit';
 import type { CameraAngleId } from './viewer/cameraAngles';
 import type { MaterialPresetId } from './materials/types';
 import type { TextureAssetRef, TextureMapRole } from './materials/asset';
@@ -121,6 +125,13 @@ function batchRenderErrorMessage(error: unknown): string {
   return describeCaptureError(error);
 }
 
+const TRANSFORM_MODES: ReadonlyArray<{ id: ViewerTransformMode; label: string }> = [
+  { id: 'select', label: 'Tanlash' },
+  { id: 'translate', label: 'Ko‘chirish' },
+  { id: 'rotate', label: 'Aylantirish' },
+  { id: 'scale', label: 'Masshtab' },
+];
+
 export default function App() {
   const [scene, dispatch] = useReducer(
     sceneReducer,
@@ -134,6 +145,7 @@ export default function App() {
   const [resetToken, setResetToken] = useState(0);
   const [cameraPresetToken, setCameraPresetToken] = useState(0);
   const [cameraAngle, setCameraAngle] = useState<CameraAngleId | null>(null);
+  const [transformMode, setTransformMode] = useState<ViewerTransformMode>('select');
 
   const [exportStatus, setExportStatus] = useState<ExportStatus>('idle');
   const [exportFormat, setExportFormat] = useState<ExportFormatId>('glb');
@@ -187,6 +199,12 @@ export default function App() {
   };
 
   const selectedObject = findSceneObject(scene, scene.selectedId);
+  const selectedRoomId = parseRoomSelectionId(scene.selectedId);
+  const selectedRoom = selectedRoomId
+    ? scene.data.rooms?.find((room) => room.id === selectedRoomId)
+    : undefined;
+  const canUndo = (scene.history?.past.length ?? 0) > 0;
+  const canRedo = (scene.history?.future.length ?? 0) > 0;
   const [specPreview, setSpecPreview] = useState<SpecPreview | null>(null);
   // A preview is only shown while it still belongs to the selected object and was
   // computed from its current spec.
@@ -266,6 +284,23 @@ export default function App() {
     !hasUnsavedWork ||
     window.confirm("Saqlanmagan o'zgarishlar bor. Davom etilsa, ular yo'qoladi. Davom etilsinmi?");
 
+  // Undo/redo shortcuts are global, but never steal Ctrl+Z from a text field or
+  // interrupt an in-flight gizmo drag.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const action = resolveHistoryShortcut(event, {
+        isTransforming: viewerRef.current?.isTransforming() === true,
+      });
+      if (!action) {
+        return;
+      }
+      event.preventDefault();
+      dispatch({ type: action === 'undo' ? 'UNDO' : 'REDO' });
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   // Keep the parameter controls in sync with the selected object.
   useEffect(() => {
     const object = findSceneObject(scene, scene.selectedId);
@@ -332,12 +367,15 @@ export default function App() {
   };
 
   const handleSpecUndo = () => {
-    dispatch({ type: 'UNDO_SPEC' });
+    dispatch({ type: 'UNDO' });
   };
 
   const handleSpecRedo = () => {
-    dispatch({ type: 'REDO_SPEC' });
+    dispatch({ type: 'REDO' });
   };
+
+  const handleUndo = () => dispatch({ type: 'UNDO' });
+  const handleRedo = () => dispatch({ type: 'REDO' });
 
   const handleParamsReset = () => {
     if (!furnitureObject) {
@@ -441,8 +479,28 @@ export default function App() {
     scale?: Partial<Vec3>;
   }) => {
     if (selectedObject) {
-      dispatch({ type: 'UPDATE_TRANSFORM', id: selectedObject.id, ...patch });
+      dispatch({
+        type: 'UPDATE_TRANSFORM',
+        id: selectedObject.id,
+        recordHistory: false,
+        ...patch,
+      });
     }
+  };
+
+  /** Gizmo commit: room ids and furniture ids share one interaction path. */
+  const handleSceneTransform = (id: string, patch: TransformPatch) => {
+    const roomId = parseRoomSelectionId(id);
+    if (roomId !== null) {
+      dispatch({ type: 'UPDATE_ROOM_TRANSFORM', id: roomId, recordHistory: true, ...patch });
+      return;
+    }
+    dispatch({ type: 'UPDATE_TRANSFORM', id, recordHistory: true, ...patch });
+  };
+
+  const handleTransformMode = (mode: ViewerTransformMode) => {
+    setTransformMode(mode);
+    viewerRef.current?.setTransformMode(mode);
   };
 
   const handleRename = (name: string) => {
@@ -527,7 +585,32 @@ export default function App() {
     }
   };
 
-  const handleToggleVisibility = (id: string) => dispatch({ type: 'TOGGLE_VISIBILITY', id });
+  const handleToggleVisibility = (selectionId: string) => {
+    const roomId = parseRoomSelectionId(selectionId);
+    if (roomId !== null) {
+      dispatch({ type: 'TOGGLE_ROOM_VISIBILITY', id: roomId });
+      return;
+    }
+    if (selectionId !== ROOM_OBJECT_ID) {
+      dispatch({ type: 'TOGGLE_VISIBILITY', id: selectionId });
+    }
+  };
+
+  const handleRenameItem = (selectionId: string, name: string) => {
+    const roomId = parseRoomSelectionId(selectionId);
+    if (roomId !== null) {
+      dispatch({ type: 'RENAME_ROOM', id: roomId, name });
+      return;
+    }
+    if (selectionId !== ROOM_OBJECT_ID) {
+      dispatch({ type: 'RENAME_OBJECT', id: selectionId, name });
+    }
+  };
+
+  const handleFocusItem = (selectionId: string) => {
+    dispatch({ type: 'SELECT', id: selectionId });
+    viewerRef.current?.focusSelection(selectionId);
+  };
 
   const handleDeleteObject = (id: string) => {
     const object = scene.data.objects.find((item) => item.id === id);
@@ -1088,12 +1171,15 @@ export default function App() {
         <div className="panel__section" data-section="objects">
           <SceneHierarchyPanel
             room={scene.data.room}
+            rooms={scene.data.rooms}
             objects={scene.data.objects}
             selectedId={scene.selectedId}
             onSelect={handleSelect}
             onToggleVisibility={handleToggleVisibility}
             onDelete={handleDeleteObject}
             onAddTable={handleAddTable}
+            onRename={handleRenameItem}
+            onFocus={handleFocusItem}
           />
           <ObjectPanel
             object={selectedObject}
@@ -1265,18 +1351,46 @@ export default function App() {
           resetToken={resetToken}
           cameraPreset={settings.cameraPreset}
           cameraPresetToken={cameraPresetToken}
+          transformMode={transformMode}
           onSelect={handleSelect}
+          onTransform={handleSceneTransform}
           onReady={(viewer) => {
             viewerRef.current = viewer;
             transparentProbeRef.current = null;
             setTransparentAvailable(true);
-            if (viewer && cameraAngle) {
-              viewer.applyCameraAngle(cameraAngle);
+            if (viewer) {
+              viewer.setTransformMode(transformMode);
+              if (cameraAngle) {
+                viewer.applyCameraAngle(cameraAngle);
+              }
             }
           }}
         />
 
         <div className="stage__toolbar">
+          <HistoryControls
+            canUndo={canUndo}
+            canRedo={canRedo}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+          />
+          <div className="stage__modes" role="group" aria-label="Transformatsiya rejimi">
+            {TRANSFORM_MODES.map((mode) => (
+              <button
+                key={mode.id}
+                type="button"
+                className={
+                  transformMode === mode.id
+                    ? 'stage__button stage__button--active'
+                    : 'stage__button'
+                }
+                aria-pressed={transformMode === mode.id}
+                onClick={() => handleTransformMode(mode.id)}
+              >
+                {mode.label}
+              </button>
+            ))}
+          </div>
           <button type="button" className="stage__button" onClick={handleResetView}>
             Ko'rinishni tiklash
           </button>
@@ -1285,6 +1399,7 @@ export default function App() {
         <div className="readout">
           Xona: {scene.data.room.widthCm} × {scene.data.room.lengthCm} ×{' '}
           {scene.data.room.heightCm} sm · {scene.data.objects.length} obyekt
+          {selectedRoom && ` · Tanlangan xona: ${selectedRoom.name}`}
         </div>
 
         {!paramsValid && (

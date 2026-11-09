@@ -238,8 +238,12 @@ describe('opt-in room geometry builder', () => {
   it('builds floor and four walls without a ceiling', () => {
     const built = buildRoomInstance(room());
     try {
-      expect(meshNames(built.group)).toHaveLength(5);
+      expect(meshNames(built.group)).toHaveLength(9);
       expect(meshNames(built.group).sort()).toEqual([
+        'room-baseboard-east-1',
+        'room-baseboard-north-1',
+        'room-baseboard-south-1',
+        'room-baseboard-west-1',
         'room-floor',
         'room-wall-east',
         'room-wall-north',
@@ -425,7 +429,7 @@ describe('opt-in room geometry builder', () => {
     const built = buildRoomInstance(instance);
     try {
       built.group.updateMatrixWorld(true);
-      expect(meshNames(built.group)).toHaveLength(16);
+      expect(meshNames(built.group)).toHaveLength(21);
       expect(meshNames(built.group)).toContain('door-1-door-frame-left');
       expect(meshNames(built.group)).toContain('door-1-door-leaf');
       expect(meshNames(built.group)).toContain('door-1-door-handle');
@@ -501,10 +505,10 @@ describe('opt-in room geometry builder', () => {
     }
   });
 
-  it('builds six meshes when the ceiling is enabled', () => {
+  it('builds the ceiling and trim meshes when the ceiling is enabled', () => {
     const built = buildRoomInstance(room('with-ceiling', { spec: { ...DEFAULT_ROOM_SPEC, showCeiling: true } }));
     try {
-      expect(meshNames(built.group)).toHaveLength(6);
+      expect(meshNames(built.group)).toHaveLength(14);
       const ceiling = built.group.getObjectByName('room-ceiling') as THREE.Mesh;
       expect(ceiling).toBeDefined();
       const size = meshSize(ceiling);

@@ -10,4 +10,6 @@ export * from './types';
 export * from './roomSpec';
 export * from './roomPlan';
 export * from './roomDefinition';
+export * from './roomMaterials';
+export * from './roomTrim';
 export * from './registry';

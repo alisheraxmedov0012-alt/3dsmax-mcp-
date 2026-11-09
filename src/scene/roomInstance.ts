@@ -10,6 +10,7 @@ import { requireRoomDefinition, tryCreateRoomPlan } from '../geometry/interior/r
 import type { RoomPlan } from '../geometry/interior/types';
 import type { RoomSpec } from '../geometry/interior/types';
 import { buildPlanWithDefinition } from '../geometry/universal/build';
+import { resolveRoomMaterials } from '../geometry/interior/roomMaterials';
 import { MATERIAL_PRESET_IDS } from '../materials/presets';
 import { PBR_LIMITS, type MaterialSettingsInput } from '../materials/types';
 import { applyObjectTransform } from './buildSceneObject';
@@ -208,6 +209,8 @@ function normalizeMaterialAssignments(
     if (emissiveIntensity !== undefined) settings.emissiveIntensity = emissiveIntensity;
     const aoIntensity = clampNumber(raw.aoIntensity, PBR_LIMITS.aoIntensity);
     if (aoIntensity !== undefined) settings.aoIntensity = aoIntensity;
+    const physicalTileCm = clampNumber(raw.physicalTileCm, PBR_LIMITS.physicalTileCm);
+    if (physicalTileCm !== undefined) settings.physicalTileCm = physicalTileCm;
     const baseColor = normalizeHexColor(raw.baseColor);
     if (baseColor !== undefined) settings.baseColor = baseColor;
     const emissiveColor = normalizeHexColor(raw.emissiveColor);
@@ -443,6 +446,20 @@ export function createRoomInstance(
   };
 }
 
+/**
+ * Identity of everything that changes a room's built geometry.
+ *
+ * Transform, visibility and display name are applied to the existing group, so
+ * they are deliberately excluded: dragging a room must not rebuild its meshes.
+ */
+export function roomInstanceGeometryKey(room: RoomInstance): string {
+  return JSON.stringify([
+    room.definitionId,
+    room.spec,
+    room.materialAssignments ?? null,
+  ]);
+}
+
 /** Materialise one validated room through the generic parametric builder. */
 export function tryBuildRoomInstance(value: unknown): RoomInstanceBuildResult {
   const validation = validateRoomInstance(value);
@@ -467,14 +484,22 @@ export function tryBuildRoomInstance(value: unknown): RoomInstanceBuildResult {
   }
 
   const definition = requireRoomDefinition(validation.room.definitionId);
+  const materials = resolveRoomMaterials(
+    definition.slots,
+    validation.room.spec,
+    validation.room.materialAssignments,
+  );
   let built;
   try {
     built = buildPlanWithDefinition(
       planResult.plan.parametric,
       definition.parametric,
-      validation.room.materialAssignments
-        ? { materialOverrides: validation.room.materialAssignments }
-        : {},
+      {
+        ...(Object.keys(materials.overrides).length > 0
+          ? { materialOverrides: materials.overrides }
+          : {}),
+        uvTileOverrides: materials.tiles,
+      },
     );
   } catch (error) {
     return {

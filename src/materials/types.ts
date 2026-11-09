@@ -129,6 +129,9 @@ export const PBR_LIMITS = {
   emissiveIntensity: { min: 0, max: 5, step: 0.05 },
   // Ambient-occlusion multiplier applied to the AO (or ORM red) channel.
   aoIntensity: { min: 0, max: 2, step: 0.05 },
+  // Physical size of one texture tile, in centimetres. Consumed by the room UV
+  // mapper; the PBR builder ignores it. 5 cm–10 m covers every interior surface.
+  physicalTileCm: { min: 5, max: 1000, step: 5 },
 } satisfies Record<string, NumericRange>;
 
 export const DEFAULT_MATERIAL_ID = 'default';
@@ -167,6 +170,11 @@ export interface MaterialSettingsInput {
   baseColor?: string;
   /** Emissive tint (hex). Without it an emissive map is rendered white. */
   emissiveColor?: string;
+  /**
+   * Physical size of one texture tile, in centimetres. Only the interior UV
+   * mapper reads it; furniture ignores it and keeps the 50 cm tile.
+   */
+  physicalTileCm?: number;
   /**
    * Product opt-in for the 2K baked oak/black-satin maps. Off by default so the
    * catalogue, tests and ordinary furniture keep the 128 px procedural maps.

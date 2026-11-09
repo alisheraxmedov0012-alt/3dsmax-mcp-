@@ -38,6 +38,9 @@ ROUTES = {
 PRODUCT_TEXTURE_PREFIX = "/artefakt/product-texture/"
 PRODUCT_TEXTURE_NAME = re.compile(r"^[A-Za-z0-9_.-]+\.png$")
 
+INTERIOR_PREFIX = "/artefakt/interior/"
+INTERIOR_ARTEFACT_NAME = re.compile(r"^[A-Za-z0-9_.-]+\.(?:glb|json)$")
+
 
 def make_handler(out_dir: Path) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
@@ -50,6 +53,10 @@ def make_handler(out_dir: Path) -> type[BaseHTTPRequestHandler]:
                 name = route[len(PRODUCT_TEXTURE_PREFIX) :]
                 if PRODUCT_TEXTURE_NAME.fullmatch(name):
                     filename = f"textures/{name}"
+            if filename is None and route.startswith(INTERIOR_PREFIX):
+                name = route[len(INTERIOR_PREFIX) :]
+                if INTERIOR_ARTEFACT_NAME.fullmatch(name):
+                    filename = f"interior/{name}"
             length = int(self.headers.get("content-length", "0"))
             body = self.rfile.read(length) if length else b""
 

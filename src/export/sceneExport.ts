@@ -17,6 +17,8 @@ import {
   type TextureProvider,
 } from '../materials/textureRegistry';
 import { buildSceneObject } from '../scene/buildSceneObject';
+import { buildSceneRooms, includeLegacyRoom } from '../scene/roomScene';
+import type { RoomInstanceIssue } from '../scene/roomInstance';
 import { isImportedSceneObject, type SceneData, type SceneObject } from '../scene/types';
 import { importedModelStore } from '../import/importedModelStore';
 import { getSlotMaterialInfo } from '../materials/materialRuntimeMetadata';
@@ -31,6 +33,11 @@ export const SCENE_EXPORT_FILENAME = '3d-studio-ai-scene.glb';
 export interface ExportScene {
   scene: THREE.Scene;
   dispose: () => void;
+  /**
+   * Rooms that were skipped because they failed validation/building. Empty or
+   * absent when every room exported. The rest of the scene still exported.
+   */
+  readonly roomIssues?: readonly RoomInstanceIssue[];
 }
 
 export interface BuildExportOptions {
@@ -155,12 +162,24 @@ export function buildExportScene(data: SceneData, options: BuildExportOptions = 
   scene.name = 'scene-export';
 
   const disposers: Array<() => void> = [];
+  let roomIssues: readonly RoomInstanceIssue[] | undefined;
 
   try {
-    if (options.includeRoom !== false) {
+    const rooms = data.rooms ?? [];
+    const roomsEnabled = options.includeRoom !== false;
+    const includeRooms = roomsEnabled && options.onlyObjectId === undefined;
+    if (roomsEnabled && includeLegacyRoom(rooms)) {
       const room = buildRoom(data.room, data.settings.roomMaterials);
       scene.add(room.group);
       disposers.push(room.dispose);
+    }
+    if (includeRooms) {
+      const builtRooms = buildSceneRooms(rooms);
+      for (const entry of builtRooms.entries) {
+        scene.add(entry.group);
+        disposers.push(entry.dispose);
+      }
+      roomIssues = builtRooms.issues.length > 0 ? builtRooms.issues : undefined;
     }
 
     const exportObjects = options.onlyObjectId
@@ -195,6 +214,7 @@ export function buildExportScene(data: SceneData, options: BuildExportOptions = 
   return {
     scene,
     dispose: () => disposers.forEach((dispose) => dispose()),
+    ...(roomIssues !== undefined ? { roomIssues } : {}),
   };
 }
 

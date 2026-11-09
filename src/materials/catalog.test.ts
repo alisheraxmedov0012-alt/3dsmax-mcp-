@@ -293,10 +293,15 @@ describe('search and filtering', () => {
   });
 
   it('searches the stable id, which exposes the English family names', () => {
-    // The premium product preset shares the oak family keyword.
+    // Premium, flooring and trim presets share the oak family keyword.
     expect(ids(searchMaterialCatalog('oak'))).toEqual([
       'wood-oak',
       'wood-oak-premium',
+      'oak-parquet',
+      'light-oak',
+      'dark-oak',
+      'baseboard-oak',
+      'crown-oak',
     ]);
     expect(ids(searchMaterialCatalog('walnut'))).toEqual(['wood-walnut']);
     expect(ids(searchMaterialCatalog('velvet'))).toEqual(['fabric-velvet']);

@@ -40,6 +40,7 @@ import {
   MATERIAL_LIMITS,
   IMPORTED_OBJECT_TYPE,
   MAX_ASSEMBLIES_PER_SCENE,
+  MAX_SCENE_HISTORY,
   MAX_SPEC_HISTORY,
   OBJECT_NAME_MAX_LENGTH,
   OBJECT_LIMITS,
@@ -55,13 +56,20 @@ import {
   type SceneData,
   type SceneObject,
   type SceneSpec,
+  type SceneHistoryEntry,
   type SpecHistory,
+  type TransformHistoryEntry,
+  type TransformSnapshot,
+  type VisibilityHistoryEntry,
+  type RenameHistoryEntry,
   type SpecHistoryEntry,
   createUniversalSceneObject,
   type SceneState,
   type Vec3,
   type ImportedModelMeta,
 } from './types';
+import { normalizeRoomRotation } from './transformLimits';
+import { roomSelectionId } from './selectionIds';
 
 export type SceneAction =
   | { type: 'SET_ROOM'; room: Partial<RoomConfig> }
@@ -95,6 +103,9 @@ export type SceneAction =
        */
       materialPresetId?: MaterialPresetId | null;
     }
+  | { type: 'UNDO' }
+  | { type: 'REDO' }
+  /** Backward-compatible aliases for the universal stack. */
   | { type: 'UNDO_SPEC' }
   | { type: 'REDO_SPEC' }
   | { type: 'SELECT'; id: string | null }
@@ -104,8 +115,20 @@ export type SceneAction =
       position?: Partial<Vec3>;
       rotation?: Partial<Vec3>;
       scale?: Partial<Vec3>;
+      /** Gizmo commits record history; panel edits keep their old quiet path. */
+      recordHistory?: boolean;
     }
-  | { type: 'RENAME_OBJECT'; id: string; name: string }
+  | {
+      /** Phase 9A.2.9 — persist a gizmo/editor transform for one opt-in room. */
+      type: 'UPDATE_ROOM_TRANSFORM';
+      id: string;
+      position?: Partial<Vec3>;
+      rotation?: Partial<Vec3>;
+      scale?: Partial<Vec3>;
+      recordHistory?: boolean;
+    }
+  | { type: 'RENAME_OBJECT'; id: string; name: string; recordHistory?: boolean }
+  | { type: 'RENAME_ROOM'; id: string; name: string; recordHistory?: boolean }
   | {
       type: 'ADD_UNIVERSAL_FURNITURE';
       id: string;
@@ -144,7 +167,8 @@ export type SceneAction =
   | { type: 'SET_HARDWARE'; id: string; hardware: readonly HardwareItem[] }
   | { type: 'APPLY_MATERIAL_PRESET'; id: string; presetId: string }
   | { type: 'RESET_MATERIAL'; id: string }
-  | { type: 'TOGGLE_VISIBILITY'; id: string }
+  | { type: 'TOGGLE_VISIBILITY'; id: string; recordHistory?: boolean }
+  | { type: 'TOGGLE_ROOM_VISIBILITY'; id: string; recordHistory?: boolean }
   | { type: 'DELETE_OBJECT'; id: string }
   | { type: 'SET_BACKGROUND'; color: string }
   | { type: 'UPDATE_LIGHTS'; lights: Partial<LightSettings> }
@@ -291,9 +315,213 @@ function withSettings(state: SceneState, settings: SceneSettings): SceneState {
   return { ...state, data: { ...state.data, schemaVersion: SCENE_SCHEMA_VERSION, settings } };
 }
 
-function pushHistory(history: SpecHistory | undefined, entry: SpecHistoryEntry): SpecHistory {
+function pushHistory(
+  history: SpecHistory | undefined,
+  entry: SceneHistoryEntry,
+): SpecHistory {
   const past = [...(history?.past ?? []), entry];
   return { past: past.slice(-MAX_SPEC_HISTORY), future: [] };
+}
+
+/** Keep the past but invalidate the redo branch after an unrecorded edit. */
+function clearHistoryFuture(history: SpecHistory | undefined): SpecHistory | undefined {
+  if (!history || history.future.length === 0) {
+    return history;
+  }
+  return { past: history.past, future: [] };
+}
+
+function snapshotOf(values: {
+  readonly position: Vec3;
+  readonly rotation: Vec3;
+  readonly scale: Vec3;
+}): TransformSnapshot {
+  return Object.freeze({
+    position: Object.freeze({ ...values.position }),
+    rotation: Object.freeze({ ...values.rotation }),
+    scale: Object.freeze({ ...values.scale }),
+  });
+}
+
+function sameVec3(first: Vec3, second: Vec3): boolean {
+  return first.x === second.x && first.y === second.y && first.z === second.z;
+}
+
+function sameSnapshot(first: TransformSnapshot, second: TransformSnapshot): boolean {
+  return (
+    sameVec3(first.position, second.position) &&
+    sameVec3(first.rotation, second.rotation) &&
+    sameVec3(first.scale, second.scale)
+  );
+}
+
+function isTransformEntry(entry: SceneHistoryEntry): entry is TransformHistoryEntry {
+  return entry.kind === 'transform';
+}
+
+/**
+ * Apply one command in either direction. Returns null when the entity no longer
+ * exists; the caller drops the stale entry instead of resurrecting an object.
+ */
+function applyHistoryEntry(
+  state: SceneState,
+  entry: SceneHistoryEntry,
+  phase: 'before' | 'after',
+): SceneState | null {
+  if (isTransformEntry(entry)) {
+    const values = entry[phase];
+    if (entry.entityType === 'room') {
+      const rooms = state.data.rooms;
+      const index = rooms?.findIndex((room) => room.id === entry.entityId) ?? -1;
+      if (!rooms || index < 0) {
+        return null;
+      }
+      const nextRooms = [...rooms];
+      nextRooms[index] = {
+        ...rooms[index],
+        position: { ...values.position },
+        rotation: { ...values.rotation },
+        scale: { ...values.scale },
+      };
+      return { ...state, data: { ...state.data, rooms: nextRooms } };
+    }
+    const object = state.data.objects.find((item) => item.id === entry.entityId);
+    if (!object) {
+      return null;
+    }
+    return {
+      ...state,
+      data: {
+        ...state.data,
+        objects: state.data.objects.map((item) =>
+          item.id === entry.entityId
+            ? {
+                ...item,
+                position: { ...values.position },
+                rotation: { ...values.rotation },
+                scale: { ...values.scale },
+              }
+            : item,
+        ),
+      },
+    };
+  }
+
+  if (entry.kind === 'visibility') {
+    const visible = entry[phase];
+    if (entry.entityType === 'room') {
+      const rooms = state.data.rooms;
+      const index = rooms?.findIndex((room) => room.id === entry.entityId) ?? -1;
+      if (!rooms || index < 0) {
+        return null;
+      }
+      const nextRooms = [...rooms];
+      nextRooms[index] = { ...rooms[index], visible };
+      const nextState = { ...state, data: { ...state.data, rooms: nextRooms } };
+      return !visible && state.selectedId === roomSelectionId(entry.entityId)
+        ? { ...nextState, selectedId: null }
+        : nextState;
+    }
+    const object = state.data.objects.find((item) => item.id === entry.entityId);
+    if (!object) {
+      return null;
+    }
+    const nextState = {
+      ...state,
+      data: {
+        ...state.data,
+        objects: state.data.objects.map((item) =>
+          item.id === entry.entityId ? { ...item, visible } : item,
+        ),
+      },
+    };
+    return !visible && state.selectedId === entry.entityId
+      ? { ...nextState, selectedId: null }
+      : nextState;
+  }
+
+  if (entry.kind === 'rename') {
+    const name = entry[phase];
+    if (entry.entityType === 'room') {
+      const rooms = state.data.rooms;
+      const index = rooms?.findIndex((room) => room.id === entry.entityId) ?? -1;
+      if (!rooms || index < 0) {
+        return null;
+      }
+      const nextRooms = [...rooms];
+      nextRooms[index] = { ...rooms[index], name };
+      return { ...state, data: { ...state.data, rooms: nextRooms } };
+    }
+    const object = state.data.objects.find((item) => item.id === entry.entityId);
+    if (!object) {
+      return null;
+    }
+    return {
+      ...state,
+      data: {
+        ...state.data,
+        objects: state.data.objects.map((item) =>
+          item.id === entry.entityId ? { ...item, name } : item,
+        ),
+      },
+    };
+  }
+
+  const object = state.data.objects.find((item) => item.id === entry.objectId);
+  if (!object) {
+    return null;
+  }
+  return {
+    ...state,
+    data: {
+      ...state.data,
+      objects: state.data.objects.map((item) =>
+        item.id === entry.objectId
+          ? { ...item, spec: phase === 'before' ? entry.before : entry.after }
+          : item,
+      ),
+    },
+  };
+}
+
+function undoHistory(state: SceneState): SceneState {
+  const past = state.history?.past ?? [];
+  if (past.length === 0) {
+    return state;
+  }
+  const entry = past[past.length - 1];
+  const applied = applyHistoryEntry(state, entry, 'before');
+  if (!applied) {
+    // The entity is gone: consume the stale command without a redo entry.
+    return {
+      ...state,
+      history: { past: past.slice(0, -1), future: state.history?.future ?? [] },
+    };
+  }
+  return {
+    ...applied,
+    history: {
+      past: past.slice(0, -1),
+      future: [entry, ...(state.history?.future ?? [])].slice(0, MAX_SCENE_HISTORY),
+    },
+  };
+}
+
+function redoHistory(state: SceneState): SceneState {
+  const future = state.history?.future ?? [];
+  if (future.length === 0) {
+    return state;
+  }
+  const [entry, ...rest] = future;
+  const applied = applyHistoryEntry(state, entry, 'after');
+  if (!applied) {
+    return {
+      ...state,
+      history: { past: state.history?.past ?? [], future: rest },
+    };
+  }
+  const past = [...(state.history?.past ?? []), entry].slice(-MAX_SCENE_HISTORY);
+  return { ...applied, history: { past, future: rest } };
 }
 
 /**
@@ -435,8 +663,12 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
     case 'SELECT':
       return { ...state, selectedId: action.id };
 
-    case 'UPDATE_TRANSFORM':
-      return replaceObject(state, action.id, (object) => ({
+    case 'UPDATE_TRANSFORM': {
+      const object = state.data.objects.find((item) => item.id === action.id);
+      if (!object) {
+        return state;
+      }
+      const next = {
         ...object,
         position: mergeVec3(
           object.position,
@@ -456,16 +688,152 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
           OBJECT_LIMITS.scale.min,
           OBJECT_LIMITS.scale.max,
         ),
-      }));
-
-    case 'RENAME_OBJECT':
-      return replaceObject(state, action.id, (object) => {
-        const trimmed = action.name.trim();
-        return {
-          ...object,
-          name: trimmed === '' ? object.name : trimmed.slice(0, OBJECT_NAME_MAX_LENGTH),
-        };
+      };
+      const before = snapshotOf(object);
+      const after = snapshotOf(next);
+      if (sameSnapshot(before, after)) {
+        return state;
+      }
+      const entry: TransformHistoryEntry = Object.freeze({
+        kind: 'transform',
+        entityType: 'object',
+        entityId: action.id,
+        before,
+        after,
       });
+      const history = action.recordHistory
+        ? pushHistory(state.history, entry)
+        : clearHistoryFuture(state.history);
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          objects: state.data.objects.map((item) => (item.id === action.id ? next : item)),
+        },
+        ...(history !== undefined ? { history } : {}),
+      };
+    }
+
+    case 'UPDATE_ROOM_TRANSFORM': {
+      const rooms = state.data.rooms;
+      if (!rooms || rooms.length === 0) {
+        return state;
+      }
+      const index = rooms.findIndex((room) => room.id === action.id);
+      if (index < 0) {
+        return state;
+      }
+      const room = rooms[index];
+      const pick = (current: number, next: number | undefined): number =>
+        typeof next === 'number' && Number.isFinite(next) ? next : current;
+      const nextRoom = {
+        ...room,
+        position: mergeVec3(
+          room.position,
+          action.position,
+          OBJECT_LIMITS.position.min,
+          OBJECT_LIMITS.position.max,
+        ),
+        // Rotation is normalized instead of clamped: a gizmo may report -45°,
+        // which must persist as the equivalent 315°.
+        rotation: normalizeRoomRotation({
+          x: pick(room.rotation.x, action.rotation?.x),
+          y: pick(room.rotation.y, action.rotation?.y),
+          z: pick(room.rotation.z, action.rotation?.z),
+        }),
+        scale: mergeVec3(
+          room.scale,
+          action.scale,
+          OBJECT_LIMITS.scale.min,
+          OBJECT_LIMITS.scale.max,
+        ),
+      };
+      const nextRooms = [...rooms];
+      nextRooms[index] = nextRoom;
+      const before = snapshotOf(room);
+      const after = snapshotOf(nextRoom);
+      if (sameSnapshot(before, after)) {
+        return state;
+      }
+      const entry: TransformHistoryEntry = Object.freeze({
+        kind: 'transform',
+        entityType: 'room',
+        entityId: action.id,
+        before,
+        after,
+      });
+      const history = action.recordHistory
+        ? pushHistory(state.history, entry)
+        : clearHistoryFuture(state.history);
+      return {
+        ...state,
+        data: { ...state.data, rooms: nextRooms },
+        ...(history !== undefined ? { history } : {}),
+      };
+    }
+
+    case 'RENAME_OBJECT': {
+      const object = state.data.objects.find((item) => item.id === action.id);
+      if (!object) {
+        return state;
+      }
+      const name = action.name.trim().slice(0, OBJECT_NAME_MAX_LENGTH);
+      if (name === '' || name === object.name) {
+        return state;
+      }
+      const entry: RenameHistoryEntry = Object.freeze({
+        kind: 'rename',
+        entityType: 'object',
+        entityId: action.id,
+        before: object.name,
+        after: name,
+      });
+      const history =
+        action.recordHistory === false
+          ? clearHistoryFuture(state.history)
+          : pushHistory(state.history, entry);
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          objects: state.data.objects.map((item) =>
+            item.id === action.id ? { ...item, name } : item,
+          ),
+        },
+        ...(history !== undefined ? { history } : {}),
+      };
+    }
+
+    case 'RENAME_ROOM': {
+      const rooms = state.data.rooms;
+      const index = rooms?.findIndex((room) => room.id === action.id) ?? -1;
+      if (!rooms || index < 0) {
+        return state;
+      }
+      const room = rooms[index];
+      const name = action.name.trim().slice(0, OBJECT_NAME_MAX_LENGTH);
+      if (name === '' || name === room.name) {
+        return state;
+      }
+      const entry: RenameHistoryEntry = Object.freeze({
+        kind: 'rename',
+        entityType: 'room',
+        entityId: action.id,
+        before: room.name,
+        after: name,
+      });
+      const nextRooms = [...rooms];
+      nextRooms[index] = { ...room, name };
+      const history =
+        action.recordHistory === false
+          ? clearHistoryFuture(state.history)
+          : pushHistory(state.history, entry);
+      return {
+        ...state,
+        data: { ...state.data, rooms: nextRooms },
+        ...(history !== undefined ? { history } : {}),
+      };
+    }
 
     case 'ADD_UNIVERSAL_FURNITURE': {
       if (state.data.objects.some((object) => object.id === action.id)) {
@@ -513,72 +881,25 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
         return state;
       }
 
-      const entry: SpecHistoryEntry = {
+      const entry: SpecHistoryEntry = Object.freeze({
+        kind: 'spec',
         objectId: action.id,
         before: object.spec,
         after: canonical.spec,
-      };
+      });
       return {
         ...replaceObject(state, action.id, (current) => ({ ...current, spec: canonical.spec })),
         history: pushHistory(state.history, entry),
       };
     }
 
-    case 'UNDO_SPEC': {
-      const past = state.history?.past ?? [];
-      if (past.length === 0) {
-        return state;
-      }
+    case 'UNDO':
+    case 'UNDO_SPEC':
+      return undoHistory(state);
 
-      const entry = past[past.length - 1];
-      const object = state.data.objects.find((item) => item.id === entry.objectId);
-      if (!object) {
-        // The object is gone; keep the stack valid instead of resurrecting it.
-        return {
-          ...state,
-          history: { past: past.slice(0, -1), future: state.history?.future ?? [] },
-        };
-      }
-
-      return {
-        ...state,
-        data: {
-          ...state.data,
-          objects: state.data.objects.map((item) =>
-            item.id === entry.objectId ? { ...item, spec: entry.before } : item,
-          ),
-        },
-        history: {
-          past: past.slice(0, -1),
-          future: [entry, ...(state.history?.future ?? [])].slice(0, MAX_SPEC_HISTORY),
-        },
-      };
-    }
-
-    case 'REDO_SPEC': {
-      const future = state.history?.future ?? [];
-      if (future.length === 0) {
-        return state;
-      }
-
-      const [entry, ...rest] = future;
-      const object = state.data.objects.find((item) => item.id === entry.objectId);
-      if (!object) {
-        return { ...state, history: { past: state.history?.past ?? [], future: rest } };
-      }
-
-      const past = [...(state.history?.past ?? []), entry].slice(-MAX_SPEC_HISTORY);
-      return {
-        ...state,
-        data: {
-          ...state.data,
-          objects: state.data.objects.map((item) =>
-            item.id === entry.objectId ? { ...item, spec: entry.after } : item,
-          ),
-        },
-        history: { past, future: rest },
-      };
-    }
+    case 'REDO':
+    case 'REDO_SPEC':
+      return redoHistory(state);
 
     case 'UPDATE_PARAMS':
       return replaceObject(state, action.id, (object) => {
@@ -730,19 +1051,83 @@ export function sceneReducer(state: SceneState, action: SceneAction): SceneState
         material: { ...MATERIAL_DEFAULTS },
       }));
 
-    case 'TOGGLE_VISIBILITY':
-      return replaceObject(state, action.id, (object) => ({ ...object, visible: !object.visible }));
+    case 'TOGGLE_VISIBILITY': {
+      const object = state.data.objects.find((item) => item.id === action.id);
+      if (!object) {
+        return state;
+      }
+      const visible = !object.visible;
+      const entry: VisibilityHistoryEntry = Object.freeze({
+        kind: 'visibility',
+        entityType: 'object',
+        entityId: action.id,
+        before: object.visible,
+        after: visible,
+      });
+      const history =
+        action.recordHistory === false
+          ? clearHistoryFuture(state.history)
+          : pushHistory(state.history, entry);
+      return {
+        ...state,
+        data: {
+          ...state.data,
+          objects: state.data.objects.map((item) =>
+            item.id === action.id ? { ...item, visible } : item,
+          ),
+        },
+        ...(history !== undefined ? { history } : {}),
+        ...(!visible && state.selectedId === action.id ? { selectedId: null } : {}),
+      };
+    }
+
+    case 'TOGGLE_ROOM_VISIBILITY': {
+      const rooms = state.data.rooms;
+      const index = rooms?.findIndex((room) => room.id === action.id) ?? -1;
+      if (!rooms || index < 0) {
+        return state;
+      }
+      const room = rooms[index];
+      const visible = !room.visible;
+      const entry: VisibilityHistoryEntry = Object.freeze({
+        kind: 'visibility',
+        entityType: 'room',
+        entityId: action.id,
+        before: room.visible,
+        after: visible,
+      });
+      const nextRooms = [...rooms];
+      nextRooms[index] = { ...room, visible };
+      const history =
+        action.recordHistory === false
+          ? clearHistoryFuture(state.history)
+          : pushHistory(state.history, entry);
+      return {
+        ...state,
+        data: { ...state.data, rooms: nextRooms },
+        ...(history !== undefined ? { history } : {}),
+        ...(!visible && state.selectedId === roomSelectionId(action.id)
+          ? { selectedId: null }
+          : {}),
+      };
+    }
 
     case 'DELETE_OBJECT': {
       const objects = state.data.objects.filter((object) => object.id !== action.id);
       if (objects.length === state.data.objects.length) {
         return state;
       }
-      // Keep the undo stacks of other objects; only this object's entries go.
+      // Keep the undo stacks of other entities; only this object's entries go.
+      const belongsToDeleted = (entry: SceneHistoryEntry): boolean =>
+        entry.kind === 'transform' ||
+        entry.kind === 'visibility' ||
+        entry.kind === 'rename'
+          ? entry.entityType === 'object' && entry.entityId === action.id
+          : entry.objectId === action.id;
       const history = state.history
         ? {
-            past: state.history.past.filter((entry) => entry.objectId !== action.id),
-            future: state.history.future.filter((entry) => entry.objectId !== action.id),
+            past: state.history.past.filter((entry) => !belongsToDeleted(entry)),
+            future: state.history.future.filter((entry) => !belongsToDeleted(entry)),
           }
         : undefined;
 

@@ -132,7 +132,7 @@ export function describeUvLayout(tileCm: number = UV_TILE_CM): UvLayoutSummary {
 // ---------------------------------------------------------------------------
 
 /** Mapping strategies. `physical-box` stays a backwards-compatible alias. */
-export type UvMappingMode = 'box' | 'planar' | 'cylindrical' | 'preserve';
+export type UvMappingMode = 'box' | 'surface' | 'planar' | 'cylindrical' | 'preserve';
 export type UvRequestedMode = UvMappingMode | 'physical-box' | 'auto' | 'geometry';
 export type UvOrientation = 'auto' | 'vertical' | 'horizontal';
 export type UvPlane = 'xy' | 'xz' | 'yz';
@@ -316,6 +316,63 @@ function mapBoxByNormals(
     } else {
       u = (x - minX) / tile;
       v = normal.getY(i) < 0 ? (maxZ - z) / tile : (z - minZ) / tile;
+    }
+    orient(uv, i, u, v, horizontal);
+  }
+  uv.needsUpdate = true;
+  return true;
+}
+
+/**
+ * Surface-oriented physical projection for architectural parts.
+ *
+ * Same triplanar idea as {@link mapBoxByNormals}, but the U axis follows each
+ * face's right-hand direction as seen from outside. That keeps an extruded
+ * wall's front/back faces continuous across openings *and* prevents the reveal
+ * faces (jambs, window head and sill) from being mirrored. Furniture keeps
+ * `box` so its existing UV output is untouched.
+ */
+function mapSurfaceByNormals(
+  geometry: THREE.BufferGeometry,
+  tile: number,
+  orientation: UvOrientation,
+): boolean {
+  const position = geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
+  const normal = geometry.getAttribute('normal') as THREE.BufferAttribute | undefined;
+  const uv = geometry.getAttribute('uv') as THREE.BufferAttribute | undefined;
+  if (!position || !normal || !uv || uv.count !== position.count) {
+    return false;
+  }
+  const box = bounds(geometry);
+  if (!box) {
+    return false;
+  }
+  const [minX, minY, minZ] = box.min;
+  const [maxX, , maxZ] = box.max;
+  const horizontal = orientation === 'horizontal';
+
+  for (let i = 0; i < position.count; i += 1) {
+    const x = position.getX(i);
+    const y = position.getY(i);
+    const z = position.getZ(i);
+    const nx = Math.abs(normal.getX(i));
+    const ny = Math.abs(normal.getY(i));
+    const nz = Math.abs(normal.getZ(i));
+
+    let u: number;
+    let v: number;
+    if (nx >= ny && nx >= nz) {
+      // +X looks along -X: screen right is -Z. -X looks along +X: right is +Z.
+      u = normal.getX(i) > 0 ? (maxZ - z) / tile : (z - minZ) / tile;
+      v = (y - minY) / tile;
+    } else if (nz >= ny) {
+      // +Z faces read left-to-right along +X, -Z faces along -X.
+      u = normal.getZ(i) > 0 ? (x - minX) / tile : (maxX - x) / tile;
+      v = (y - minY) / tile;
+    } else {
+      // Floors look down with north (-Z) at the top of the texture.
+      u = (x - minX) / tile;
+      v = normal.getY(i) > 0 ? (maxZ - z) / tile : (z - minZ) / tile;
     }
     orient(uv, i, u, v, horizontal);
   }
@@ -528,6 +585,81 @@ export function validateUvGeometry(geometry: THREE.BufferGeometry): UvDiagnostic
   };
 }
 
+export interface UvMirrorReport {
+  readonly totalTriangles: number;
+  readonly mirroredTriangles: number;
+  readonly degenerateTriangles: number;
+  readonly mirroredRatio: number;
+}
+
+/**
+ * Count triangles whose UV winding disagrees with their 3D winding.
+ *
+ * A mirrored triangle samples the texture flipped, which is invisible on a
+ * uniform colour but obvious on a grain or tile. Degenerate triangles (zero 3D
+ * or zero UV area) are counted separately because their orientation is
+ * undefined. Pure geometry inspection: no renderer state required.
+ */
+export function detectMirroredUv(geometry: THREE.BufferGeometry): UvMirrorReport {
+  const position = geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
+  const uv = geometry.getAttribute('uv') as THREE.BufferAttribute | undefined;
+  const normal = geometry.getAttribute('normal') as THREE.BufferAttribute | undefined;
+  if (!position || !uv || !normal || position.count === 0) {
+    return { totalTriangles: 0, mirroredTriangles: 0, degenerateTriangles: 0, mirroredRatio: 0 };
+  }
+
+  const index = geometry.getIndex();
+  const triangleCount = index ? Math.floor(index.count / 3) : Math.floor(position.count / 3);
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  const cross = new THREE.Vector3();
+  let mirrored = 0;
+  let degenerate = 0;
+
+  for (let triangle = 0; triangle < triangleCount; triangle += 1) {
+    const i0 = index ? index.getX(triangle * 3) : triangle * 3;
+    const i1 = index ? index.getX(triangle * 3 + 1) : triangle * 3 + 1;
+    const i2 = index ? index.getX(triangle * 3 + 2) : triangle * 3 + 2;
+
+    a.set(
+      position.getX(i1) - position.getX(i0),
+      position.getY(i1) - position.getY(i0),
+      position.getZ(i1) - position.getZ(i0),
+    );
+    b.set(
+      position.getX(i2) - position.getX(i0),
+      position.getY(i2) - position.getY(i0),
+      position.getZ(i2) - position.getZ(i0),
+    );
+    n.set(
+      normal.getX(i0) + normal.getX(i1) + normal.getX(i2),
+      normal.getY(i0) + normal.getY(i1) + normal.getY(i2),
+      normal.getZ(i0) + normal.getZ(i1) + normal.getZ(i2),
+    );
+    cross.crossVectors(a, b);
+    const geometrySign = Math.sign(cross.dot(n));
+    const uvSign = Math.sign(
+      (uv.getX(i1) - uv.getX(i0)) * (uv.getY(i2) - uv.getY(i0)) -
+        (uv.getX(i2) - uv.getX(i0)) * (uv.getY(i1) - uv.getY(i0)),
+    );
+    if (geometrySign === 0 || uvSign === 0) {
+      degenerate += 1;
+      continue;
+    }
+    if (geometrySign !== uvSign) {
+      mirrored += 1;
+    }
+  }
+
+  return {
+    totalTriangles: triangleCount,
+    mirroredTriangles: mirrored,
+    degenerateTriangles: degenerate,
+    mirroredRatio: triangleCount > 0 ? mirrored / triangleCount : 0,
+  };
+}
+
 /** Diagnostics are out-of-band: GLTFExporter would serialize userData as extras. */
 const diagnosticsByGeometry = new WeakMap<THREE.BufferGeometry, UvDiagnostics>();
 
@@ -590,6 +722,8 @@ export function applyUvMapping(
     } else {
       applied = mapBoxByNormals(geometry, tile, orientation);
     }
+  } else if (resolved === 'surface') {
+    applied = mapSurfaceByNormals(geometry, tile, orientation);
   } else if (resolved === 'planar') {
     applied = mapPlanar(geometry, options.plane ?? choosePlanarPlane(geometry), tile, options);
   } else if (resolved === 'cylindrical') {

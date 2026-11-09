@@ -39,6 +39,7 @@ export type ComponentMaterialSlot = 'panel' | 'frame' | 'hardware' | 'surface';
 export type ComponentUvMode =
   | 'auto'
   | 'box'
+  | 'surface'
   | 'planar'
   | 'cylindrical'
   | 'geometry'
