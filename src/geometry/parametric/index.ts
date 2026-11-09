@@ -10,3 +10,10 @@ export * from './types';
 export * from './registry';
 export * from './plan';
 export * from './build';
+
+export {
+  PARAMETRIC_PART_TYPES,
+  type ParametricPartType,
+  type PlanPartRole,
+  type PlanPartType,
+} from '../universal/types';

@@ -68,13 +68,19 @@ export interface BuiltSceneObject {
   readonly plan?: FurniturePlan;
 }
 
+/** Anything with the scene transform contract (objects and opt-in rooms). */
+export type SceneTransformable = Pick<
+  SceneObject,
+  'position' | 'rotation' | 'scale' | 'visible'
+>;
+
 /**
  * Applies an object's transform (position, rotation, scale) to a Three.js
  * group. Rotation is stored in degrees in the scene model and converted to
  * radians here. Kept separate so transforms can be updated without rebuilding
  * geometry.
  */
-export function applyObjectTransform(group: THREE.Object3D, object: SceneObject): void {
+export function applyObjectTransform(group: THREE.Object3D, object: SceneTransformable): void {
   group.position.set(object.position.x, object.position.y, object.position.z);
   group.rotation.set(
     object.rotation.x * DEG_TO_RAD,

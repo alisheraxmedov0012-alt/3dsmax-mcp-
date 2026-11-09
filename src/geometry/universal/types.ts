@@ -67,11 +67,42 @@ export interface ManufacturingMetadata {
   readonly partKind?: string;
 }
 
+/**
+ * Neutral structural part kinds, outside the furniture component vocabulary.
+ *
+ * 9A.1 keeps the furniture `ComponentType` closed because its factory switches
+ * on it. A non-furniture domain (Interior) still needs an honest part kind, so
+ * this additive union widens the plan contract without adding anything to
+ * `COMPONENT_TYPES` or touching a furniture builder.
+ */
+export const PARAMETRIC_PART_TYPES = [
+  'wall',
+  'floor',
+  'ceiling',
+  'opening',
+  'trim',
+  'column',
+  'door-frame',
+  'door-leaf',
+  'door-handle',
+  'window-frame',
+  'window-glass',
+  'window-sill',
+  'mullion',
+  'transom',
+] as const;
+
+export type ParametricPartType = (typeof PARAMETRIC_PART_TYPES)[number];
+
+/** Any part kind a plan may carry: furniture component or neutral structural. */
+export type PlanPartType = ComponentType | ParametricPartType;
+export type PlanPartRole = ComponentRole | ParametricPartType;
+
 /** One resolved part. The shape mirrors `ComponentPart`, with a final slot id. */
 export interface PlanPart {
   readonly id: string;
-  readonly type: ComponentType;
-  readonly role: ComponentRole;
+  readonly type: PlanPartType;
+  readonly role: PlanPartRole;
   readonly dimensions: ComponentDimensions;
   readonly geometry: GeometryRecipe;
   readonly position: Vec3Tuple;

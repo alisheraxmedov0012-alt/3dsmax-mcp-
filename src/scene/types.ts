@@ -7,8 +7,9 @@ import {
   type FurnitureType,
 } from '../geometry/furniture/types';
 import { FURNITURE_DOMAIN, type ParametricDomain } from '../geometry/parametric/types';
+import type { RoomSpec } from '../geometry/interior/types';
 
-import type { MaterialPresetId } from '../materials/types';
+import type { MaterialPresetId, MaterialSettingsInput } from '../materials/types';
 import type { MaterialAssetMaps } from '../materials/asset';
 import type { SheetMaterialEntry } from '../manufacturing/sheetMaterial';
 import type { HardwareItem } from '../manufacturing/hardware';
@@ -380,6 +381,34 @@ export const MATERIAL_LIMITS = {
   roughness: { min: 0, max: 1, step: 0.01 },
 } satisfies Record<'metalness' | 'roughness', NumericRange>;
 
+/** Upper bound on opt-in parametric rooms per scene. */
+export const MAX_ROOMS_PER_SCENE = 20;
+
+/** Per-slot material overrides for a parametric room. */
+export type RoomMaterialAssignments = Readonly<Record<string, MaterialSettingsInput>>;
+
+/**
+ * Phase 9A.2.2 — an opt-in parametric room stored in a scene.
+ *
+ * Transform fields deliberately match `SceneObject`: position in centimetres,
+ * Euler XYZ rotation in degrees, and a unitless per-axis scale. The legacy
+ * `SceneData.room` remains the only room the current viewer/export path reads;
+ * `rooms` is additive and is not migrated from it.
+ */
+export interface RoomInstance {
+  id: string;
+  name: string;
+  definitionId: string;
+  spec: RoomSpec;
+  position: Vec3;
+  /** Euler XYZ rotation in degrees. */
+  rotation: Vec3;
+  scale: Vec3;
+  visible: boolean;
+  /** Optional per-slot overrides, keyed by the definition's slot ids. */
+  materialAssignments?: RoomMaterialAssignments;
+}
+
 export interface SceneData {
   schemaVersion: number;
   room: RoomConfig;
@@ -390,6 +419,11 @@ export interface SceneData {
    * has no such field and loads with `undefined` (no assemblies).
    */
   assemblies?: SceneAssembly[];
+  /**
+   * Phase 9A.2.2: opt-in parametric rooms. Optional — old scenes have no such
+   * field and keep using the legacy `room`/`buildRoom` path unchanged.
+   */
+  rooms?: RoomInstance[];
 }
 
 /**

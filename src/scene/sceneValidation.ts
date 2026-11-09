@@ -16,6 +16,7 @@ import {
 import { getParametricDefinition } from '../geometry/parametric/registry';
 import { FURNITURE_DOMAIN } from '../geometry/parametric/types';
 import { checkSpecBuildable } from './configurator/buildability';
+import { validateRoomInstances } from './roomInstance';
 import { validateSceneSettings } from './sceneSettings';
 import { MATERIAL_PRESET_IDS } from '../materials/presets';
 import { validateMaterialAssetMaps } from '../materials/asset';
@@ -69,6 +70,12 @@ export interface SceneValidationResult {
   droppedObjects: number;
   /** W14: number of stored assemblies that were invalid and therefore dropped. */
   droppedAssemblies?: number;
+  /**
+   * Phase 9A.2.2: number of stored room instances that were invalid,
+   * duplicated or over the room cap and were therefore dropped. Omitted when
+   * the stored scene has no `rooms` field, preserving the old result shape.
+   */
+  droppedRooms?: number;
   /**
    * C8.6.2: stored parameter channels that were rewritten to fit the field
    * contract, per object. Omitted when nothing was adjusted, so the common case is
@@ -701,6 +708,15 @@ export function validateSceneData(value: unknown): SceneValidationResult {
 
   const { assemblies, dropped: droppedAssemblies } = validateAssemblies(value.assemblies);
 
+  const rawRooms = value.rooms;
+  let rooms: SceneData['rooms'];
+  let droppedRooms = 0;
+  if (rawRooms !== undefined) {
+    const result = validateRoomInstances(rawRooms);
+    rooms = result.rooms;
+    droppedRooms = result.dropped;
+  }
+
   return {
     scene: {
       schemaVersion: SCENE_SCHEMA_VERSION,
@@ -710,9 +726,13 @@ export function validateSceneData(value: unknown): SceneValidationResult {
       // W14: omitted entirely when the scene has no assemblies, so a scene
       // saved before W14 round-trips to exactly the same JSON shape.
       ...(assemblies.length > 0 ? { assemblies } : {}),
+      // 9A.2.2: an absent `rooms` field stays absent; an explicitly present
+      // (possibly empty) list is preserved so the new opt-in path is explicit.
+      ...(rooms !== undefined ? { rooms } : {}),
     },
     droppedObjects,
     droppedAssemblies,
+    ...(rawRooms !== undefined ? { droppedRooms } : {}),
     ...(normalizations.length > 0 ? { normalizations } : {}),
   };
 }

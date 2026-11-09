@@ -93,6 +93,11 @@ export type SceneJsonParseResult =
        * the caller can warn without an undefined check.
        */
       droppedAssemblies: number;
+      /**
+       * Phase 9A.2.2: opt-in room instances that could not be read or exceeded
+       * the cap. Always present so callers can warn without an undefined check.
+       */
+      droppedRooms: number;
     }
   | { ok: false; code: SceneJsonErrorCode; message: string };
 
@@ -154,5 +159,6 @@ export function parseSceneJson(text: string): SceneJsonParseResult {
     droppedObjects: result.droppedObjects,
     normalizedObjects: result.normalizations?.length ?? 0,
     droppedAssemblies: result.droppedAssemblies ?? 0,
+    droppedRooms: result.droppedRooms ?? 0,
   };
 }
